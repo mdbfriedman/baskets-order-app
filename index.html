@@ -216,6 +216,10 @@
         return { address: address, city: city };
       },
 
+      getAllDates: function() {
+        return [... new Set(app.orders.map(function(o) { return o.deliveryDate; }))].sort();
+      },
+
       previousDate: function() {
         var dates = app.getAllDates();
         var idx = dates.indexOf(app.selectedDate);
