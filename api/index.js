@@ -107,8 +107,6 @@ async function getAccessToken(serviceAccount) {
   }
 }
 
-let storedServiceAccount = null;
-
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -120,31 +118,24 @@ export default async function handler(req, res) {
     return;
   }
 
-  if (req.method === 'POST' && req.url === '/api/setup') {
-    try {
-      const { serviceAccount } = req.body;
-
-      if (!serviceAccount || !serviceAccount.private_key) {
-        res.status(400).json({ error: 'Invalid service account key' });
-        return;
-      }
-
-      storedServiceAccount = serviceAccount;
-      res.status(200).json({ success: true, message: 'Key stored' });
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-    return;
-  }
-
+  // Check if key is setup in environment
   if (req.method === 'GET' && req.url === '/api/is-setup') {
-    res.status(200).json({ isSetup: storedServiceAccount !== null });
+    const hasKey = process.env.SERVICE_ACCOUNT ? true : false;
+    res.status(200).json({ isSetup: hasKey });
     return;
   }
 
+  // Load orders endpoint
   if (req.method === 'POST' && req.url === '/api/load-orders') {
     try {
-      const serviceAccount = req.body.serviceAccount || storedServiceAccount;
+      let serviceAccount;
+
+      // Try to get from environment variable first
+      if (process.env.SERVICE_ACCOUNT) {
+        serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT);
+      } else if (req.body.serviceAccount) {
+        serviceAccount = req.body.serviceAccount;
+      }
 
       if (!serviceAccount || !serviceAccount.private_key) {
         res.status(400).json({ error: 'Service account key not configured' });
@@ -177,6 +168,7 @@ export default async function handler(req, res) {
     return;
   }
 
+  // Health check
   if (req.url === '/api/health') {
     res.status(200).json({ status: 'ok' });
     return;
