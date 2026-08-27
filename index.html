@@ -222,11 +222,11 @@
         var dayOrders = app.getOrdersForDate(app.selectedDate);
         var labelDim = app.labelSize === '4x3' ? '4in' : '3in';
         var heightDim = app.labelSize === '4x3' ? '3in' : '2in';
-        var html = '<html><head><style>body{font-family:Arial;margin:20px}.label{width:' + labelDim + ';height:' + heightDim + ';border:2px solid #000;padding:15px;margin-bottom:10px;page-break-inside:avoid;box-sizing:border-box}.label-header{font-size:10px;font-weight:bold;margin-bottom:8px}.label-product{font-size:14px;font-weight:bold;margin:8px 0}.label-address{font-size:11px;line-height:1.4;margin:5px 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:5px 0}.label-count{font-size:20px;font-weight:bold;text-align:center;margin-top:8px}</style></head><body>';
+        var html = '<html><head><style>body{font-family:Arial;margin:20px}.label{width:' + labelDim + ';height:' + heightDim + ';border:2px solid #000;padding:15px;margin-bottom:10px;page-break-inside:avoid;box-sizing:border-box}.label-header{font-size:10px;font-weight:bold;margin-bottom:8px}.label-product{font-size:14px;font-weight:bold;margin:8px 0}.label-address{font-size:11px;line-height:1.4;margin:5px 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:5px 0}.label-note{font-size:9px;margin-top:5px;border-top:1px solid #000;padding-top:5px}.label-count{font-size:20px;font-weight:bold;text-align:center;margin-top:8px}</style></head><body>';
         dayOrders.forEach(function(order) {
           if (order.items) {
             order.items.forEach(function(item, idx) {
-              html += '<div class="label"><div class="label-header">BASKETS BY BLIMI</div><div class="label-product">' + item.product + '</div><div class="label-address">' + order.address + '</div><div class="label-count">' + (idx + 1) + ' of ' + order.items.length + '</div></div>';
+              html += '<div class="label"><div class="label-header">BASKETS BY BLIMI</div><div class="label-product">' + item.product + '</div><div class="label-address">' + order.address + '</div>' + (order.customerNote ? '<div class="label-note"><strong>Note:</strong> ' + order.customerNote + '</div>' : '') + '<div class="label-count">' + (idx + 1) + ' of ' + order.items.length + '</div></div>';
             });
           }
         });
@@ -244,11 +244,11 @@
 
         var labelDim = app.labelSize === '4x3' ? '4in' : '3in';
         var heightDim = app.labelSize === '4x3' ? '3in' : '2in';
-        var html = '<html><head><style>body{font-family:Arial;margin:20px}.label{width:' + labelDim + ';height:' + heightDim + ';border:2px solid #000;padding:15px;margin-bottom:10px;page-break-inside:avoid;box-sizing:border-box}.label-header{font-size:10px;font-weight:bold;margin-bottom:8px}.label-product{font-size:14px;font-weight:bold;margin:8px 0}.label-address{font-size:11px;line-height:1.4;margin:5px 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:5px 0}.label-count{font-size:20px;font-weight:bold;text-align:center;margin-top:8px}</style></head><body>';
+        var html = '<html><head><style>body{font-family:Arial;margin:20px}.label{width:' + labelDim + ';height:' + heightDim + ';border:2px solid #000;padding:15px;margin-bottom:10px;page-break-inside:avoid;box-sizing:border-box}.label-header{font-size:10px;font-weight:bold;margin-bottom:8px}.label-product{font-size:14px;font-weight:bold;margin:8px 0}.label-address{font-size:11px;line-height:1.4;margin:5px 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:5px 0}.label-note{font-size:9px;margin-top:5px;border-top:1px solid #000;padding-top:5px}.label-count{font-size:20px;font-weight:bold;text-align:center;margin-top:8px}</style></head><body>';
         
         if (order.items) {
           order.items.forEach(function(item, idx) {
-            html += '<div class="label"><div class="label-header">BASKETS BY BLIMI</div><div class="label-product">' + item.product + '</div><div class="label-address">' + order.address + '</div><div class="label-count">' + (idx + 1) + ' of ' + order.items.length + '</div></div>';
+            html += '<div class="label"><div class="label-header">BASKETS BY BLIMI</div><div class="label-product">' + item.product + '</div><div class="label-address">' + order.address + '</div>' + (order.customerNote ? '<div class="label-note"><strong>Note:</strong> ' + order.customerNote + '</div>' : '') + '<div class="label-count">' + (idx + 1) + ' of ' + order.items.length + '</div></div>';
           });
         }
         
