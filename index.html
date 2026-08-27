@@ -286,15 +286,15 @@
         } else if (app.labelSize === '2x1') {
           labelDim = '2in';
           heightDim = '1in';
-          padding = '5px';
-          fontSize = '9px';
+          padding = '4px';
+          fontSize = '8px';
           headerSize = '6px';
-          productSize = '9px';
-          addressSize = '8px';
-          countSize = '12px';
+          productSize = '8px';
+          addressSize = '7px';
+          countSize = '10px';
         }
         
-        var html = '<html><head><style>body{font-family:Arial;margin:10px;padding:0}@page{margin:0}.label{width:' + labelDim + ';height:' + heightDim + ';border:2px solid #000;padding:' + padding + ';margin-bottom:10px;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word}.header{font-size:' + headerSize + ';font-weight:bold;display:block}.name{font-size:' + fontSize + ';font-weight:bold;display:block;margin-top:3px;word-break:break-word}.product{font-size:' + productSize + ';font-weight:bold;display:block;margin-top:3px;word-break:break-word}.address{font-size:' + addressSize + ';line-height:1.2;margin-top:3px;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + headerSize + ';margin-top:3px;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.count{font-size:' + countSize + ';font-weight:bold;text-align:center;margin-top:3px;display:block}</style></head><body>';
+        var html = '<html><head><style>* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + labelDim + ' !important;height:' + heightDim + ' !important;border:2px solid #000;padding:' + padding + ' !important;margin:0 0 5px 0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:block}.header{font-size:' + headerSize + ';font-weight:bold;display:block;margin:0;padding:0}.name{font-size:' + fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product{font-size:' + productSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.address{font-size:' + addressSize + ';line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + headerSize + ';margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.count{font-size:' + countSize + ';font-weight:bold;text-align:center;margin:2px 0 0 0;display:block}</style></head><body>';
         dayOrders.forEach(function(order) {
           if (order.items) {
             var cleanName = app.cleanLastName(order.lastName);
@@ -345,15 +345,15 @@
         } else if (app.labelSize === '2x1') {
           labelDim = '2in';
           heightDim = '1in';
-          padding = '5px';
-          fontSize = '9px';
+          padding = '4px';
+          fontSize = '8px';
           headerSize = '6px';
-          productSize = '9px';
-          addressSize = '8px';
-          countSize = '12px';
+          productSize = '8px';
+          addressSize = '7px';
+          countSize = '10px';
         }
         
-        var html = '<html><head><style>body{font-family:Arial;margin:10px;padding:0}@page{margin:0}.label{width:' + labelDim + ';height:' + heightDim + ';border:2px solid #000;padding:' + padding + ';margin-bottom:10px;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word}.header{font-size:' + headerSize + ';font-weight:bold;display:block}.name{font-size:' + fontSize + ';font-weight:bold;display:block;margin-top:3px;word-break:break-word}.product{font-size:' + productSize + ';font-weight:bold;display:block;margin-top:3px;word-break:break-word}.address{font-size:' + addressSize + ';line-height:1.2;margin-top:3px;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + headerSize + ';margin-top:3px;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.count{font-size:' + countSize + ';font-weight:bold;text-align:center;margin-top:3px;display:block}</style></head><body>';
+        var html = '<html><head><style>* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + labelDim + ' !important;height:' + heightDim + ' !important;border:2px solid #000;padding:' + padding + ' !important;margin:0 0 5px 0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:block}.header{font-size:' + headerSize + ';font-weight:bold;display:block;margin:0;padding:0}.name{font-size:' + fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product{font-size:' + productSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.address{font-size:' + addressSize + ';line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + headerSize + ';margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.count{font-size:' + countSize + ';font-weight:bold;text-align:center;margin:2px 0 0 0;display:block}</style></head><body>';
         
         var cleanName = app.cleanLastName(order.lastName);
         var addressParts = app.splitAddress(order.address);
