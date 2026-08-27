@@ -70,6 +70,19 @@
 
       checkSetup: async function() {
         try {
+          // First check if key is saved in localStorage (on this device)
+          var savedKey = localStorage.getItem('serviceAccount');
+          if (savedKey) {
+            try {
+              app.isAuthenticated = true;
+              app.loadOrders();
+              return;
+            } catch (e) {
+              localStorage.removeItem('serviceAccount');
+            }
+          }
+          
+          // Otherwise check if server has it (env var)
           var response = await fetch('/api/is-setup');
           var data = await response.json();
           
@@ -91,6 +104,9 @@
           var serviceAccount = JSON.parse(keyInput);
           app.loading = true;
           app.render();
+          
+          // Save to localStorage
+          localStorage.setItem('serviceAccount', JSON.stringify(serviceAccount));
           
           fetch('/api/setup', {
             method: 'POST',
@@ -124,10 +140,21 @@
           app.loading = true;
           app.render();
           
+          // Get saved key from localStorage if available
+          var savedKey = localStorage.getItem('serviceAccount');
+          var body = {};
+          if (savedKey) {
+            try {
+              body.serviceAccount = JSON.parse(savedKey);
+            } catch (e) {
+              localStorage.removeItem('serviceAccount');
+            }
+          }
+          
           var response = await fetch('/api/load-orders', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({})
+            body: JSON.stringify(body)
           });
 
           if (!response.ok) {
