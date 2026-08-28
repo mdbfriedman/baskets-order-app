@@ -345,6 +345,52 @@
         window.URL.revokeObjectURL(url);
       },
 
+      downloadOrder: function(orderIdx) {
+        var dayOrders = app.getOrdersForDate(app.selectedDate);
+        if (orderIdx < 0 || orderIdx >= dayOrders.length) {
+          alert('Order not found');
+          return;
+        }
+
+        var order = dayOrders[orderIdx];
+        if (!order.items) {
+          alert('No items in this order');
+          return;
+        }
+
+        var htmlContent = '<html><head><meta charset="utf-8"><title>Baskets by Blimi Labels</title></head><body>';
+        htmlContent += '<h1>BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '</h1>';
+        htmlContent += '<p>Use Word\'s Mail Merge or Labels feature to format for your label printer.</p>';
+        htmlContent += '<hr>';
+        
+        var cleanName = app.cleanLastName(order.lastName);
+        var addressParts = app.splitAddress(order.address);
+        order.items.forEach(function(item, idx) {
+          htmlContent += '<p style="border:1px solid #000; padding:10px; margin:10px 0; page-break-inside:avoid; position:relative">';
+          htmlContent += '<div style="text-align:right;font-size:9px;color:#999;margin-bottom:8px">Order ' + (idx + 1) + ' of ' + order.items.length + '</div>';
+          htmlContent += '<b>' + cleanName + '</b><br>';
+          htmlContent += '<b>' + item.product + '</b><br>';
+          htmlContent += addressParts.address + '<br>';
+          htmlContent += addressParts.city + '<br>';
+          if (order.customerNote) {
+            htmlContent += '<br><b>NOTE: ' + order.customerNote + '</b>';
+          }
+          htmlContent += '</p>';
+        });
+
+        htmlContent += '</body></html>';
+
+        var blob = new Blob([htmlContent], { type: 'application/msword' });
+        var url = window.URL.createObjectURL(blob);
+        var link = document.createElement('a');
+        link.href = url;
+        link.download = 'BasketsByBlimi_' + app.selectedDate + '_' + cleanName + '.doc';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+      },
+
       printLabels: function() {
         var dayOrders = app.getOrdersForDate(app.selectedDate);
         var labelDim, heightDim, padding, fontSize, headerSize, productSize, addressSize, countSize;
@@ -497,9 +543,7 @@
           html += '</div></div>';
         }
 
-        html += '<div style="margin-bottom:15px"><strong>Label Size:</strong> <button onclick="app.labelSize=\'4x3\';app.render()" style="background:' + (app.labelSize === '4x3' ? '#16a34a' : '#e5e7eb') + ';color:' + (app.labelSize === '4x3' ? 'white' : '#111827') + ';border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;margin-right:5px">4×3</button><button onclick="app.labelSize=\'3x2\';app.render()" style="background:' + (app.labelSize === '3x2' ? '#16a34a' : '#e5e7eb') + ';color:' + (app.labelSize === '3x2' ? 'white' : '#111827') + ';border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;margin-right:5px">3×2</button><button onclick="app.labelSize=\'2x1\';app.render()" style="background:' + (app.labelSize === '2x1' ? '#16a34a' : '#e5e7eb') + ';color:' + (app.labelSize === '2x1' ? 'white' : '#111827') + ';border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px">2×1</button></div>';
-
-        html += '<div class="action-buttons"><button class="print-btn" onclick="app.printLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + '>🖨️ Print All Labels</button><button class="print-btn" onclick="app.downloadLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#2563eb">📥 Download to Word</button><button class="setup-btn" onclick="app.showSetup=true;app.render()">Setup</button></div>';
+        html += '<div class="action-buttons"><button class="print-btn" onclick="app.downloadLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#2563eb">📥 Download All to Word</button></div>';
 
         if (dayOrders.length === 0) {
           html += '<div class="empty-state">No orders for this date</div>';
@@ -508,7 +552,7 @@
           dayOrders.forEach(function(order, orderIdx) {
             html += '<div class="order-item"><div style="display:flex;justify-content:space-between;align-items:start"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#059669;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
             if (order.deliverTo) html += '<div class="order-address">' + order.deliverTo + '</div>';
-            html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div></div></div>';
+            html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div></div><button onclick="app.downloadOrder(' + orderIdx + ')" style="background:#2563eb;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;margin-left:10px;height:fit-content">📥 Word</button></div>';
             html += '<div class="order-items">';
             if (order.items) {
               order.items.forEach(function(item, idx) {
