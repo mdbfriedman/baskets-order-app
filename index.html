@@ -301,6 +301,63 @@
         app.render();
       },
 
+      downloadAllToGoogleDocs: function() {
+        var dayOrders = app.getOrdersForDate(app.selectedDate);
+        if (dayOrders.length === 0) {
+          alert('No orders to download');
+          return;
+        }
+
+        var content = 'BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '\n\n';
+        
+        dayOrders.forEach(function(order, orderIdx) {
+          if (order.items) {
+            var cleanName = app.cleanLastName(order.lastName);
+            var addressParts = app.splitAddress(order.address);
+            order.items.forEach(function(item, idx) {
+              content += '========================================\n';
+              content += 'Order ' + (idx + 1) + ' of ' + order.items.length + '\n';
+              content += '\n';
+              content += cleanName + '\n';
+              content += item.product + '\n';
+              content += addressParts.address + '\n';
+              content += addressParts.city + '\n';
+              if (order.customerNote) {
+                content += '\nNOTE: ' + order.customerNote + '\n';
+              }
+              content += '\n';
+            });
+          }
+        });
+
+        var body = {
+          title: 'BasketsByBlimi_' + app.selectedDate + '_AllOrders',
+          content: content
+        };
+
+        var savedKey = localStorage.getItem('serviceAccount');
+        if (savedKey) {
+          body.serviceAccount = JSON.parse(savedKey);
+        }
+
+        fetch('/api/create-google-doc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (data.docUrl) {
+            window.open(data.docUrl, '_blank');
+          } else {
+            alert('Error creating Google Doc: ' + (data.error || 'Unknown error'));
+          }
+        })
+        .catch(function(err) {
+          alert('Error: ' + err.message);
+        });
+      },
+
       downloadLabels: function() {
         var dayOrders = app.getOrdersForDate(app.selectedDate);
         if (dayOrders.length === 0) {
@@ -389,6 +446,66 @@
         link.click();
         document.body.removeChild(link);
         window.URL.revokeObjectURL(url);
+      },
+
+      downloadOrderToGoogleDocs: function(orderIdx) {
+        var dayOrders = app.getOrdersForDate(app.selectedDate);
+        if (orderIdx < 0 || orderIdx >= dayOrders.length) {
+          alert('Order not found');
+          return;
+        }
+
+        var order = dayOrders[orderIdx];
+        if (!order.items) {
+          alert('No items in this order');
+          return;
+        }
+
+        var cleanName = app.cleanLastName(order.lastName);
+        var addressParts = app.splitAddress(order.address);
+        
+        // Create formatted text content
+        var content = 'BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '\n\n';
+        order.items.forEach(function(item, idx) {
+          content += '========================================\n';
+          content += 'Order ' + (idx + 1) + ' of ' + order.items.length + '\n';
+          content += '\n';
+          content += cleanName + '\n';
+          content += item.product + '\n';
+          content += addressParts.address + '\n';
+          content += addressParts.city + '\n';
+          if (order.customerNote) {
+            content += '\nNOTE: ' + order.customerNote + '\n';
+          }
+          content += '\n';
+        });
+
+        var body = {
+          title: 'BasketsByBlimi_' + app.selectedDate + '_' + cleanName,
+          content: content
+        };
+
+        var savedKey = localStorage.getItem('serviceAccount');
+        if (savedKey) {
+          body.serviceAccount = JSON.parse(savedKey);
+        }
+
+        fetch('/api/create-google-doc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (data.docUrl) {
+            window.open(data.docUrl, '_blank');
+          } else {
+            alert('Error creating Google Doc: ' + (data.error || 'Unknown error'));
+          }
+        })
+        .catch(function(err) {
+          alert('Error: ' + err.message);
+        });
       },
 
       printLabels: function() {
@@ -543,7 +660,7 @@
           html += '</div></div>';
         }
 
-        html += '<div class="action-buttons"><button class="print-btn" onclick="app.downloadLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#2563eb">📥 Download All to Word</button></div>';
+        html += '<div class="action-buttons"><button class="print-btn" onclick="app.downloadLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#2563eb">📥 Download All to Word</button><button class="print-btn" onclick="app.downloadAllToGoogleDocs()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#ea4335">📄 Google Docs</button></div>';
 
         if (dayOrders.length === 0) {
           html += '<div class="empty-state">No orders for this date</div>';
@@ -552,7 +669,7 @@
           dayOrders.forEach(function(order, orderIdx) {
             html += '<div class="order-item"><div style="display:flex;justify-content:space-between;align-items:start"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#059669;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
             if (order.deliverTo) html += '<div class="order-address">' + order.deliverTo + '</div>';
-            html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div></div><button onclick="app.downloadOrder(' + orderIdx + ')" style="background:#2563eb;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;margin-left:10px;height:fit-content">📥 Word</button></div>';
+            html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div></div><div style="display:flex;gap:5px"><button onclick="app.downloadOrder(' + orderIdx + ')" style="background:#2563eb;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📥 Word</button><button onclick="app.downloadOrderToGoogleDocs(' + orderIdx + ')" style="background:#ea4335;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📄 Docs</button></div></div>';
             html += '<div class="order-items">';
             if (order.items) {
               order.items.forEach(function(item, idx) {
