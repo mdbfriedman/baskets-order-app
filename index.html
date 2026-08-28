@@ -254,11 +254,43 @@
         app.render();
       },
 
-      nextDate: function() {
-        var dates = app.getAllDates();
-        var idx = dates.indexOf(app.selectedDate);
-        if (idx < dates.length - 1) app.selectedDate = dates[idx + 1];
-        app.render();
+      downloadLabels: function() {
+        var dayOrders = app.getOrdersForDate(app.selectedDate);
+        if (dayOrders.length === 0) {
+          alert('No orders to download');
+          return;
+        }
+
+        var content = 'BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '\n\n';
+        
+        dayOrders.forEach(function(order, orderIdx) {
+          if (order.items) {
+            var cleanName = app.cleanLastName(order.lastName);
+            var addressParts = app.splitAddress(order.address);
+            order.items.forEach(function(item, idx) {
+              content += '========================================\n';
+              content += cleanName + ' (' + (idx + 1) + ' of ' + order.items.length + ')\n';
+              content += item.product + '\n';
+              content += addressParts.address + '\n';
+              content += addressParts.city + '\n';
+              if (order.customerNote) {
+                content += 'NOTE: ' + order.customerNote + '\n';
+              }
+              content += '\n';
+            });
+          }
+        });
+
+        // Create a simple text file that can be imported to Word
+        var blob = new Blob([content], { type: 'text/plain' });
+        var url = window.URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'BasketsByBlimi_' + app.selectedDate + '_Labels.txt';
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
       },
 
       printLabels: function() {
@@ -415,7 +447,7 @@
 
         html += '<div style="margin-bottom:15px"><strong>Label Size:</strong> <button onclick="app.labelSize=\'4x3\';app.render()" style="background:' + (app.labelSize === '4x3' ? '#16a34a' : '#e5e7eb') + ';color:' + (app.labelSize === '4x3' ? 'white' : '#111827') + ';border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;margin-right:5px">4×3</button><button onclick="app.labelSize=\'3x2\';app.render()" style="background:' + (app.labelSize === '3x2' ? '#16a34a' : '#e5e7eb') + ';color:' + (app.labelSize === '3x2' ? 'white' : '#111827') + ';border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;margin-right:5px">3×2</button><button onclick="app.labelSize=\'2x1\';app.render()" style="background:' + (app.labelSize === '2x1' ? '#16a34a' : '#e5e7eb') + ';color:' + (app.labelSize === '2x1' ? 'white' : '#111827') + ';border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px">2×1</button></div>';
 
-        html += '<div class="action-buttons"><button class="print-btn" onclick="app.printLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + '>🖨️ Print All Labels</button><button class="setup-btn" onclick="app.showSetup=true;app.render()">Setup</button></div>';
+        html += '<div class="action-buttons"><button class="print-btn" onclick="app.printLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + '>🖨️ Print All Labels</button><button class="print-btn" onclick="app.downloadLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#2563eb">📥 Download to Word</button><button class="setup-btn" onclick="app.showSetup=true;app.render()">Setup</button></div>';
 
         if (dayOrders.length === 0) {
           html += '<div class="empty-state">No orders for this date</div>';
