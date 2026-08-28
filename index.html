@@ -242,14 +242,44 @@
         return name.replace(/\d+$/g, '').trim();
       },
 
-      // Split address and city (564 Marc Drive Lakewood -> address and city separate)
+      // Split address and city (handles both "123 Street City" and "123 StreetCity")
       splitAddress: function(fullAddress) {
         var parts = fullAddress.trim().split(' ');
         if (parts.length <= 1) {
           return { address: fullAddress, city: '' };
         }
+        
+        // Common NJ cities - add your frequent cities here
+        var njerseyCities = ['Lakewood', 'Newark', 'Jersey', 'Hoboken', 'Trenton', 'Camden', 'Atlantic', 'Princeton', 'Clifton', 'Paterson', 'Elizabeth', 'Bayonne'];
+        
+        // Try to find where city starts by looking for known city names
+        for (var i = parts.length - 1; i > 0; i--) {
+          var potentialCity = parts[i];
+          if (njerseyCities.indexOf(potentialCity) !== -1) {
+            var address = parts.slice(0, i).join(' ');
+            var city = parts.slice(i).join(' ');
+            return { address: address, city: city };
+          }
+        }
+        
+        // If no known city found, use last word (fallback)
         var city = parts[parts.length - 1];
         var address = parts.slice(0, -1).join(' ');
+        
+        // Handle case where city is concatenated (e.g., "DriveLakewood")
+        // If city looks like it might have a street word in it, try to split
+        if (city.length > 8) {
+          var streetWords = ['Street', 'Drive', 'Avenue', 'Road', 'Lane', 'Court', 'Terrace', 'Way', 'Place', 'Boulevard', 'Circle'];
+          for (var j = 0; j < streetWords.length; j++) {
+            if (city.indexOf(streetWords[j]) !== -1) {
+              var idx = city.indexOf(streetWords[j]);
+              var streetPart = city.substring(0, idx + streetWords[j].length);
+              var cityPart = city.substring(idx + streetWords[j].length);
+              return { address: address + ' ' + streetPart, city: cityPart };
+            }
+          }
+        }
+        
         return { address: address, city: city };
       },
 
@@ -288,8 +318,8 @@
             var cleanName = app.cleanLastName(order.lastName);
             var addressParts = app.splitAddress(order.address);
             order.items.forEach(function(item, idx) {
-              htmlContent += '<p style="border:1px solid #000; padding:10px; margin:10px 0; page-break-inside:avoid">';
-              htmlContent += '<b>Order ' + (idx + 1) + ' of ' + order.items.length + '</b><br>';
+              htmlContent += '<p style="border:1px solid #000; padding:10px; margin:10px 0; page-break-inside:avoid; position:relative">';
+              htmlContent += '<div style="text-align:right;font-size:9px;color:#999;margin-bottom:8px">Order ' + (idx + 1) + ' of ' + order.items.length + '</div>';
               htmlContent += '<b>' + cleanName + '</b><br>';
               htmlContent += '<b>' + item.product + '</b><br>';
               htmlContent += addressParts.address + '<br>';
