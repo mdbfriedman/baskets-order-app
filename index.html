@@ -184,7 +184,10 @@
               });
             }
           });
+          // Fallback list built from past orders already in the sheet. Replaced
+          // below by the full live WooCommerce catalog when that call succeeds.
           app.products = Array.from(productSet).sort();
+          app.loadProducts();
 
           var dates = [... new Set(app.orders.map(function(o) { return o.deliveryDate; }))].sort();
           
@@ -244,6 +247,24 @@
           }
         });
         return totals;
+      },
+
+      // Pulls the full, live product/variation SKU list straight from WooCommerce
+      // (via the backend, which holds the API credentials) so "Add Order" can
+      // suggest every real product, not just ones that already showed up in past
+      // sheet rows. Silently keeps the sheet-derived fallback list if this fails.
+      loadProducts: async function() {
+        try {
+          var resp = await fetch('/api/products');
+          if (!resp.ok) return;
+          var data = await resp.json();
+          if (data.products && data.products.length) {
+            app.products = data.products;
+            app.render();
+          }
+        } catch (e) {
+          // keep the fallback list already built from sheet history
+        }
       },
 
       // ---- Manual "Add Order" form ----
