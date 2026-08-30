@@ -230,7 +230,12 @@
         dayOrders.forEach(function(order) {
           if (order.items) {
             order.items.forEach(function(item) {
-              totals[item.product] = (totals[item.product] || 0) + item.quantity;
+              // Create display key: if individual quantity exists, prepend it to product name
+              var key = item.product;
+              if (item.quantityIndividual) {
+                key = item.quantityIndividual + ' ' + item.product;
+              }
+              totals[key] = (totals[key] || 0) + item.quantity;
             });
           }
         });
@@ -319,7 +324,11 @@
               content += 'Order ' + (idx + 1) + ' of ' + order.items.length + '\n';
               content += '\n';
               content += cleanName + '\n';
-              content += item.product + '\n';
+              var productDisplay = item.product;
+              if (item.quantityIndividual) {
+                productDisplay = item.quantityIndividual + ' ' + item.product;
+              }
+              content += productDisplay + '\n';
               content += addressParts.address + '\n';
               content += addressParts.city + '\n';
               if (order.customerNote) {
@@ -378,7 +387,11 @@
               htmlContent += '<p style="border:1px solid #000; padding:10px; margin:10px 0; page-break-inside:avoid; position:relative">';
               htmlContent += '<div style="text-align:right;font-size:9px;color:#999;margin-bottom:8px">Order ' + (idx + 1) + ' of ' + order.items.length + '</div>';
               htmlContent += '<b>' + cleanName + '</b><br>';
-              htmlContent += '<b>' + item.product + '</b><br>';
+              var productDisplay = item.product;
+              if (item.quantityIndividual) {
+                productDisplay = item.quantityIndividual + ' ' + item.product;
+              }
+              htmlContent += '<b>' + productDisplay + '</b><br>';
               htmlContent += addressParts.address + '<br>';
               htmlContent += addressParts.city + '<br>';
               if (order.customerNote) {
@@ -426,7 +439,11 @@
           htmlContent += '<p style="border:1px solid #000; padding:10px; margin:10px 0; page-break-inside:avoid; position:relative">';
           htmlContent += '<div style="text-align:right;font-size:9px;color:#999;margin-bottom:8px">Order ' + (idx + 1) + ' of ' + order.items.length + '</div>';
           htmlContent += '<b>' + cleanName + '</b><br>';
-          htmlContent += '<b>' + item.product + '</b><br>';
+          var productDisplay = item.product;
+          if (item.quantityIndividual) {
+            productDisplay = item.quantityIndividual + ' ' + item.product;
+          }
+          htmlContent += '<b>' + productDisplay + '</b><br>';
           htmlContent += addressParts.address + '<br>';
           htmlContent += addressParts.city + '<br>';
           if (order.customerNote) {
@@ -471,7 +488,11 @@
           content += 'Order ' + (idx + 1) + ' of ' + order.items.length + '\n';
           content += '\n';
           content += cleanName + '\n';
-          content += item.product + '\n';
+          var productDisplay = item.product;
+          if (item.quantityIndividual) {
+            productDisplay = item.quantityIndividual + ' ' + item.product;
+          }
+          content += productDisplay + '\n';
           content += addressParts.address + '\n';
           content += addressParts.city + '\n';
           if (order.customerNote) {
