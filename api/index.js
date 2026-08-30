@@ -1,5 +1,46 @@
 const crypto = require('crypto');
 
+async function fetchAllWooCommerceSkus(baseUrl, consumerKey, consumerSecret) {
+  const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
+  const authHeader = { Authorization: `Basic ${auth}` };
+  const skus = [];
+
+  let page = 1;
+  while (true) {
+    const url = `${baseUrl}/wp-json/wc/v3/products?per_page=100&page=${page}`;
+    const resp = await fetch(url, { headers: authHeader });
+    if (!resp.ok) {
+      const body = await resp.text();
+      throw new Error(`WooCommerce products error: ${resp.status} ${body}`);
+    }
+    const products = await resp.json();
+    if (!products.length) break;
+
+    for (const p of products) {
+      if (p.type === 'variable') {
+        let vpage = 1;
+        while (true) {
+          const vurl = `${baseUrl}/wp-json/wc/v3/products/${p.id}/variations?per_page=100&page=${vpage}`;
+          const vresp = await fetch(vurl, { headers: authHeader });
+          if (!vresp.ok) break;
+          const variations = await vresp.json();
+          if (!variations.length) break;
+          variations.forEach(v => { if (v.sku) skus.push(v.sku); });
+          if (variations.length < 100) break;
+          vpage++;
+        }
+      } else if (p.sku) {
+        skus.push(p.sku);
+      }
+    }
+
+    if (products.length < 100) break;
+    page++;
+  }
+
+  return Array.from(new Set(skus)).sort();
+}
+
 function parseSheetData(values) {
   if (!values || values.length < 2) return [];
 
@@ -361,6 +402,25 @@ export default async function handler(req, res) {
         docUrl: docUrl,
         docId: docId
       });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && req.url.startsWith('/api/products')) {
+    try {
+      const wcKey = process.env.WC_CONSUMER_KEY;
+      const wcSecret = process.env.WC_CONSUMER_SECRET;
+      const wcUrl = process.env.WC_STORE_URL || 'https://basketsbyblimi.com';
+
+      if (!wcKey || !wcSecret) {
+        res.status(400).json({ error: 'WooCommerce API credentials not configured (set WC_CONSUMER_KEY and WC_CONSUMER_SECRET in Vercel environment variables)' });
+        return;
+      }
+
+      const skus = await fetchAllWooCommerceSkus(wcUrl, wcKey, wcSecret);
+      res.status(200).json({ products: skus });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
