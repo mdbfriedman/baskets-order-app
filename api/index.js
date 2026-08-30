@@ -7,12 +7,13 @@ function parseSheetData(values) {
   const orders = [];
 
   const dateIdx = headers.findIndex(h => h.includes('delivery date'));
-  const nameIdx = headers.findIndex(h => h.includes('last name'));
-  const itemIdx = headers.findIndex(h => h.includes('line items'));
-  const qtyIdx = headers.findIndex(h => h.includes('quantity'));
-  const addressIdx = headers.findIndex(h => h.includes('shipping address'));
-  const cityIdx = headers.findIndex(h => h.includes('shipping city'));
-  const pickupIdx = headers.findIndex(h => h.includes('pickup or delivery'));
+  const nameIdx = headers.findIndex(h => h.includes('last name') && !h.includes('delivered'));
+  const itemIdx = headers.findIndex(h => h.includes('line item'));
+  const qtyIdx = headers.findIndex(h => h.includes('quantity') && !h.includes('individual'));
+  const qtyIndividualIdx = headers.findIndex(h => h.includes('individual'));
+  const deliveredToIdx = headers.findIndex(h => h.includes('delivered to'));
+  const addressIdx = headers.findIndex(h => h.includes('delivery address'));
+  const pickupIdx = headers.findIndex(h => h.includes('pickup'));
   const noteIdx = headers.findIndex(h => h.includes('customer note'));
 
   for (let i = 1; i < values.length; i++) {
@@ -21,6 +22,7 @@ function parseSheetData(values) {
 
     const itemsStr = row[itemIdx] || '';
     const qtyStr = row[qtyIdx] || '1';
+    const qtyIndividualStr = row[qtyIndividualIdx] || '';
 
     const items = [];
     if (itemsStr) {
@@ -29,26 +31,32 @@ function parseSheetData(values) {
         const parsed = parseInt(q.trim());
         return isNaN(parsed) ? 1 : parsed;
       });
+      const qtyIndividuals = qtyIndividualStr.split(',').map(q => {
+        const parsed = parseInt(q.trim());
+        return isNaN(parsed) ? '' : parsed;
+      });
 
       itemNames.forEach((name, idx) => {
         items.push({
           product: name,
-          quantity: quantities[idx] || 1
+          quantity: quantities[idx] || 1,
+          quantityIndividual: qtyIndividuals[idx] || ''
         });
       });
     }
 
     if (items.length === 0) {
-      items.push({ product: 'Unknown', quantity: 1 });
+      items.push({ product: 'Unknown', quantity: 1, quantityIndividual: '' });
     }
 
     orders.push({
       deliveryDate: (row[dateIdx] || '').trim(),
       lastName: (row[nameIdx] || 'Unknown').trim(),
+      deliveredTo: (row[deliveredToIdx] || '').trim(),
       items: items,
-      address: (((row[addressIdx] || '') + ' ' + (row[cityIdx] || '')).trim()),
-      customerNote: (row[noteIdx] || '').trim(),
-      pickupOrDelivery: (row[pickupIdx] || 'delivery').trim()
+      address: (row[addressIdx] || '').trim(),
+      pickupOrDelivery: (row[pickupIdx] || 'delivery').trim(),
+      customerNote: (row[noteIdx] || '').trim()
     });
   }
 
@@ -164,7 +172,7 @@ export default async function handler(req, res) {
       const accessToken = await getAccessToken(serviceAccount);
 
       const sheetId = '1hW5nnsCyPVxNBXGV1CywgBaE1f9wMQxZEWk-rHu71hM';
-      const range = 'Sheet1!A:K';
+      const range = 'Sheet1!A:L';
 
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}`;
       const response = await fetch(url, {
