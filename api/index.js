@@ -16,6 +16,9 @@ async function mapWithConcurrency(items, limit, fn) {
   return results;
 }
 
+let productsCache = null; // { skus: [...], fetchedAt: <ms> }
+const PRODUCTS_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
 async function fetchAllWooCommerceSkus(baseUrl, consumerKey, consumerSecret) {
   const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
   const authHeader = { Authorization: `Basic ${auth}` };
@@ -29,18 +32,18 @@ async function fetchAllWooCommerceSkus(baseUrl, consumerKey, consumerSecret) {
     return resp;
   }
 
-  // First page tells us (via header) how many pages of products there are;
-  // fetch the rest of those pages in parallel rather than one at a time.
-  const firstResp = await getJson(`${baseUrl}/wp-json/wc/v3/products?per_page=100&page=1`);
+  // Only the top-level products (simple + variable) come back here — trimming
+  // to just the 3 fields we actually use keeps this response small and fast.
+  const firstResp = await getJson(`${baseUrl}/wp-json/wc/v3/products?per_page=100&page=1&_fields=id,type,sku`);
   const totalPages = parseInt(firstResp.headers.get('x-wp-totalpages') || '1', 10);
   const firstPageProducts = await firstResp.json();
 
   const extraPageNumbers = [];
   for (let page = 2; page <= totalPages; page++) extraPageNumbers.push(page);
-  const extraPages = await mapWithConcurrency(extraPageNumbers, 5, async (page) => {
-    const resp = await getJson(`${baseUrl}/wp-json/wc/v3/products?per_page=100&page=${page}`);
+  const extraPages = await Promise.all(extraPageNumbers.map(async (page) => {
+    const resp = await getJson(`${baseUrl}/wp-json/wc/v3/products?per_page=100&page=${page}&_fields=id,type,sku`);
     return resp.json();
-  });
+  }));
 
   const allProducts = firstPageProducts.concat(...extraPages);
 
@@ -54,17 +57,17 @@ async function fetchAllWooCommerceSkus(baseUrl, consumerKey, consumerSecret) {
     }
   });
 
-  // The slow part: one variations call per variable product. Run up to 8 at
-  // once instead of waiting for each to finish before starting the next —
-  // this is what was timing out before.
-  const variationLists = await mapWithConcurrency(variableProducts, 8, async (p) => {
+  // The slow part: one variations call per variable product. Fire every one
+  // of them at once (trimmed to just id+sku) instead of throttling — a
+  // partial batch delay is what was tipping this over the time limit before.
+  const variationLists = await Promise.all(variableProducts.map(async (p) => {
     try {
-      const resp = await getJson(`${baseUrl}/wp-json/wc/v3/products/${p.id}/variations?per_page=100`);
+      const resp = await getJson(`${baseUrl}/wp-json/wc/v3/products/${p.id}/variations?per_page=100&_fields=id,sku`);
       return resp.json();
     } catch (e) {
       return [];
     }
-  });
+  }));
   variationLists.forEach(variations => {
     variations.forEach(v => { if (v.sku) skus.push(v.sku); });
   });
@@ -441,6 +444,14 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET' && req.url.startsWith('/api/products')) {
     try {
+      const forceRefresh = req.url.includes('refresh=1');
+      const cacheIsFresh = productsCache && (Date.now() - productsCache.fetchedAt) < PRODUCTS_CACHE_TTL_MS;
+
+      if (cacheIsFresh && !forceRefresh) {
+        res.status(200).json({ products: productsCache.skus, cached: true });
+        return;
+      }
+
       const wcKey = process.env.WC_CONSUMER_KEY;
       const wcSecret = process.env.WC_CONSUMER_SECRET;
       const wcUrl = process.env.WC_STORE_URL || 'https://basketsbyblimi.com';
@@ -451,8 +462,15 @@ export default async function handler(req, res) {
       }
 
       const skus = await fetchAllWooCommerceSkus(wcUrl, wcKey, wcSecret);
-      res.status(200).json({ products: skus });
+      productsCache = { skus, fetchedAt: Date.now() };
+      res.status(200).json({ products: skus, cached: false });
     } catch (error) {
+      // If a fresh fetch fails (e.g. still too slow), serve the last known
+      // good list rather than leaving the form with nothing to suggest.
+      if (productsCache) {
+        res.status(200).json({ products: productsCache.skus, cached: true, staleFallback: true });
+        return;
+      }
       res.status(500).json({ error: error.message });
     }
     return;
