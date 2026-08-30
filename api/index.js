@@ -34,14 +34,14 @@ async function fetchAllWooCommerceSkus(baseUrl, consumerKey, consumerSecret) {
 
   // Only the top-level products (simple + variable) come back here — trimming
   // to just the 3 fields we actually use keeps this response small and fast.
-  const firstResp = await getJson(`${baseUrl}/wp-json/wc/v3/products?per_page=100&page=1&_fields=id,type,sku`);
+  const firstResp = await getJson(`${baseUrl}/wp-json/wc/v3/products?per_page=100&page=1`);
   const totalPages = parseInt(firstResp.headers.get('x-wp-totalpages') || '1', 10);
   const firstPageProducts = await firstResp.json();
 
   const extraPageNumbers = [];
   for (let page = 2; page <= totalPages; page++) extraPageNumbers.push(page);
   const extraPages = await Promise.all(extraPageNumbers.map(async (page) => {
-    const resp = await getJson(`${baseUrl}/wp-json/wc/v3/products?per_page=100&page=${page}&_fields=id,type,sku`);
+    const resp = await getJson(`${baseUrl}/wp-json/wc/v3/products?per_page=100&page=${page}`);
     return resp.json();
   }));
 
@@ -62,7 +62,7 @@ async function fetchAllWooCommerceSkus(baseUrl, consumerKey, consumerSecret) {
   // partial batch delay is what was tipping this over the time limit before.
   const variationLists = await Promise.all(variableProducts.map(async (p) => {
     try {
-      const resp = await getJson(`${baseUrl}/wp-json/wc/v3/products/${p.id}/variations?per_page=100&_fields=id,sku`);
+      const resp = await getJson(`${baseUrl}/wp-json/wc/v3/products/${p.id}/variations?per_page=100`);
       return resp.json();
     } catch (e) {
       return [];
