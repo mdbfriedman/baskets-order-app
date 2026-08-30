@@ -72,7 +72,7 @@ function createJWT(serviceAccount) {
   const now = Math.floor(Date.now() / 1000);
   const payload = {
     iss: serviceAccount.client_email,
-    scope: 'https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive.file',
+    scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive.file',
     aud: 'https://oauth2.googleapis.com/token',
     exp: now + 3600,
     iat: now
@@ -189,6 +189,98 @@ export default async function handler(req, res) {
       const orders = parseSheetData(data.values);
 
       res.status(200).json({ orders });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/api/add-order') {
+    try {
+      let serviceAccount;
+
+      if (process.env.SERVICE_ACCOUNT) {
+        serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT);
+      } else if (storedServiceAccount) {
+        serviceAccount = storedServiceAccount;
+      } else if (req.body.serviceAccount) {
+        serviceAccount = req.body.serviceAccount;
+      }
+
+      if (!serviceAccount || !serviceAccount.private_key) {
+        res.status(400).json({ error: 'Service account key not configured' });
+        return;
+      }
+
+      const {
+        deliveryDate, lastName, deliveredTo, pickupOrDelivery,
+        address, customerNote, paymentMethod, items
+      } = req.body;
+
+      if (!deliveryDate || !lastName || !String(lastName).trim()) {
+        res.status(400).json({ error: 'Delivery date and last name are required' });
+        return;
+      }
+      if (!Array.isArray(items) || items.length === 0) {
+        res.status(400).json({ error: 'At least one item is required' });
+        return;
+      }
+
+      const productNames = items.map(i => String((i && i.product) || '').trim()).filter(Boolean);
+      const quantities = items.map(i => {
+        const q = parseInt(i && i.quantity, 10);
+        return isNaN(q) ? 1 : q;
+      });
+
+      if (productNames.length === 0) {
+        res.status(400).json({ error: 'At least one item with a product is required' });
+        return;
+      }
+
+      // Manual entries get their own order number prefix so they're distinguishable
+      // from the sequential numbers WooCommerce/Zapier assigns.
+      const orderNumber = 'M' + Date.now().toString().slice(-7);
+
+      // Column order must match the live sheet exactly:
+      // A=Delivery Date, B=Order Number, C=Last Name, D=Line Item Name, E=Quantity,
+      // F=Quantity of Individual, G=Delivered To Last Name, H=Pickup/Delivery,
+      // I=Delivery Address, J=Total, K=Payment Method, L=Customer Note
+      const row = [
+        deliveryDate,
+        orderNumber,
+        String(lastName).trim(),
+        productNames.join(', '),
+        quantities.join(', '),
+        '', // Quantity of Individual — left blank; the product's SKU already encodes pack size
+        (deliveredTo || '').trim(),
+        pickupOrDelivery || 'delivery',
+        (address || '').trim(),
+        '', // Total — not calculated here
+        (paymentMethod || '').trim(),
+        (customerNote || '').trim()
+      ];
+
+      const accessToken = await getAccessToken(serviceAccount);
+
+      const sheetId = '1hW5nnsCyPVxNBXGV1CywgBaE1f9wMQxZEWk-rHu71hM';
+      const range = 'Sheet1!A:L';
+
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ values: [row] })
+      });
+
+      if (!response.ok) {
+        const errBody = await response.text();
+        throw new Error(`Google Sheets error: ${response.status} ${errBody}`);
+      }
+
+      res.status(200).json({ success: true, orderNumber });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
