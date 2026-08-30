@@ -1,42 +1,73 @@
 const crypto = require('crypto');
 
+// Runs `fn` over `items` with at most `limit` requests in flight at once —
+// fast (parallel), but bounded so we don't hammer a modest WordPress host.
+async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < items.length) {
+      const current = nextIndex++;
+      results[current] = await fn(items[current], current);
+    }
+  }
+  const workers = Array.from({ length: Math.min(limit, items.length) }, worker);
+  await Promise.all(workers);
+  return results;
+}
+
 async function fetchAllWooCommerceSkus(baseUrl, consumerKey, consumerSecret) {
   const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
   const authHeader = { Authorization: `Basic ${auth}` };
-  const skus = [];
 
-  let page = 1;
-  while (true) {
-    const url = `${baseUrl}/wp-json/wc/v3/products?per_page=100&page=${page}`;
+  async function getJson(url) {
     const resp = await fetch(url, { headers: authHeader });
     if (!resp.ok) {
       const body = await resp.text();
-      throw new Error(`WooCommerce products error: ${resp.status} ${body}`);
+      throw new Error(`WooCommerce error ${resp.status} at ${url}: ${body.slice(0, 300)}`);
     }
-    const products = await resp.json();
-    if (!products.length) break;
-
-    for (const p of products) {
-      if (p.type === 'variable') {
-        let vpage = 1;
-        while (true) {
-          const vurl = `${baseUrl}/wp-json/wc/v3/products/${p.id}/variations?per_page=100&page=${vpage}`;
-          const vresp = await fetch(vurl, { headers: authHeader });
-          if (!vresp.ok) break;
-          const variations = await vresp.json();
-          if (!variations.length) break;
-          variations.forEach(v => { if (v.sku) skus.push(v.sku); });
-          if (variations.length < 100) break;
-          vpage++;
-        }
-      } else if (p.sku) {
-        skus.push(p.sku);
-      }
-    }
-
-    if (products.length < 100) break;
-    page++;
+    return resp;
   }
+
+  // First page tells us (via header) how many pages of products there are;
+  // fetch the rest of those pages in parallel rather than one at a time.
+  const firstResp = await getJson(`${baseUrl}/wp-json/wc/v3/products?per_page=100&page=1`);
+  const totalPages = parseInt(firstResp.headers.get('x-wp-totalpages') || '1', 10);
+  const firstPageProducts = await firstResp.json();
+
+  const extraPageNumbers = [];
+  for (let page = 2; page <= totalPages; page++) extraPageNumbers.push(page);
+  const extraPages = await mapWithConcurrency(extraPageNumbers, 5, async (page) => {
+    const resp = await getJson(`${baseUrl}/wp-json/wc/v3/products?per_page=100&page=${page}`);
+    return resp.json();
+  });
+
+  const allProducts = firstPageProducts.concat(...extraPages);
+
+  const skus = [];
+  const variableProducts = [];
+  allProducts.forEach(p => {
+    if (p.type === 'variable') {
+      variableProducts.push(p);
+    } else if (p.sku) {
+      skus.push(p.sku);
+    }
+  });
+
+  // The slow part: one variations call per variable product. Run up to 8 at
+  // once instead of waiting for each to finish before starting the next —
+  // this is what was timing out before.
+  const variationLists = await mapWithConcurrency(variableProducts, 8, async (p) => {
+    try {
+      const resp = await getJson(`${baseUrl}/wp-json/wc/v3/products/${p.id}/variations?per_page=100`);
+      return resp.json();
+    } catch (e) {
+      return [];
+    }
+  });
+  variationLists.forEach(variations => {
+    variations.forEach(v => { if (v.sku) skus.push(v.sku); });
+  });
 
   return Array.from(new Set(skus)).sort();
 }
