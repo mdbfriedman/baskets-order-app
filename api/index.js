@@ -1,5 +1,255 @@
 const crypto = require('crypto');
 
+const KNOWN_PRODUCT_SKUS = [
+  "12\" sliced platter",
+  "14\" sliced platter",
+  "14x14",
+  "14x21",
+  "14x21 - Plus",
+  "14x21 - Standard",
+  "16\" sliced platter",
+  "16\" sliced platter - Grand",
+  "16\" sliced platter - Plus",
+  "16\" sliced platter - Standard",
+  "16x16",
+  "16x16 - Grand",
+  "16x16 - Plus",
+  "16x16 - Standard",
+  "18x18",
+  "18x18 - Grand",
+  "18x18 - Standard",
+  "2 oz Fruit Cups",
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 12",
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 16",
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 24",
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 32",
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 36",
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 40",
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 48",
+  "2 oz Fruit Cups - Kiwi - 12",
+  "2 oz Fruit Cups - Kiwi - 24",
+  "2 oz Fruit Cups - Mango - 12",
+  "2 oz Fruit Cups - Mango - 24",
+  "2 oz glass cups",
+  "2 oz glass cups - Assorted Melons and Pineapple - 24",
+  "2 oz glass cups - Assorted Melons and Pineapple - 36",
+  "2 oz glass cups - Assorted Melons and Pineapple - 48",
+  "2 oz glass cups - Kiwi - 12",
+  "2 oz glass cups - Mango - 12",
+  "3 oz covered cups",
+  "3 oz covered cups - Assorted Melons and Pineapple - 12",
+  "3 oz covered cups - Assorted Melons and Pineapple - 24",
+  "3 oz covered cups - Assorted Melons and Pineapple - 36",
+  "3 oz covered cups - Assorted Melons and Pineapple - 48",
+  "3 oz covered cups - Kiwi - 12",
+  "3 oz covered cups - Mango - 12",
+  "8 oz glass cups",
+  "8 oz glass cups - Assorted Melons and Pineapple - 12",
+  "8 oz glass cups - Kiwi - 12",
+  "8 oz glass cups - Mango - 12",
+  "8x14",
+  "Acai Minis",
+  "Acai Trays",
+  "Acai Trays - Large",
+  "Acai Trays - Medium",
+  "Acai Trays - Small",
+  "Barbeque Corn Nut Salad",
+  "Barbeque Corn Nut Salad - Large - Pan",
+  "Barbeque Corn Nut Salad - Large - Tray",
+  "Barbeque Corn Nut Salad - Medium - Pan",
+  "Barbeque Corn Nut Salad - Medium - Tray",
+  "Barbeque Corn Nut Salad - Small - Rosebowl",
+  "Basic Simcha Package",
+  "Broccoli Cabbage Salad",
+  "Broccoli Cabbage Salad - Large - Pan",
+  "Broccoli Cabbage Salad - Large - Tray",
+  "Broccoli Cabbage Salad - Medium - Pan",
+  "Broccoli Cabbage Salad - Medium - Tray",
+  "Broccoli Cabbage Salad - Small - Rosebowl",
+  "Broccoli Salad",
+  "Broccoli Salad - Large - Pan",
+  "Broccoli Salad - Large - Tray",
+  "Broccoli Salad - Medium - Pan",
+  "Broccoli Salad - Medium - Tray",
+  "Broccoli Salad - Small - Rosebowl",
+  "Caesar Salad",
+  "Caesar Salad - Large - Pan",
+  "Caesar Salad - Large - Tray",
+  "Caesar Salad - Medium - Pan",
+  "Caesar Salad - Medium - Tray",
+  "Caesar Salad - Small - Rosebowl",
+  "Citrus Salad",
+  "Citrus Salad - Large - Pan",
+  "Citrus Salad - Large - Tray",
+  "Citrus Salad - Medium - Pan",
+  "Citrus Salad - Medium - Tray",
+  "Citrus Salad - Small - Rosebowl",
+  "Cubed Fruit",
+  "Cubed Fruit - 2 lb container - Canteloupe - Bite Sized",
+  "Cubed Fruit - 2 lb container - Canteloupe - Diced",
+  "Cubed Fruit - 2 lb container - Honeydew - Bite Sized",
+  "Cubed Fruit - 2 lb container - Honeydew - Diced",
+  "Cubed Fruit - 2 lb container - Mango - Bite Sized",
+  "Cubed Fruit - 2 lb container - Mango - Diced",
+  "Cubed Fruit - 2 lb container - Pineapple - Bite Sized",
+  "Cubed Fruit - 2 lb container - Pineapple - Diced",
+  "Cubed Fruit - 2 lb container - Watermelon - Bite Sized",
+  "Cubed Fruit - 2 lb container - Watermelon - Diced",
+  "Cubed Fruit - 9x13 pan - 2 pans- 4 melons - Bite Sized",
+  "Cubed Fruit - 9x13 pan - 2 pans- 4 melons - Diced",
+  "Cubed Fruit - 9x13 pan - Canteloupe - Bite Sized",
+  "Cubed Fruit - 9x13 pan - Canteloupe - Diced",
+  "Cubed Fruit - 9x13 pan - Honeydew - Bite Sized",
+  "Cubed Fruit - 9x13 pan - Honeydew - Diced",
+  "Cubed Fruit - 9x13 pan - Mango - Bite Sized",
+  "Cubed Fruit - 9x13 pan - Mango - Diced",
+  "Cubed Fruit - 9x13 pan - Pineapple - Bite Sized",
+  "Cubed Fruit - 9x13 pan - Pineapple - Diced",
+  "Cubed Fruit - 9x13 pan - Watermelon - Bite Sized",
+  "Cubed Fruit - 9x13 pan - Watermelon - Diced",
+  "Decorative Cubed Platter",
+  "Decorative Cubed Platter - Extra Large",
+  "Decorative Cubed Platter - Large",
+  "Decorative Cubed Platter - Medium",
+  "Decorative Cubed Platter - Small",
+  "Deluxe Simcha Package",
+  "Exotic Fruit Platter",
+  "Exotic Fruit Platter - Large",
+  "Exotic Fruit Platter - Medium",
+  "Exotic Fruit Platter - Small",
+  "Feta Cheese Greek Salad (Dairy)",
+  "Feta Cheese Greek Salad (Dairy) - Large - Pan",
+  "Feta Cheese Greek Salad (Dairy) - Large - Tray",
+  "Feta Cheese Greek Salad (Dairy) - Medium - Pan",
+  "Feta Cheese Greek Salad (Dairy) - Medium - Tray",
+  "Feta Cheese Greek Salad (Dairy) - Small - Rosebowl",
+  "Feta Mushroom Salad (Dairy)",
+  "Feta Mushroom Salad (Dairy) - Large - Pan",
+  "Feta Mushroom Salad (Dairy) - Large - Tray",
+  "Feta Mushroom Salad (Dairy) - Medium - Pan",
+  "Feta Mushroom Salad (Dairy) - Medium - Tray",
+  "Feta Mushroom Salad (Dairy) - Small - Rosebowl",
+  "Fruit Cake (Available Monday-Wednesday only)",
+  "Glass Salad Cups",
+  "Glass Salad Cups - 12 - Cabbage",
+  "Glass Salad Cups - 12 - Ceasar",
+  "Glass Salad Cups - 12 - Citrus",
+  "Glass Salad Cups - 12 - Greek",
+  "Glass Salad Cups - 12 - Mango",
+  "Glass Salad Cups - 12 - Mushroom",
+  "Glass Salad Cups - 12 - Nish Nosh",
+  "Glass Salad Cups - 12 - Quinoa",
+  "Greek (Parve) Salad",
+  "Greek (Parve) Salad - Large - Pan",
+  "Greek (Parve) Salad - Large - Tray",
+  "Greek (Parve) Salad - Medium - Pan",
+  "Greek (Parve) Salad - Medium - Tray",
+  "Greek (Parve) Salad - Small - Rosebowl",
+  "Hearts of Palm Salad",
+  "Hearts of Palm Salad - Large - Pan",
+  "Hearts of Palm Salad - Large - Tray",
+  "Hearts of Palm Salad - Medium - Pan",
+  "Hearts of Palm Salad - Medium - Tray",
+  "Hearts of Palm Salad - Small - Rosebowl",
+  "L'chaim/Sweet Table Package",
+  "Lucite Fruit Tray",
+  "Mango Pomegranate Salad",
+  "Mango Pomegranate Salad - Large - Pan",
+  "Mango Pomegranate Salad - Large - Tray",
+  "Mango Pomegranate Salad - Medium - Pan",
+  "Mango Pomegranate Salad - Medium - Tray",
+  "Mango Pomegranate Salad - Small - Rosebowl",
+  "Nish Nosh Salad",
+  "Nish Nosh Salad - Large - Pan",
+  "Nish Nosh Salad - Large - Tray",
+  "Nish Nosh Salad - Medium - Pan",
+  "Nish Nosh Salad - Medium - Tray",
+  "Nish Nosh Salad - Small - Rosebowl",
+  "Onion Caesar Salad",
+  "Onion Caesar Salad - Large - Pan",
+  "Onion Caesar Salad - Large - Tray",
+  "Onion Caesar Salad - Medium - Pan",
+  "Onion Caesar Salad - Medium - Tray",
+  "Onion Caesar Salad - Small - Rosebowl",
+  "Portabella Mushroom Salad",
+  "Portabella Mushroom Salad - Large - Pan",
+  "Portabella Mushroom Salad - Large - Tray",
+  "Portabella Mushroom Salad - Medium - Pan",
+  "Portabella Mushroom Salad - Medium - Tray",
+  "Portabella Mushroom Salad - Small - Rosebowl",
+  "Purple Cabbage Salad",
+  "Purple Cabbage Salad - Large - Pan",
+  "Purple Cabbage Salad - Large - Tray",
+  "Purple Cabbage Salad - Medium - Pan",
+  "Purple Cabbage Salad - Medium - Tray",
+  "Purple Cabbage Salad - Small - Rosebowl",
+  "Quinoa (Lettuce) Salad",
+  "Quinoa (Lettuce) Salad - Large - Pan",
+  "Quinoa (Lettuce) Salad - Large - Tray",
+  "Quinoa (Lettuce) Salad - Medium - Pan",
+  "Quinoa (Lettuce) Salad - Medium - Tray",
+  "Quinoa (Lettuce) Salad - Small - Rosebowl",
+  "Ramen Sesame Salad",
+  "Ramen Sesame Salad - Large - Pan",
+  "Ramen Sesame Salad - Large - Tray",
+  "Ramen Sesame Salad - Medium - Pan",
+  "Ramen Sesame Salad - Medium - Tray",
+  "Ramen Sesame Salad - Small - Rosebowl",
+  "Salad Dressing",
+  "Salad Dressing - Cabbage",
+  "Salad Dressing - Caesar",
+  "Salad Dressing - Mango",
+  "Salad Dressing - Nish Nosh",
+  "Salad Dressing - Portabella",
+  "Salad Dressing - Quinoa",
+  "Sectional",
+  "Set of Lucites",
+  "Shechaynu Platter",
+  "Shehechyanu Fruit Board",
+  "Simanim Salad",
+  "Small Simcha Package",
+  "Smoothies",
+  "Smoothies - Assorted - 15",
+  "Smoothies - Assorted - 24",
+  "Smoothies - Assorted - 30",
+  "Smoothies - Assorted - 36",
+  "Smoothies in Glass cups",
+  "Smoothies in Glass cups - Assorted - 24",
+  "Smoothies in Glass cups - Assorted - 36",
+  "Smoothies in Glass cups - Assorted - 48",
+  "Sushi Salad",
+  "Sushi Salad - Large - Pan",
+  "Sushi Salad - Large - Tray",
+  "Sushi Salad - Medium - Pan",
+  "Sushi Salad - Medium - Tray",
+  "Sushi Salad - Small - Rosebowl",
+  "Sweet Potato Salad",
+  "Sweet Potato Salad - Large - Pan",
+  "Sweet Potato Salad - Large - Tray",
+  "Sweet Potato Salad - Medium - Pan",
+  "Sweet Potato Salad - Medium - Tray",
+  "Sweet Potato Salad - Small - Rosebowl",
+  "Tu B'shvat",
+  "Tu B'shvat - Flower Board Dried Fruit",
+  "Tu B'shvat - Fresh Fruit Board",
+  "Tu B'shvat - Lined Board Dried Fruit",
+  "Tu B'shvat - Mini Dried Fruit Board",
+  "Tu B'shvat - Mini Fresh Fruit Board",
+  "Tu B'shvat - Tu B'shvat Salad",
+  "Upgraded L'chaim/Sweet Table Package",
+  "Upgraded Simcha Package",
+  "salad cups",
+  "salad cups - 12 - Cabbage",
+  "salad cups - 12 - Ceasar",
+  "salad cups - 12 - Citrus",
+  "salad cups - 12 - Greek",
+  "salad cups - 12 - Mango",
+  "salad cups - 12 - Mushroom",
+  "salad cups - 12 - Nish Nosh",
+  "salad cups - 12 - Quinoa"
+];
+
+
 // Runs `fn` over `items` with at most `limit` requests in flight at once —
 // fast (parallel), but bounded so we don't hammer a modest WordPress host.
 async function mapWithConcurrency(items, limit, fn) {
@@ -443,36 +693,33 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'GET' && req.url.startsWith('/api/products')) {
-    try {
-      const forceRefresh = req.url.includes('refresh=1');
-      const cacheIsFresh = productsCache && (Date.now() - productsCache.fetchedAt) < PRODUCTS_CACHE_TTL_MS;
-
-      if (cacheIsFresh && !forceRefresh) {
-        res.status(200).json({ products: productsCache.skus, cached: true });
-        return;
+    // Serves the known-good SKU list captured after the Aug 30, 2026 SKU
+    // project, baked directly into the code — instant, and immune to
+    // whatever was causing basketsbyblimi.com's variations endpoint to hang
+    // under load. Update KNOWN_PRODUCT_SKUS above whenever products change.
+    //
+    // Add ?live=1 to instead try pulling fresh straight from WooCommerce
+    // (slower, and was timing out on this host as of Aug 30, 2026 — kept
+    // here in case that improves later, but not used by default).
+    if (req.url.includes('live=1')) {
+      try {
+        const wcKey = process.env.WC_CONSUMER_KEY;
+        const wcSecret = process.env.WC_CONSUMER_SECRET;
+        const wcUrl = process.env.WC_STORE_URL || 'https://basketsbyblimi.com';
+        if (!wcKey || !wcSecret) {
+          res.status(400).json({ error: 'WooCommerce API credentials not configured' });
+          return;
+        }
+        const skus = await fetchAllWooCommerceSkus(wcUrl, wcKey, wcSecret);
+        productsCache = { skus, fetchedAt: Date.now() };
+        res.status(200).json({ products: skus, source: 'live' });
+      } catch (error) {
+        res.status(200).json({ products: KNOWN_PRODUCT_SKUS, source: 'static-fallback', liveError: error.message });
       }
-
-      const wcKey = process.env.WC_CONSUMER_KEY;
-      const wcSecret = process.env.WC_CONSUMER_SECRET;
-      const wcUrl = process.env.WC_STORE_URL || 'https://basketsbyblimi.com';
-
-      if (!wcKey || !wcSecret) {
-        res.status(400).json({ error: 'WooCommerce API credentials not configured (set WC_CONSUMER_KEY and WC_CONSUMER_SECRET in Vercel environment variables)' });
-        return;
-      }
-
-      const skus = await fetchAllWooCommerceSkus(wcUrl, wcKey, wcSecret);
-      productsCache = { skus, fetchedAt: Date.now() };
-      res.status(200).json({ products: skus, cached: false });
-    } catch (error) {
-      // If a fresh fetch fails (e.g. still too slow), serve the last known
-      // good list rather than leaving the form with nothing to suggest.
-      if (productsCache) {
-        res.status(200).json({ products: productsCache.skus, cached: true, staleFallback: true });
-        return;
-      }
-      res.status(500).json({ error: error.message });
+      return;
     }
+
+    res.status(200).json({ products: KNOWN_PRODUCT_SKUS, source: 'static' });
     return;
   }
 
