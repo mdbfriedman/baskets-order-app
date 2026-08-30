@@ -66,6 +66,10 @@
       error: '',
       loading: false,
       showSetup: false,
+      showAddOrder: false,
+      newOrder: null,
+      addOrderError: '',
+      addOrderSaving: false,
       labelSize: '4x3',
 
       checkSetup: async function() {
@@ -240,6 +244,186 @@
           }
         });
         return totals;
+      },
+
+      // ---- Manual "Add Order" form ----
+      openAddOrder: function() {
+        var today = new Date();
+        var todayISO = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+        app.newOrder = {
+          deliveryDate: todayISO,
+          lastName: '',
+          deliveredTo: '',
+          pickupOrDelivery: 'delivery',
+          address: '',
+          customerNote: '',
+          paymentMethod: '',
+          items: [{ product: '', quantity: 1 }]
+        };
+        app.addOrderError = '';
+        app.addOrderSaving = false;
+        app.showAddOrder = true;
+        app.render();
+      },
+
+      closeAddOrder: function() {
+        app.showAddOrder = false;
+        app.newOrder = null;
+        app.render();
+      },
+
+      // Pull whatever is currently typed in the form's inputs back into app.newOrder
+      // before we re-render or submit, so a re-render (e.g. adding a row) never wipes
+      // out what was already typed in other fields.
+      syncNewOrderFromDom: function() {
+        if (!app.newOrder) return;
+        var g = function(id) {
+          var el = document.getElementById(id);
+          return el ? el.value : '';
+        };
+        app.newOrder.deliveryDate = g('noDeliveryDate') || app.newOrder.deliveryDate;
+        app.newOrder.lastName = g('noLastName');
+        app.newOrder.deliveredTo = g('noDeliveredTo');
+        app.newOrder.pickupOrDelivery = g('noPickupDelivery') || 'delivery';
+        app.newOrder.address = g('noAddress');
+        app.newOrder.customerNote = g('noNote');
+        app.newOrder.paymentMethod = g('noPayment');
+        app.newOrder.items.forEach(function(item, idx) {
+          item.product = g('noItemProduct_' + idx);
+          var q = parseInt(g('noItemQty_' + idx), 10);
+          item.quantity = isNaN(q) ? 1 : q;
+        });
+      },
+
+      addOrderItemRow: function() {
+        app.syncNewOrderFromDom();
+        app.newOrder.items.push({ product: '', quantity: 1 });
+        app.render();
+      },
+
+      removeOrderItemRow: function(idx) {
+        app.syncNewOrderFromDom();
+        app.newOrder.items.splice(idx, 1);
+        if (app.newOrder.items.length === 0) {
+          app.newOrder.items.push({ product: '', quantity: 1 });
+        }
+        app.render();
+      },
+
+      submitNewOrder: async function() {
+        app.syncNewOrderFromDom();
+        var o = app.newOrder;
+
+        if (!o.deliveryDate || !o.lastName.trim()) {
+          app.addOrderError = 'Delivery date and last name are required.';
+          app.render();
+          return;
+        }
+        var validItems = o.items.filter(function(i) { return i.product && i.product.trim(); });
+        if (validItems.length === 0) {
+          app.addOrderError = 'Add at least one product (pick one from the list as you type).';
+          app.render();
+          return;
+        }
+        if (app.products.length && validItems.some(function(i) { return app.products.indexOf(i.product.trim()) === -1; })) {
+          app.addOrderError = 'One of the products doesn\'t match anything in the list exactly — pick it from the suggestions instead of typing it fully by hand.';
+          app.render();
+          return;
+        }
+
+        var formattedDate = o.deliveryDate.split('-').join('/');
+
+        app.addOrderSaving = true;
+        app.addOrderError = '';
+        app.render();
+
+        try {
+          var savedKey = localStorage.getItem('serviceAccount');
+          var body = {
+            deliveryDate: formattedDate,
+            lastName: o.lastName.trim(),
+            deliveredTo: o.deliveredTo.trim(),
+            pickupOrDelivery: o.pickupOrDelivery,
+            address: o.address.trim(),
+            customerNote: o.customerNote.trim(),
+            paymentMethod: o.paymentMethod.trim(),
+            items: validItems
+          };
+          if (savedKey) {
+            try { body.serviceAccount = JSON.parse(savedKey); } catch (e) {}
+          }
+
+          var response = await fetch('/api/add-order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          });
+          var data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Failed to save order');
+
+          app.addOrderSaving = false;
+          app.showAddOrder = false;
+          app.newOrder = null;
+          await app.loadOrders();
+        } catch (e) {
+          app.addOrderSaving = false;
+          app.addOrderError = 'Error: ' + e.message;
+          app.render();
+        }
+      },
+
+      renderAddOrderForm: function() {
+        var o = app.newOrder;
+        var datalist = '<datalist id="productChoices">' + app.products.map(function(p) {
+          return '<option value="' + p.replace(/"/g, '&quot;') + '">';
+        }).join('') + '</datalist>';
+
+        var itemsHtml = o.items.map(function(item, idx) {
+          return '<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">' +
+            '<input list="productChoices" id="noItemProduct_' + idx + '" placeholder="Start typing a product..." value="' + (item.product || '').replace(/"/g, '&quot;') + '" style="flex:3;padding:8px;border:1px solid #d1d5db;border-radius:6px">' +
+            '<input type="number" min="1" id="noItemQty_' + idx + '" value="' + (item.quantity || 1) + '" style="flex:1;padding:8px;border:1px solid #d1d5db;border-radius:6px">' +
+            (o.items.length > 1 ? '<button type="button" onclick="app.removeOrderItemRow(' + idx + ')" style="background:#ef4444;width:36px;padding:8px 0;margin:0">✕</button>' : '<span style="width:36px"></span>') +
+            '</div>';
+        }).join('');
+
+        var html = '<div class="auth-box" style="max-width:600px">';
+        html += '<h2>Add Order</h2>';
+        html += '<p style="color:#6b7280;margin-bottom:15px;font-size:13px">Pick products from the suggestions as you type so they match your store\'s SKUs exactly — free-typing something that doesn\'t match will keep it out of your product totals.</p>';
+        if (app.addOrderError) html += '<div class="error">' + app.addOrderError + '</div>';
+
+        html += '<label style="font-size:12px;color:#374151">Delivery Date</label>';
+        html += '<input type="date" id="noDeliveryDate" value="' + o.deliveryDate + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
+
+        html += '<label style="font-size:12px;color:#374151">Last Name</label>';
+        html += '<input type="text" id="noLastName" value="' + o.lastName.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
+
+        html += '<label style="font-size:12px;color:#374151">Deliver To (if different)</label>';
+        html += '<input type="text" id="noDeliveredTo" value="' + o.deliveredTo.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
+
+        html += '<label style="font-size:12px;color:#374151">Pickup or Delivery</label>';
+        html += '<select id="noPickupDelivery" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">' +
+          '<option value="delivery"' + (o.pickupOrDelivery === 'delivery' ? ' selected' : '') + '>Delivery</option>' +
+          '<option value="pickup"' + (o.pickupOrDelivery === 'pickup' ? ' selected' : '') + '>Pickup</option>' +
+          '</select>';
+
+        html += '<label style="font-size:12px;color:#374151">Address</label>';
+        html += '<input type="text" id="noAddress" value="' + o.address.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
+
+        html += '<label style="font-size:12px;color:#374151">Payment Method</label>';
+        html += '<input type="text" id="noPayment" value="' + o.paymentMethod.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
+
+        html += '<label style="font-size:12px;color:#374151">Customer Note</label>';
+        html += '<textarea id="noNote" style="width:100%;height:70px;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">' + o.customerNote.replace(/</g, '&lt;') + '</textarea>';
+
+        html += '<label style="font-size:12px;color:#374151">Products</label><div style="margin:6px 0 8px">' + itemsHtml + '</div>';
+        html += datalist;
+        html += '<button type="button" onclick="app.addOrderItemRow()" style="background:#6b7280;margin-bottom:15px">+ Add another product</button>';
+
+        html += '<button type="button" onclick="app.submitNewOrder()" ' + (app.addOrderSaving ? 'disabled' : '') + '>' + (app.addOrderSaving ? 'Saving...' : 'Save Order') + '</button>';
+        html += '<button type="button" onclick="app.closeAddOrder()" style="background:#6b7280">Cancel</button>';
+
+        html += '</div>';
+        return html;
       },
 
       // Strip numbers from last name (Hager2010 -> Hager)
@@ -666,6 +850,11 @@
           return;
         }
 
+        if (app.showAddOrder) {
+          appDiv.innerHTML = app.renderAddOrderForm();
+          return;
+        }
+
         var dayOrders = app.getOrdersForDate(app.selectedDate);
         var totals = app.getProductTotals(app.selectedDate);
         var dates = app.getAllDates();
@@ -681,7 +870,7 @@
           html += '</div></div>';
         }
 
-        html += '<div class="action-buttons"><button class="print-btn" onclick="app.downloadLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#2563eb">📥 Download All to Word</button><button class="print-btn" onclick="app.downloadAllToGoogleDocs()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#ea4335">📄 Google Docs</button></div>';
+        html += '<div class="action-buttons"><button class="print-btn" onclick="app.openAddOrder()" style="background:#16a34a">+ Add Order</button><button class="print-btn" onclick="app.downloadLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#2563eb">📥 Download All to Word</button><button class="print-btn" onclick="app.downloadAllToGoogleDocs()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#ea4335">📄 Google Docs</button></div>';
 
         if (dayOrders.length === 0) {
           html += '<div class="empty-state">No orders for this date</div>';
