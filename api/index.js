@@ -397,18 +397,29 @@ function parseSheetData(values) {
   const orders = [];
 
   const dateIdx = headers.findIndex(h => h.includes('delivery date'));
-  let nameIdx = headers.findIndex(h => h.includes('last name') && !h.includes('delivered'));
+  // Root cause of the missing-name bug: this sheet's actual header for the
+  // customer's own name is a bare "name" (confirmed from a screenshot of
+  // row 1), not "last name". The old strict "last name" check didn't just
+  // miss that — it was matching the WRONG column ("deliver to last name",
+  // this sheet's real header for who to hand the order to), because that
+  // phrase also contains "last name" and — since it says "deliver", not
+  // "delivered" — slipped past the old "!includes('delivered')" guard.
+  // Try exact "name" first (this sheet), then "last name" done properly,
+  // then a loose name-ish fallback as a last resort — always steering
+  // clear of anything about delivery or line items.
+  let nameIdx = headers.findIndex(h => h === 'name');
   if (nameIdx === -1) {
-    // Some sheets label this column just "Name" rather than "Last Name" —
-    // fall back to any name-ish column that isn't the delivery-name column,
-    // so the customer's name still shows up instead of silently falling
-    // back to "Unknown" everywhere it's displayed.
-    nameIdx = headers.findIndex(h => h.includes('name') && !h.includes('delivered') && !h.includes('delivery'));
+    nameIdx = headers.findIndex(h => h.includes('last name') && !h.includes('deliver'));
+  }
+  if (nameIdx === -1) {
+    nameIdx = headers.findIndex(h => h.includes('name') && !h.includes('deliver') && !h.includes('item'));
   }
   const itemIdx = headers.findIndex(h => h.includes('line item'));
   const qtyIdx = headers.findIndex(h => h.includes('quantity') && !h.includes('individual'));
   const qtyIndividualIdx = headers.findIndex(h => h.includes('individual'));
-  const deliveredToIdx = headers.findIndex(h => h.includes('delivered to'));
+  // Same "deliver" vs "delivered" mismatch applies here — this sheet's
+  // header is "deliver to last name", not "delivered to ...".
+  const deliveredToIdx = headers.findIndex(h => h.includes('deliver to') || h.includes('delivered to'));
   const addressIdx = headers.findIndex(h => h.includes('delivery address'));
   const pickupIdx = headers.findIndex(h => h.includes('pickup'));
   const noteIdx = headers.findIndex(h => h.includes('customer note'));
