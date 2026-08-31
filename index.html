@@ -270,24 +270,63 @@
       },
 
       // Pulls a sku -> price map from WooCommerce so Add Order can auto-fill
-      // Product Cost as items are picked. This hits the same store API that's
-      // been unreliable/slow for the full product list in the past, so it's
-      // strictly best-effort: on failure (or if it's just slow), Product Cost
-      // simply stays manual — nothing here blocks the form from working.
+      // Product Cost as items are picked. First pass is just the top-level
+      // products list (fast) — the slower part (variation prices) is kicked
+      // off separately in small batches by loadVariationPrices below. Best
+      // effort throughout: on any failure Product Cost simply stays manual.
       loadProductPrices: async function() {
         try {
           var resp = await fetch('/api/product-prices');
           if (!resp.ok) return;
           var data = await resp.json();
           if (data.prices) {
-            app.productPrices = data.prices;
+            Object.assign(app.productPrices, data.prices);
             // The Add Order form may already be open with items picked
             // before this finished loading — fill in what we can now.
             if (app.showAddOrder) app.recalcProductCost();
           }
+          if (data.variableProductIds && data.variableProductIds.length) {
+            app.loadVariationPrices(data.variableProductIds);
+          }
         } catch (e) {
           // no auto-fill this session — manual entry still works fine
         }
+      },
+
+      // Most of this store's actual SKUs live under variable products (e.g.
+      // "2 oz Fruit Cups - Mango - 12" is a variation), and fetching all of
+      // their prices in one burst is exactly what's timed out on this
+      // store's API before. So instead: split the ids into small batches
+      // and fetch a few batches at a time in the background — Product Cost
+      // picks up newly-known prices as each batch lands, and one slow or
+      // failed batch never blocks the rest.
+      loadVariationPrices: async function(ids) {
+        var batchSize = 8;
+        var concurrency = 3;
+        var batches = [];
+        for (var i = 0; i < ids.length; i += batchSize) batches.push(ids.slice(i, i + batchSize));
+
+        var next = 0;
+        var worker = async function() {
+          while (next < batches.length) {
+            var batch = batches[next++];
+            try {
+              var resp = await fetch('/api/product-prices?variationIds=' + batch.join(','));
+              if (resp.ok) {
+                var data = await resp.json();
+                if (data.prices) {
+                  Object.assign(app.productPrices, data.prices);
+                  if (app.showAddOrder) app.recalcProductCost();
+                }
+              }
+            } catch (e) {
+              // this batch just doesn't get prices — the rest still proceed
+            }
+          }
+        };
+        var workers = [];
+        for (var w = 0; w < concurrency; w++) workers.push(worker());
+        await Promise.all(workers);
       },
 
       // ---- Manual "Add Order" form ----
