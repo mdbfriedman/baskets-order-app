@@ -269,66 +269,88 @@ async function mapWithConcurrency(items, limit, fn) {
 let productsCache = null; // { skus: [...], fetchedAt: <ms> }
 const PRODUCTS_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
-let priceCache = null; // { prices: { sku: price }, fetchedAt: <ms> }
+let priceCache = null; // { prices: { sku: price }, variableProductIds: [...], fetchedAt: <ms> }
 const PRICE_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
-// Builds a sku -> price map from WooCommerce. Separate from
-// fetchAllWooCommerceSkus (and its own cache) so the price feature — which
-// hits the same catalog + per-variation-product calls that have timed out
-// on this store before — can fail or run slow without touching the
-// already-stabilized static product-name list used everywhere else.
-async function fetchAllWooCommercePrices(baseUrl, consumerKey, consumerSecret) {
+let variationPriceCache = {}; // productId -> { prices: { sku: price }, fetchedAt: <ms> }
+const VARIATION_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+function wcAuthHeader(consumerKey, consumerSecret) {
   const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
-  const authHeader = { Authorization: `Basic ${auth}` };
+  return { Authorization: `Basic ${auth}` };
+}
 
-  async function getJson(url) {
-    const resp = await fetch(url, { headers: authHeader });
-    if (!resp.ok) {
-      const body = await resp.text();
-      throw new Error(`WooCommerce error ${resp.status} at ${url}: ${body.slice(0, 300)}`);
-    }
-    return resp;
+async function wcGetJson(url, authHeader) {
+  const resp = await fetch(url, { headers: authHeader });
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new Error(`WooCommerce error ${resp.status} at ${url}: ${body.slice(0, 300)}`);
   }
+  return resp;
+}
 
-  const firstResp = await getJson(`${baseUrl}/wp-json/wc/v3/products?per_page=100&page=1`);
+function addWcPrice(prices, sku, p) {
+  if (!sku) return;
+  const price = parseFloat(p.price !== undefined && p.price !== '' ? p.price : p.regular_price);
+  if (!isNaN(price)) prices[sku] = price;
+}
+
+// Step 1 of the price feature: fetch ONLY the top-level products list (a
+// handful of paginated calls, no per-product variation calls) and return
+// prices for simple products immediately, plus the id list of variable
+// products still needing their variations fetched. This alone used to be
+// fast and reliable even when the full fetch (below) wasn't — the timeouts
+// on this store have consistently come from firing one variations call per
+// variable product all at once inside a single function invocation, not
+// from the products list itself.
+async function fetchSimpleWooCommercePrices(baseUrl, consumerKey, consumerSecret) {
+  const authHeader = wcAuthHeader(consumerKey, consumerSecret);
+
+  const firstResp = await wcGetJson(`${baseUrl}/wp-json/wc/v3/products?per_page=100&page=1`, authHeader);
   const totalPages = parseInt(firstResp.headers.get('x-wp-totalpages') || '1', 10);
   const firstPageProducts = await firstResp.json();
 
   const extraPageNumbers = [];
   for (let page = 2; page <= totalPages; page++) extraPageNumbers.push(page);
   const extraPages = await Promise.all(extraPageNumbers.map(async (page) => {
-    const resp = await getJson(`${baseUrl}/wp-json/wc/v3/products?per_page=100&page=${page}`);
+    const resp = await wcGetJson(`${baseUrl}/wp-json/wc/v3/products?per_page=100&page=${page}`, authHeader);
     return resp.json();
   }));
 
   const allProducts = firstPageProducts.concat(...extraPages);
 
   const prices = {};
-  const addPrice = (sku, p) => {
-    if (!sku) return;
-    const price = parseFloat(p.price !== undefined && p.price !== '' ? p.price : p.regular_price);
-    if (!isNaN(price)) prices[sku] = price;
-  };
-
-  const variableProducts = [];
+  const variableProductIds = [];
   allProducts.forEach(p => {
     if (p.type === 'variable') {
-      variableProducts.push(p);
+      variableProductIds.push(p.id);
     } else {
-      addPrice(p.sku, p);
+      addWcPrice(prices, p.sku, p);
     }
   });
 
-  const variationLists = await Promise.all(variableProducts.map(async (p) => {
+  return { prices, variableProductIds };
+}
+
+// Step 2: fetch variation prices for a small, caller-supplied batch of
+// variable product ids (not the whole catalog at once) — small enough that
+// even a slow response from this store's API stays well inside the
+// function timeout. The client drives this in batches; see
+// loadProductPrices() in index.html.
+async function fetchWooCommerceVariationPrices(baseUrl, consumerKey, consumerSecret, productIds) {
+  const authHeader = wcAuthHeader(consumerKey, consumerSecret);
+  const prices = {};
+
+  const variationLists = await Promise.all(productIds.map(async (id) => {
     try {
-      const resp = await getJson(`${baseUrl}/wp-json/wc/v3/products/${p.id}/variations?per_page=100`);
+      const resp = await wcGetJson(`${baseUrl}/wp-json/wc/v3/products/${id}/variations?per_page=100`, authHeader);
       return resp.json();
     } catch (e) {
       return [];
     }
   }));
   variationLists.forEach(variations => {
-    variations.forEach(v => addPrice(v.sku, v));
+    variations.forEach(v => addWcPrice(prices, v.sku, v));
   });
 
   return prices;
@@ -818,30 +840,67 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET' && req.url.startsWith('/api/product-prices')) {
     // Best-effort sku -> price map for Add Order's Product Cost auto-fill.
-    // Unlike /api/products this always tries WooCommerce live (there's no
-    // static price list to fall back to — prices go stale fast) but it's
-    // cached for 10 minutes, and on failure serves the last good prices it
-    // has rather than nothing, so a transient hiccup doesn't blank the form.
+    // Split into two steps because firing one variations call per variable
+    // product all at once (the old single-shot approach) is exactly what's
+    // timed out on this store's API before:
+    //   - no query params: fast pass over the top-level products list only,
+    //     returns simple-product prices plus the variable-product ids that
+    //     still need their variations fetched.
+    //   - ?variationIds=1,2,3: fetches just that small batch's variations.
+    //     The client (index.html) requests these in small batches so a slow
+    //     response from the store can never blow the whole feature's timeout.
+    const wcKey = process.env.WC_CONSUMER_KEY;
+    const wcSecret = process.env.WC_CONSUMER_SECRET;
+    const wcUrl = process.env.WC_STORE_URL || 'https://basketsbyblimi.com';
+    if (!wcKey || !wcSecret) {
+      res.status(200).json({ prices: {}, variableProductIds: [], source: 'unavailable', error: 'WooCommerce API credentials not configured' });
+      return;
+    }
+
+    const variationIdsMatch = req.url.match(/[?&]variationIds=([^&]+)/);
+    if (variationIdsMatch) {
+      const ids = decodeURIComponent(variationIdsMatch[1]).split(',').map(s => parseInt(s, 10)).filter(n => !isNaN(n));
+      const now = Date.now();
+      const prices = {};
+      const idsToFetch = [];
+      ids.forEach(id => {
+        const cached = variationPriceCache[id];
+        if (cached && (now - cached.fetchedAt) < VARIATION_CACHE_TTL_MS) {
+          Object.assign(prices, cached.prices);
+        } else {
+          idsToFetch.push(id);
+        }
+      });
+      if (idsToFetch.length === 0) {
+        res.status(200).json({ prices, source: 'cache' });
+        return;
+      }
+      try {
+        const fetched = await fetchWooCommerceVariationPrices(wcUrl, wcKey, wcSecret, idsToFetch);
+        idsToFetch.forEach(id => { variationPriceCache[id] = { prices: fetched, fetchedAt: now }; });
+        Object.assign(prices, fetched);
+        res.status(200).json({ prices, source: 'live' });
+      } catch (error) {
+        // Whatever we already had cached for this batch still gets served —
+        // just the freshly-requested ids come back empty this round.
+        res.status(200).json({ prices, source: 'partial', error: error.message });
+      }
+      return;
+    }
+
     if (priceCache && (Date.now() - priceCache.fetchedAt) < PRICE_CACHE_TTL_MS) {
-      res.status(200).json({ prices: priceCache.prices, source: 'cache' });
+      res.status(200).json({ prices: priceCache.prices, variableProductIds: priceCache.variableProductIds, source: 'cache' });
       return;
     }
     try {
-      const wcKey = process.env.WC_CONSUMER_KEY;
-      const wcSecret = process.env.WC_CONSUMER_SECRET;
-      const wcUrl = process.env.WC_STORE_URL || 'https://basketsbyblimi.com';
-      if (!wcKey || !wcSecret) {
-        res.status(200).json({ prices: {}, source: 'unavailable', error: 'WooCommerce API credentials not configured' });
-        return;
-      }
-      const prices = await fetchAllWooCommercePrices(wcUrl, wcKey, wcSecret);
-      priceCache = { prices, fetchedAt: Date.now() };
-      res.status(200).json({ prices, source: 'live' });
+      const { prices, variableProductIds } = await fetchSimpleWooCommercePrices(wcUrl, wcKey, wcSecret);
+      priceCache = { prices, variableProductIds, fetchedAt: Date.now() };
+      res.status(200).json({ prices, variableProductIds, source: 'live' });
     } catch (error) {
       if (priceCache) {
-        res.status(200).json({ prices: priceCache.prices, source: 'stale-fallback', liveError: error.message });
+        res.status(200).json({ prices: priceCache.prices, variableProductIds: priceCache.variableProductIds, source: 'stale-fallback', liveError: error.message });
       } else {
-        res.status(200).json({ prices: {}, source: 'unavailable', error: error.message });
+        res.status(200).json({ prices: {}, variableProductIds: [], source: 'unavailable', error: error.message });
       }
     }
     return;
