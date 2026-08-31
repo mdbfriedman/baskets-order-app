@@ -269,6 +269,71 @@ async function mapWithConcurrency(items, limit, fn) {
 let productsCache = null; // { skus: [...], fetchedAt: <ms> }
 const PRODUCTS_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
+let priceCache = null; // { prices: { sku: price }, fetchedAt: <ms> }
+const PRICE_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+// Builds a sku -> price map from WooCommerce. Separate from
+// fetchAllWooCommerceSkus (and its own cache) so the price feature — which
+// hits the same catalog + per-variation-product calls that have timed out
+// on this store before — can fail or run slow without touching the
+// already-stabilized static product-name list used everywhere else.
+async function fetchAllWooCommercePrices(baseUrl, consumerKey, consumerSecret) {
+  const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
+  const authHeader = { Authorization: `Basic ${auth}` };
+
+  async function getJson(url) {
+    const resp = await fetch(url, { headers: authHeader });
+    if (!resp.ok) {
+      const body = await resp.text();
+      throw new Error(`WooCommerce error ${resp.status} at ${url}: ${body.slice(0, 300)}`);
+    }
+    return resp;
+  }
+
+  const firstResp = await getJson(`${baseUrl}/wp-json/wc/v3/products?per_page=100&page=1`);
+  const totalPages = parseInt(firstResp.headers.get('x-wp-totalpages') || '1', 10);
+  const firstPageProducts = await firstResp.json();
+
+  const extraPageNumbers = [];
+  for (let page = 2; page <= totalPages; page++) extraPageNumbers.push(page);
+  const extraPages = await Promise.all(extraPageNumbers.map(async (page) => {
+    const resp = await getJson(`${baseUrl}/wp-json/wc/v3/products?per_page=100&page=${page}`);
+    return resp.json();
+  }));
+
+  const allProducts = firstPageProducts.concat(...extraPages);
+
+  const prices = {};
+  const addPrice = (sku, p) => {
+    if (!sku) return;
+    const price = parseFloat(p.price !== undefined && p.price !== '' ? p.price : p.regular_price);
+    if (!isNaN(price)) prices[sku] = price;
+  };
+
+  const variableProducts = [];
+  allProducts.forEach(p => {
+    if (p.type === 'variable') {
+      variableProducts.push(p);
+    } else {
+      addPrice(p.sku, p);
+    }
+  });
+
+  const variationLists = await Promise.all(variableProducts.map(async (p) => {
+    try {
+      const resp = await getJson(`${baseUrl}/wp-json/wc/v3/products/${p.id}/variations?per_page=100`);
+      return resp.json();
+    } catch (e) {
+      return [];
+    }
+  }));
+  variationLists.forEach(variations => {
+    variations.forEach(v => addPrice(v.sku, v));
+  });
+
+  return prices;
+}
+
 async function fetchAllWooCommerceSkus(baseUrl, consumerKey, consumerSecret) {
   const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
   const authHeader = { Authorization: `Basic ${auth}` };
@@ -332,7 +397,14 @@ function parseSheetData(values) {
   const orders = [];
 
   const dateIdx = headers.findIndex(h => h.includes('delivery date'));
-  const nameIdx = headers.findIndex(h => h.includes('last name') && !h.includes('delivered'));
+  let nameIdx = headers.findIndex(h => h.includes('last name') && !h.includes('delivered'));
+  if (nameIdx === -1) {
+    // Some sheets label this column just "Name" rather than "Last Name" —
+    // fall back to any name-ish column that isn't the delivery-name column,
+    // so the customer's name still shows up instead of silently falling
+    // back to "Unknown" everywhere it's displayed.
+    nameIdx = headers.findIndex(h => h.includes('name') && !h.includes('delivered') && !h.includes('delivery'));
+  }
   const itemIdx = headers.findIndex(h => h.includes('line item'));
   const qtyIdx = headers.findIndex(h => h.includes('quantity') && !h.includes('individual'));
   const qtyIndividualIdx = headers.findIndex(h => h.includes('individual'));
@@ -730,6 +802,37 @@ export default async function handler(req, res) {
     }
 
     res.status(200).json({ products: KNOWN_PRODUCT_SKUS, source: 'static' });
+    return;
+  }
+
+  if (req.method === 'GET' && req.url.startsWith('/api/product-prices')) {
+    // Best-effort sku -> price map for Add Order's Product Cost auto-fill.
+    // Unlike /api/products this always tries WooCommerce live (there's no
+    // static price list to fall back to — prices go stale fast) but it's
+    // cached for 10 minutes, and on failure serves the last good prices it
+    // has rather than nothing, so a transient hiccup doesn't blank the form.
+    if (priceCache && (Date.now() - priceCache.fetchedAt) < PRICE_CACHE_TTL_MS) {
+      res.status(200).json({ prices: priceCache.prices, source: 'cache' });
+      return;
+    }
+    try {
+      const wcKey = process.env.WC_CONSUMER_KEY;
+      const wcSecret = process.env.WC_CONSUMER_SECRET;
+      const wcUrl = process.env.WC_STORE_URL || 'https://basketsbyblimi.com';
+      if (!wcKey || !wcSecret) {
+        res.status(200).json({ prices: {}, source: 'unavailable', error: 'WooCommerce API credentials not configured' });
+        return;
+      }
+      const prices = await fetchAllWooCommercePrices(wcUrl, wcKey, wcSecret);
+      priceCache = { prices, fetchedAt: Date.now() };
+      res.status(200).json({ prices, source: 'live' });
+    } catch (error) {
+      if (priceCache) {
+        res.status(200).json({ prices: priceCache.prices, source: 'stale-fallback', liveError: error.message });
+      } else {
+        res.status(200).json({ prices: {}, source: 'unavailable', error: error.message });
+      }
+    }
     return;
   }
 
