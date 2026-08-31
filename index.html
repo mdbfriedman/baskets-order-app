@@ -348,9 +348,13 @@
           return failed;
         };
 
-        var failedBatches = await runQueue(batches);
-        if (failedBatches.length) {
-          await runQueue(failedBatches);
+        // Up to 3 attempts total per batch — testing against the live store
+        // showed even a batch of 3 can still time out on the first try and
+        // come through fine on a second, so one retry alone wasn't quite
+        // enough headroom.
+        var remaining = batches;
+        for (var attempt = 0; attempt < 3 && remaining.length; attempt++) {
+          remaining = await runQueue(remaining);
         }
       },
 
