@@ -276,7 +276,7 @@
           lastName: '',
           deliveredTo: '',
           pickupOrDelivery: 'delivery',
-          address: '',
+          address: '', // no longer collected via its own field; kept so existing label-printing code (which reads order.address) doesn't break
           customerNote: '',
           paymentMethod: '',
           items: [{ product: '', quantity: 1 }]
@@ -306,7 +306,7 @@
         app.newOrder.lastName = g('noLastName');
         app.newOrder.deliveredTo = g('noDeliveredTo');
         app.newOrder.pickupOrDelivery = g('noPickupDelivery') || 'delivery';
-        app.newOrder.address = g('noAddress');
+        // No dedicated Address field anymore — Deliver To covers it now.
         app.newOrder.customerNote = g('noNote');
         app.newOrder.paymentMethod = g('noPayment');
         app.newOrder.items.forEach(function(item, idx) {
@@ -460,17 +460,14 @@
         html += '<label style="font-size:12px;color:#374151">Last Name</label>';
         html += '<input type="text" id="noLastName" value="' + o.lastName.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
 
-        html += '<label style="font-size:12px;color:#374151">Deliver To (if different)</label>';
-        html += '<input type="text" id="noDeliveredTo" value="' + o.deliveredTo.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
-
         html += '<label style="font-size:12px;color:#374151">Pickup or Delivery</label>';
         html += '<select id="noPickupDelivery" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">' +
           '<option value="delivery"' + (o.pickupOrDelivery === 'delivery' ? ' selected' : '') + '>Delivery</option>' +
           '<option value="pickup"' + (o.pickupOrDelivery === 'pickup' ? ' selected' : '') + '>Pickup</option>' +
           '</select>';
 
-        html += '<label style="font-size:12px;color:#374151">Address</label>';
-        html += '<input type="text" id="noAddress" value="' + o.address.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
+        html += '<label style="font-size:12px;color:#374151">Deliver To</label>';
+        html += '<input type="text" id="noDeliveredTo" value="' + o.deliveredTo.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
 
         html += '<label style="font-size:12px;color:#374151">Payment Method</label>';
         html += '<input type="text" id="noPayment" value="' + o.paymentMethod.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
@@ -583,9 +580,6 @@
       initAddressAutocomplete: function() {
         app.attachPlacesAutocomplete('noDeliveredTo', function(value) {
           if (app.newOrder) app.newOrder.deliveredTo = value;
-        });
-        app.attachPlacesAutocomplete('noAddress', function(value) {
-          if (app.newOrder) app.newOrder.address = value;
         });
       },
 
