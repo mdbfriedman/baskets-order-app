@@ -445,6 +445,14 @@ function parseSheetData(values) {
   const addressIdx = headers.findIndex(h => h.includes('delivery address'));
   const pickupIdx = headers.findIndex(h => h.includes('pickup'));
   const noteIdx = headers.findIndex(h => h.includes('customer note'));
+  const orderNumIdx = headers.findIndex(h => h.includes('order number'));
+  const paymentIdx = headers.findIndex(h => h.includes('payment'));
+  const totalIdx = headers.findIndex(h => h.includes('total'));
+  // These two are new columns — blank/-1 until added to the sheet's header
+  // row (see /api/update-order), which is fine: editing an older order just
+  // won't have a cost breakdown to pre-fill, only whatever Total it has.
+  const productCostIdx = headers.findIndex(h => h.includes('product cost'));
+  const deliveryCostIdx = headers.findIndex(h => h.includes('delivery cost'));
 
   for (let i = 1; i < values.length; i++) {
     const row = values[i];
@@ -481,16 +489,74 @@ function parseSheetData(values) {
 
     orders.push({
       deliveryDate: (row[dateIdx] || '').trim(),
+      orderNumber: (row[orderNumIdx] || '').trim(),
       lastName: (row[nameIdx] || 'Unknown').trim(),
       deliveredTo: (row[deliveredToIdx] || '').trim(),
       items: items,
       address: (row[addressIdx] || '').trim(),
       pickupOrDelivery: (row[pickupIdx] || 'delivery').trim(),
-      customerNote: (row[noteIdx] || '').trim()
+      customerNote: (row[noteIdx] || '').trim(),
+      paymentMethod: (row[paymentIdx] || '').trim(),
+      total: (row[totalIdx] || '').trim(),
+      productCost: (row[productCostIdx] || '').trim(),
+      deliveryCost: (row[deliveryCostIdx] || '').trim()
     });
   }
 
   return orders.filter(o => o.deliveryDate && o.items.length > 0);
+}
+
+// Shared between /api/add-order and /api/update-order: validates the order
+// fields and builds the flat row array matching the sheet's column order.
+// Column order must match the live sheet exactly:
+// A=Delivery Date, B=Order Number, C=Name, D=Line Item Name, E=Quantity,
+// F=Quantity of Individual, G=Deliver To Last Name, H=Pickup/Delivery,
+// I=Delivery Address, J=Total, K=Payment Method, L=Customer Note,
+// M=Product Cost, N=Delivery Cost. M/N are new — add those two header
+// labels to the sheet yourself if you want to see them there; this always
+// writes into those columns either way.
+function validateAndBuildOrderRow(body, orderNumber) {
+  const {
+    deliveryDate, lastName, deliveryName, pickupOrDelivery,
+    deliveryAddress, customerNote, paymentMethod, total,
+    productCost, deliveryCost, items
+  } = body;
+
+  if (!deliveryDate || !lastName || !String(lastName).trim()) {
+    return { error: 'Delivery date and last name are required' };
+  }
+  if (!Array.isArray(items) || items.length === 0) {
+    return { error: 'At least one item is required' };
+  }
+
+  const productNames = items.map(i => String((i && i.product) || '').trim()).filter(Boolean);
+  const quantities = items.map(i => {
+    const q = parseInt(i && i.quantity, 10);
+    return isNaN(q) ? 1 : q;
+  });
+
+  if (productNames.length === 0) {
+    return { error: 'At least one item with a product is required' };
+  }
+
+  const row = [
+    deliveryDate,
+    orderNumber,
+    String(lastName).trim(),
+    productNames.join(', '),
+    quantities.join(', '),
+    '', // Quantity of Individual — left blank; the product's SKU already encodes pack size
+    (deliveryName || '').trim(),
+    pickupOrDelivery || 'delivery',
+    (deliveryAddress || '').trim(),
+    (total || '').toString().trim(),
+    (paymentMethod || '').trim(),
+    (customerNote || '').trim(),
+    (productCost || '').toString().trim(),
+    (deliveryCost || '').toString().trim()
+  ];
+
+  return { row };
 }
 
 function createJWT(serviceAccount) {
@@ -652,58 +718,20 @@ export default async function handler(req, res) {
         return;
       }
 
-      const {
-        deliveryDate, lastName, deliveryName, pickupOrDelivery,
-        deliveryAddress, customerNote, paymentMethod, total, items
-      } = req.body;
-
-      if (!deliveryDate || !lastName || !String(lastName).trim()) {
-        res.status(400).json({ error: 'Delivery date and last name are required' });
-        return;
-      }
-      if (!Array.isArray(items) || items.length === 0) {
-        res.status(400).json({ error: 'At least one item is required' });
-        return;
-      }
-
-      const productNames = items.map(i => String((i && i.product) || '').trim()).filter(Boolean);
-      const quantities = items.map(i => {
-        const q = parseInt(i && i.quantity, 10);
-        return isNaN(q) ? 1 : q;
-      });
-
-      if (productNames.length === 0) {
-        res.status(400).json({ error: 'At least one item with a product is required' });
-        return;
-      }
-
       // Manual entries get their own order number prefix so they're distinguishable
       // from the sequential numbers WooCommerce/Zapier assigns.
       const orderNumber = 'M' + Date.now().toString().slice(-7);
 
-      // Column order must match the live sheet exactly:
-      // A=Delivery Date, B=Order Number, C=Last Name, D=Line Item Name, E=Quantity,
-      // F=Quantity of Individual, G=Delivered To Last Name, H=Pickup/Delivery,
-      // I=Delivery Address, J=Total, K=Payment Method, L=Customer Note
-      const row = [
-        deliveryDate,
-        orderNumber,
-        String(lastName).trim(),
-        productNames.join(', '),
-        quantities.join(', '),
-        '', // Quantity of Individual — left blank; the product's SKU already encodes pack size
-        (deliveryName || '').trim(),
-        pickupOrDelivery || 'delivery',
-        (deliveryAddress || '').trim(),
-        (total || '').toString().trim(),
-        (paymentMethod || '').trim(),
-        (customerNote || '').trim()
-      ];
+      const built = validateAndBuildOrderRow(req.body, orderNumber);
+      if (built.error) {
+        res.status(400).json({ error: built.error });
+        return;
+      }
 
       const accessToken = await getAccessToken(serviceAccount);
 
       const sheetId = '1hW5nnsCyPVxNBXGV1CywgBaE1f9wMQxZEWk-rHu71hM';
-      const range = 'Sheet1!A:L';
+      const range = 'Sheet1!A:N';
 
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
       const response = await fetch(url, {
@@ -712,12 +740,97 @@ export default async function handler(req, res) {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ values: [row] })
+        body: JSON.stringify({ values: [built.row] })
       });
 
       if (!response.ok) {
         const errBody = await response.text();
         throw new Error(`Google Sheets error: ${response.status} ${errBody}`);
+      }
+
+      res.status(200).json({ success: true, orderNumber });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/api/update-order') {
+    try {
+      let serviceAccount;
+
+      if (process.env.SERVICE_ACCOUNT) {
+        serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT);
+      } else if (storedServiceAccount) {
+        serviceAccount = storedServiceAccount;
+      } else if (req.body.serviceAccount) {
+        serviceAccount = req.body.serviceAccount;
+      }
+
+      if (!serviceAccount || !serviceAccount.private_key) {
+        res.status(400).json({ error: 'Service account key not configured' });
+        return;
+      }
+
+      const orderNumber = (req.body.orderNumber || '').toString().trim();
+      if (!orderNumber) {
+        res.status(400).json({ error: 'Missing order number — this order can\'t be matched back to its row in the sheet' });
+        return;
+      }
+
+      const built = validateAndBuildOrderRow(req.body, orderNumber);
+      if (built.error) {
+        res.status(400).json({ error: built.error });
+        return;
+      }
+
+      const accessToken = await getAccessToken(serviceAccount);
+      const sheetId = '1hW5nnsCyPVxNBXGV1CywgBaE1f9wMQxZEWk-rHu71hM';
+
+      // Re-read the sheet fresh and locate the row by order number, rather
+      // than trusting a row number the client loaded earlier — someone
+      // could have added or removed a row in the sheet in the meantime,
+      // and this way an edit can never land on the wrong row.
+      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent('Sheet1!A:N')}`;
+      const readResp = await fetch(readUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!readResp.ok) {
+        const errBody = await readResp.text();
+        throw new Error(`Google Sheets error: ${readResp.status} ${errBody}`);
+      }
+      const readData = await readResp.json();
+      const values = readData.values || [];
+      const headers = (values[0] || []).map(h => h.toLowerCase().trim());
+      const orderNumIdx = headers.findIndex(h => h.includes('order number'));
+      if (orderNumIdx === -1) {
+        throw new Error('Could not find the Order Number column in the sheet');
+      }
+
+      let rowNumber = -1;
+      for (let i = 1; i < values.length; i++) {
+        if ((values[i][orderNumIdx] || '').toString().trim() === orderNumber) {
+          rowNumber = i + 1; // sheet rows are 1-indexed; values[0] is row 1
+          break;
+        }
+      }
+      if (rowNumber === -1) {
+        res.status(404).json({ error: 'Order not found in the sheet — it may have been changed or removed since this page loaded. Refresh and try again.' });
+        return;
+      }
+
+      const updateRange = `Sheet1!A${rowNumber}:N${rowNumber}`;
+      const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(updateRange)}?valueInputOption=USER_ENTERED`;
+      const updateResp = await fetch(updateUrl, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ values: [built.row] })
+      });
+
+      if (!updateResp.ok) {
+        const errBody = await updateResp.text();
+        throw new Error(`Google Sheets error: ${updateResp.status} ${errBody}`);
       }
 
       res.status(200).json({ success: true, orderNumber });
