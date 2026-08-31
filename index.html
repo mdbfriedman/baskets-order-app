@@ -301,33 +301,57 @@
       // and fetch a few batches at a time in the background — Product Cost
       // picks up newly-known prices as each batch lands, and one slow or
       // failed batch never blocks the rest.
+      //
+      // Batch size is small (3) because some product families — salads and
+      // cups especially — have far more size/tray variations per product
+      // than something like a platter does, so a batch that happens to land
+      // on several of those still has a lot of work to do even at a handful
+      // of products per batch. Whatever still fails after the first pass
+      // gets one automatic retry, since a timeout here is usually this
+      // store's API being briefly slow rather than permanently broken.
       loadVariationPrices: async function(ids) {
-        var batchSize = 8;
-        var concurrency = 3;
+        var batchSize = 3;
+        var concurrency = 4;
         var batches = [];
         for (var i = 0; i < ids.length; i += batchSize) batches.push(ids.slice(i, i + batchSize));
 
-        var next = 0;
-        var worker = async function() {
-          while (next < batches.length) {
-            var batch = batches[next++];
-            try {
-              var resp = await fetch('/api/product-prices?variationIds=' + batch.join(','));
-              if (resp.ok) {
-                var data = await resp.json();
-                if (data.prices) {
-                  Object.assign(app.productPrices, data.prices);
-                  if (app.showAddOrder) app.recalcProductCost();
-                }
+        var fetchBatch = async function(batch) {
+          try {
+            var resp = await fetch('/api/product-prices?variationIds=' + batch.join(','));
+            if (resp.ok) {
+              var data = await resp.json();
+              if (data.prices) {
+                Object.assign(app.productPrices, data.prices);
+                if (app.showAddOrder) app.recalcProductCost();
               }
-            } catch (e) {
-              // this batch just doesn't get prices — the rest still proceed
+              return true;
             }
+          } catch (e) {
+            // fall through to "failed" — the caller decides whether to retry
           }
+          return false;
         };
-        var workers = [];
-        for (var w = 0; w < concurrency; w++) workers.push(worker());
-        await Promise.all(workers);
+
+        var runQueue = async function(queue) {
+          var next = 0;
+          var failed = [];
+          var worker = async function() {
+            while (next < queue.length) {
+              var batch = queue[next++];
+              var ok = await fetchBatch(batch);
+              if (!ok) failed.push(batch);
+            }
+          };
+          var workers = [];
+          for (var w = 0; w < concurrency; w++) workers.push(worker());
+          await Promise.all(workers);
+          return failed;
+        };
+
+        var failedBatches = await runQueue(batches);
+        if (failedBatches.length) {
+          await runQueue(failedBatches);
+        }
       },
 
       // ---- Manual "Add Order" form ----
