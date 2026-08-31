@@ -549,7 +549,7 @@ export default async function handler(req, res) {
 
       const {
         deliveryDate, lastName, deliveryName, pickupOrDelivery,
-        deliveryAddress, customerNote, paymentMethod, items
+        deliveryAddress, customerNote, paymentMethod, total, items
       } = req.body;
 
       if (!deliveryDate || !lastName || !String(lastName).trim()) {
@@ -590,7 +590,7 @@ export default async function handler(req, res) {
         (deliveryName || '').trim(),
         pickupOrDelivery || 'delivery',
         (deliveryAddress || '').trim(),
-        '', // Total — not calculated here
+        (total || '').toString().trim(),
         (paymentMethod || '').trim(),
         (customerNote || '').trim()
       ];
