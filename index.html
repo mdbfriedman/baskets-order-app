@@ -274,9 +274,9 @@
         app.newOrder = {
           deliveryDate: todayISO,
           lastName: '',
-          deliveredTo: '',
+          deliveryName: '',
           pickupOrDelivery: 'delivery',
-          address: '', // no longer collected via its own field; kept so existing label-printing code (which reads order.address) doesn't break
+          deliveryAddress: '',
           customerNote: '',
           paymentMethod: '',
           items: [{ product: '', quantity: 1 }]
@@ -304,9 +304,9 @@
         };
         app.newOrder.deliveryDate = g('noDeliveryDate') || app.newOrder.deliveryDate;
         app.newOrder.lastName = g('noLastName');
-        app.newOrder.deliveredTo = g('noDeliveredTo');
         app.newOrder.pickupOrDelivery = g('noPickupDelivery') || 'delivery';
-        // No dedicated Address field anymore — Deliver To covers it now.
+        app.newOrder.deliveryName = g('noDeliveryName');
+        app.newOrder.deliveryAddress = g('noDeliveryAddress');
         app.newOrder.customerNote = g('noNote');
         app.newOrder.paymentMethod = g('noPayment');
         app.newOrder.items.forEach(function(item, idx) {
@@ -363,9 +363,9 @@
           var body = {
             deliveryDate: formattedDate,
             lastName: o.lastName.trim(),
-            deliveredTo: o.deliveredTo.trim(),
+            deliveryName: o.deliveryName.trim(),
             pickupOrDelivery: o.pickupOrDelivery,
-            address: o.address.trim(),
+            deliveryAddress: o.deliveryAddress.trim(),
             customerNote: o.customerNote.trim(),
             paymentMethod: o.paymentMethod.trim(),
             items: validItems
@@ -461,13 +461,18 @@
         html += '<input type="text" id="noLastName" value="' + o.lastName.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
 
         html += '<label style="font-size:12px;color:#374151">Pickup or Delivery</label>';
-        html += '<select id="noPickupDelivery" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">' +
+        html += '<select id="noPickupDelivery" onchange="app.updateDeliveryFieldsState()" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">' +
           '<option value="delivery"' + (o.pickupOrDelivery === 'delivery' ? ' selected' : '') + '>Delivery</option>' +
           '<option value="pickup"' + (o.pickupOrDelivery === 'pickup' ? ' selected' : '') + '>Pickup</option>' +
           '</select>';
 
-        html += '<label style="font-size:12px;color:#374151">Deliver To</label>';
-        html += '<input type="text" id="noDeliveredTo" value="' + o.deliveredTo.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
+        html += '<div id="deliveryFieldsWrap">';
+        html += '<label style="font-size:12px;color:#374151">Delivery Name</label>';
+        html += '<input type="text" id="noDeliveryName" value="' + o.deliveryName.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
+
+        html += '<label style="font-size:12px;color:#374151">Delivery Address</label>';
+        html += '<input type="text" id="noDeliveryAddress" value="' + o.deliveryAddress.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
+        html += '</div>';
 
         html += '<label style="font-size:12px;color:#374151">Payment Method</label>';
         html += '<input type="text" id="noPayment" value="' + o.paymentMethod.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
@@ -578,9 +583,24 @@
       },
 
       initAddressAutocomplete: function() {
-        app.attachPlacesAutocomplete('noDeliveredTo', function(value) {
-          if (app.newOrder) app.newOrder.deliveredTo = value;
+        app.attachPlacesAutocomplete('noDeliveryAddress', function(value) {
+          if (app.newOrder) app.newOrder.deliveryAddress = value;
         });
+      },
+
+      // Grays out (and disables) Delivery Name/Address whenever "Pickup" is
+      // selected, since there's nowhere to deliver to. Called on every render
+      // of the Add Order form and again whenever the dropdown changes.
+      updateDeliveryFieldsState: function() {
+        var select = document.getElementById('noPickupDelivery');
+        var wrap = document.getElementById('deliveryFieldsWrap');
+        if (!select || !wrap) return;
+        var isPickup = select.value === 'pickup';
+        wrap.style.opacity = isPickup ? '0.5' : '1';
+        var nameInput = document.getElementById('noDeliveryName');
+        var addrInput = document.getElementById('noDeliveryAddress');
+        if (nameInput) nameInput.disabled = isPickup;
+        if (addrInput) addrInput.disabled = isPickup;
       },
 
       getAllDates: function() {
@@ -964,6 +984,7 @@
         if (app.showAddOrder) {
           appDiv.innerHTML = app.renderAddOrderForm();
           app.initAddressAutocomplete();
+          app.updateDeliveryFieldsState();
           return;
         }
 
@@ -1013,14 +1034,25 @@
 
     app.checkSetup();
 
-    // Fires once the Google Maps script below finishes loading. If the Add
-    // Order form happens to already be open at that point, attach
-    // autocomplete to its address field now (initAddressAutocomplete() is a
-    // no-op until this has run, so opening the form earlier doesn't error).
+    // Fires once the Google Maps script finishes loading. If the Add Order
+    // form happens to already be open at that point, attach autocomplete to
+    // its address field now (initAddressAutocomplete() is a no-op until this
+    // has run, so opening the form earlier doesn't error).
     function onGoogleMapsLoaded() {
       if (app.showAddOrder) app.initAddressAutocomplete();
     }
+
+    // The Maps API key lives in a Vercel environment variable (GOOGLE_MAPS_API_KEY),
+    // not in this file, so it never sits in the committed source. Fetch it
+    // from the server and load the Maps script with it at runtime instead.
+    fetch('/api/maps-key').then(function(r) { return r.json(); }).then(function(data) {
+      if (!data.key) return; // not configured yet — app still works, just no address autocomplete
+      var s = document.createElement('script');
+      s.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(data.key) + '&libraries=places&loading=async&callback=onGoogleMapsLoaded';
+      s.async = true;
+      s.defer = true;
+      document.head.appendChild(s);
+    }).catch(function() { /* no autocomplete this session, form still usable */ });
   </script>
-  
 </body>
 </html>
