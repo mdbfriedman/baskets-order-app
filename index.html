@@ -62,6 +62,7 @@
       orders: [],
       products: [],
       productPrices: {}, // sku -> price, best-effort, loaded from WooCommerce in the background
+      pricesLoading: false, // true while variation prices (salads, fruit cups, etc.) are still being fetched in the background
       selectedDate: null,
       isAuthenticated: false,
       error: '',
@@ -287,11 +288,25 @@
             if (app.showAddOrder) app.recalcProductCost();
           }
           if (data.variableProductIds && data.variableProductIds.length) {
+            app.pricesLoading = true;
+            app.updatePricesLoadingNote();
             app.loadVariationPrices(data.variableProductIds);
           }
         } catch (e) {
           // no auto-fill this session — manual entry still works fine
         }
+      },
+
+      // Toggles the small "still loading prices" note next to the Product
+      // Cost label. Pokes the DOM directly (like recalcProductCost does)
+      // instead of calling app.render() — a full re-render mid-background-fetch
+      // would rebuild the Add Order form from app.newOrder and wipe out any
+      // fields the user has typed into that aren't synced back on every
+      // keystroke (e.g. Name, Address).
+      updatePricesLoadingNote: function() {
+        var note = document.getElementById('noPricesLoadingNote');
+        if (!note) return;
+        note.style.display = app.pricesLoading ? '' : 'none';
       },
 
       // Most of this store's actual SKUs live under variable products (e.g.
@@ -309,9 +324,17 @@
       // of products per batch. Whatever still fails after the first pass
       // gets one automatic retry, since a timeout here is usually this
       // store's API being briefly slow rather than permanently broken.
+      //
+      // Concurrency is 8, not 4 — each batch is its own serverless
+      // invocation (30s ceiling, well above what 3 products take), so
+      // running more of them at once doesn't risk any single request timing
+      // out, it just gets through the whole catalog sooner. This mattered in
+      // practice: Fruit Cups and later-loading salads had real prices the
+      // whole time, they just hadn't been fetched yet by the time someone
+      // added them to an order.
       loadVariationPrices: async function(ids) {
         var batchSize = 3;
-        var concurrency = 4;
+        var concurrency = 8;
         var batches = [];
         for (var i = 0; i < ids.length; i += batchSize) batches.push(ids.slice(i, i + batchSize));
 
@@ -356,6 +379,12 @@
         for (var attempt = 0; attempt < 3 && remaining.length; attempt++) {
           remaining = await runQueue(remaining);
         }
+
+        // Done (or given up after 3 passes) — either way, stop showing the
+        // "still loading" note. Any batches that never came through just
+        // stay unpriced, same as any other unmatched SKU.
+        app.pricesLoading = false;
+        app.updatePricesLoadingNote();
       },
 
       // ---- Manual "Add Order" form ----
@@ -690,6 +719,7 @@
         html += '<button type="button" onclick="app.addOrderItemRow()" style="background:#6b7280;margin-bottom:15px">+ Add another product</button>';
 
         html += '<label style="font-size:12px;color:#374151">Product Cost</label><span style="font-size:11px;color:#9ca3af"> (auto-fills from known prices — edit freely)</span>';
+        html += '<span id="noPricesLoadingNote" style="display:' + (app.pricesLoading ? '' : 'none') + ';font-size:11px;color:#d97706;margin-left:6px">&#9679; still loading more prices in the background&mldr;</span>';
         html += '<input type="number" step="0.01" min="0" inputmode="decimal" id="noProductCost" oninput="if (app.newOrder) app.newOrder.productCostAutoValue = null; app.recalcOrderTotal();" value="' + o.productCost.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
 
         html += '<label style="font-size:12px;color:#374151">Delivery Cost</label>';
