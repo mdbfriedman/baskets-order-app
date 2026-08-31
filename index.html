@@ -413,12 +413,19 @@
           return;
         }
         box.innerHTML = matches.map(function(p) {
-          // Touch devices fire blur (closing this box) before mousedown/click reaches
-          // it, so a tap here can silently do nothing. ontouchstart with
-          // preventDefault stops that blur-vs-tap race and picks the product directly;
-          // onmousedown still covers desktop clicks.
-          return '<div onmousedown="app.pickProductSuggestion(' + idx + ', \'' + app.escForJsAttr(p) + '\')" ' +
-            'ontouchstart="event.preventDefault(); app.pickProductSuggestion(' + idx + ', \'' + app.escForJsAttr(p) + '\')" ' +
+          var pickCall = "app.pickProductSuggestion(" + idx + ", '" + app.escForJsAttr(p) + "')";
+          // Touch devices fire blur (closing this box) before mousedown/click
+          // reaches it, so a plain tap can silently do nothing — that's what
+          // onmousedown covers for desktop and touchend covers below for touch.
+          // Selecting on touchSTART (an earlier version of this) fixed that but
+          // broke scrolling the list, since it fired — and blocked the native
+          // scroll gesture — the instant a finger touched down anywhere in it.
+          // Instead: just record where the touch started, and on touchend only
+          // treat it as a tap (and pick) if the finger barely moved; a real
+          // scroll drag is left alone so the list scrolls normally.
+          return '<div onmousedown="' + pickCall + '" ' +
+            'ontouchstart="this.dataset.ty = event.touches[0].clientY" ' +
+            'ontouchend="if (Math.abs(event.changedTouches[0].clientY - (this.dataset.ty || 0)) < 10) { event.preventDefault(); ' + pickCall + '; }" ' +
             'style="padding:10px 8px;cursor:pointer;font-size:14px;background:white;border:1px solid #d1d5db;border-top:none" ' +
             'onmouseover="this.style.background=\'#f3f4f6\'" onmouseout="this.style.background=\'white\'">' + p + '</div>';
         }).join('');
@@ -442,10 +449,12 @@
             'oninput="app.filterProductSuggestions(' + idx + ', this.value)" ' +
             'onblur="setTimeout(function(){ var b=document.getElementById(\'noItemSuggestions_' + idx + '\'); if(b) b.innerHTML=\'\'; }, 300)" ' +
             'style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #d1d5db;border-radius:6px">' +
-            '<div id="noItemSuggestions_' + idx + '" style="position:absolute;top:100%;left:0;right:0;z-index:1000;max-height:200px;overflow-y:auto;background:white;box-shadow:0 4px 10px rgba(0,0,0,0.15);border-radius:0 0 6px 6px"></div>' +
             '</div>' +
             '<input type="number" min="1" id="noItemQty_' + idx + '" value="' + (item.quantity || 1) + '" style="flex:0 1 70px;min-width:60px;padding:8px;border:1px solid #d1d5db;border-radius:6px">' +
             (o.items.length > 1 ? '<button type="button" onclick="app.removeOrderItemRow(' + idx + ')" style="background:#ef4444;width:36px;padding:8px 0;margin:0">✕</button>' : '<span style="width:36px"></span>') +
+            // Positioned against the whole row (not just the narrower product
+            // input) so it's wider and easier to tap on mobile, per request.
+            '<div id="noItemSuggestions_' + idx + '" style="position:absolute;top:100%;left:0;right:0;z-index:1000;max-height:200px;overflow-y:auto;background:white;box-shadow:0 4px 10px rgba(0,0,0,0.15);border-radius:0 0 6px 6px"></div>' +
             '</div>';
         }).join('');
 
