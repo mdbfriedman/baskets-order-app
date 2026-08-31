@@ -534,13 +534,13 @@
         return { address: address, city: city };
       },
 
-      // Attaches Google Places Autocomplete to the Add Order address field.
-      // Called every time the Add Order form's HTML is (re)inserted into the
-      // DOM (opening the form, adding/removing a product row) since each
+      // Attaches Google Places Autocomplete to one Add Order field. Called
+      // every time the Add Order form's HTML is (re)inserted into the DOM
+      // (opening the form, adding/removing a product row) since each
       // re-render replaces the whole form's innerHTML and creates a brand
       // new <input> element that needs its own Autocomplete instance.
-      initAddressAutocomplete: function() {
-        var input = document.getElementById('noAddress');
+      attachPlacesAutocomplete: function(inputId, onPick) {
+        var input = document.getElementById(inputId);
         if (!input) return;
         if (!window.google || !google.maps || !google.maps.places) {
           // Maps script hasn't finished loading yet — onGoogleMapsLoaded()
@@ -576,7 +576,16 @@
           var city = get('locality') || get('sublocality') || get('administrative_area_level_3') || get('administrative_area_level_2');
           var rebuilt = [streetNumber, route, city].filter(Boolean).join(' ');
           input.value = rebuilt || place.formatted_address || input.value;
-          if (app.newOrder) app.newOrder.address = input.value;
+          if (onPick) onPick(input.value);
+        });
+      },
+
+      initAddressAutocomplete: function() {
+        app.attachPlacesAutocomplete('noDeliveredTo', function(value) {
+          if (app.newOrder) app.newOrder.deliveredTo = value;
+        });
+        app.attachPlacesAutocomplete('noAddress', function(value) {
+          if (app.newOrder) app.newOrder.address = value;
         });
       },
 
