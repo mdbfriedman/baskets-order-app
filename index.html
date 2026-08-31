@@ -61,6 +61,7 @@
     var app = {
       orders: [],
       products: [],
+      productPrices: {}, // sku -> price, best-effort, loaded from WooCommerce in the background
       selectedDate: null,
       isAuthenticated: false,
       error: '',
@@ -188,6 +189,7 @@
           // below by the full live WooCommerce catalog when that call succeeds.
           app.products = Array.from(productSet).sort();
           app.loadProducts();
+          app.loadProductPrices();
 
           var dates = [... new Set(app.orders.map(function(o) { return o.deliveryDate; }))].sort();
           
@@ -267,6 +269,27 @@
         }
       },
 
+      // Pulls a sku -> price map from WooCommerce so Add Order can auto-fill
+      // Product Cost as items are picked. This hits the same store API that's
+      // been unreliable/slow for the full product list in the past, so it's
+      // strictly best-effort: on failure (or if it's just slow), Product Cost
+      // simply stays manual — nothing here blocks the form from working.
+      loadProductPrices: async function() {
+        try {
+          var resp = await fetch('/api/product-prices');
+          if (!resp.ok) return;
+          var data = await resp.json();
+          if (data.prices) {
+            app.productPrices = data.prices;
+            // The Add Order form may already be open with items picked
+            // before this finished loading — fill in what we can now.
+            if (app.showAddOrder) app.recalcProductCost();
+          }
+        } catch (e) {
+          // no auto-fill this session — manual entry still works fine
+        }
+      },
+
       // ---- Manual "Add Order" form ----
       openAddOrder: function() {
         var today = new Date();
@@ -279,7 +302,10 @@
           deliveryAddress: '',
           customerNote: '',
           paymentMethod: '',
+          productCost: '',
+          deliveryCost: '',
           total: '',
+          productCostAutoValue: null, // last value we auto-filled, so we can tell a manual edit apart from our own fill
           items: [{ product: '', quantity: 1 }]
         };
         app.addOrderError = '';
@@ -310,6 +336,8 @@
         app.newOrder.deliveryAddress = g('noDeliveryAddress');
         app.newOrder.customerNote = g('noNote');
         app.newOrder.paymentMethod = g('noPayment');
+        app.newOrder.productCost = g('noProductCost');
+        app.newOrder.deliveryCost = g('noDeliveryCost');
         app.newOrder.total = g('noTotal');
         app.newOrder.items.forEach(function(item, idx) {
           item.product = g('noItemProduct_' + idx);
@@ -440,6 +468,49 @@
         if (app.newOrder && app.newOrder.items[idx]) app.newOrder.items[idx].product = value;
         var box = document.getElementById('noItemSuggestions_' + idx);
         if (box) box.innerHTML = '';
+        app.recalcProductCost();
+      },
+
+      // Sums known unit prices x quantity across all items into Product Cost,
+      // then rolls that into Total. Best-effort: items with no known price
+      // (WooCommerce price list still loading, or a SKU it doesn't have)
+      // just don't contribute, so it silently degrades to manual entry.
+      // Only overwrites Product Cost while it's empty or still holds exactly
+      // what we last auto-filled — the moment the user types their own
+      // number, this backs off and leaves it alone.
+      recalcProductCost: function() {
+        if (!app.newOrder) return;
+        var el = document.getElementById('noProductCost');
+        if (!el) return;
+        if (el.value !== '' && el.value !== app.newOrder.productCostAutoValue) return;
+        var sum = 0, any = false;
+        app.newOrder.items.forEach(function(item) {
+          var price = app.productPrices[(item.product || '').trim()];
+          if (price == null) return;
+          var qty = parseInt(item.quantity, 10);
+          if (isNaN(qty) || qty < 1) qty = 1;
+          sum += price * qty;
+          any = true;
+        });
+        if (!any) return;
+        var formatted = sum.toFixed(2);
+        el.value = formatted;
+        app.newOrder.productCostAutoValue = formatted;
+        app.recalcOrderTotal();
+      },
+
+      // Total = Product Cost + Delivery Cost, recalculated live whenever
+      // either changes. If neither has a value yet, Total is left alone so
+      // someone can still just type a total directly without the breakdown.
+      recalcOrderTotal: function() {
+        var pcEl = document.getElementById('noProductCost');
+        var dcEl = document.getElementById('noDeliveryCost');
+        var totalEl = document.getElementById('noTotal');
+        if (!totalEl) return;
+        var pc = pcEl ? parseFloat(pcEl.value) : NaN;
+        var dc = dcEl ? parseFloat(dcEl.value) : NaN;
+        if (isNaN(pc) && isNaN(dc)) return;
+        totalEl.value = ((isNaN(pc) ? 0 : pc) + (isNaN(dc) ? 0 : dc)).toFixed(2);
       },
 
       renderAddOrderForm: function() {
@@ -449,11 +520,13 @@
           return '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;align-items:flex-start;position:relative;z-index:' + (100 - idx) + '">' +
             '<div style="position:relative;z-index:1;flex:1 1 160px;min-width:140px">' +
             '<input type="text" autocomplete="off" id="noItemProduct_' + idx + '" placeholder="Start typing a product..." value="' + (item.product || '').replace(/"/g, '&quot;') + '" ' +
-            'oninput="app.filterProductSuggestions(' + idx + ', this.value)" ' +
+            'oninput="app.filterProductSuggestions(' + idx + ', this.value); app.recalcProductCost();" ' +
             'onblur="setTimeout(function(){ var b=document.getElementById(\'noItemSuggestions_' + idx + '\'); if(b) b.innerHTML=\'\'; }, 300)" ' +
             'style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #d1d5db;border-radius:6px">' +
             '</div>' +
-            '<input type="number" min="1" id="noItemQty_' + idx + '" value="' + (item.quantity || 1) + '" style="flex:0 1 70px;min-width:60px;padding:8px;border:1px solid #d1d5db;border-radius:6px">' +
+            '<input type="number" min="1" id="noItemQty_' + idx + '" value="' + (item.quantity || 1) + '" ' +
+            'oninput="if (app.newOrder && app.newOrder.items[' + idx + ']) { app.newOrder.items[' + idx + '].quantity = parseInt(this.value, 10) || 1; app.recalcProductCost(); }" ' +
+            'style="flex:0 1 70px;min-width:60px;padding:8px;border:1px solid #d1d5db;border-radius:6px">' +
             (o.items.length > 1 ? '<button type="button" onclick="app.removeOrderItemRow(' + idx + ')" style="background:#ef4444;width:36px;padding:8px 0;margin:0">✕</button>' : '<span style="width:36px"></span>') +
             // Positioned against the whole row (not just the narrower product
             // input) so it's wider and easier to tap on mobile, per request.
@@ -486,17 +559,23 @@
         html += '<input type="text" id="noDeliveryAddress" value="' + o.deliveryAddress.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
         html += '</div>';
 
-        html += '<label style="font-size:12px;color:#374151">Payment Method</label>';
-        html += '<input type="text" id="noPayment" value="' + o.paymentMethod.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
+        html += '<label style="font-size:12px;color:#374151">Products</label><span style="font-size:11px;color:#9ca3af"> (' + app.products.length + ' known products loaded)</span><div style="margin:6px 0 8px">' + itemsHtml + '</div>';
+        html += '<button type="button" onclick="app.addOrderItemRow()" style="background:#6b7280;margin-bottom:15px">+ Add another product</button>';
+
+        html += '<label style="font-size:12px;color:#374151">Product Cost</label><span style="font-size:11px;color:#9ca3af"> (auto-fills from known prices — edit freely)</span>';
+        html += '<input type="number" step="0.01" min="0" inputmode="decimal" id="noProductCost" oninput="if (app.newOrder) app.newOrder.productCostAutoValue = null; app.recalcOrderTotal();" value="' + o.productCost.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
+
+        html += '<label style="font-size:12px;color:#374151">Delivery Cost</label>';
+        html += '<input type="number" step="0.01" min="0" inputmode="decimal" id="noDeliveryCost" oninput="app.recalcOrderTotal();" value="' + o.deliveryCost.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
 
         html += '<label style="font-size:12px;color:#374151">Total</label>';
         html += '<input type="number" step="0.01" min="0" inputmode="decimal" id="noTotal" value="' + o.total.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
 
+        html += '<label style="font-size:12px;color:#374151">Payment Method</label>';
+        html += '<input type="text" id="noPayment" value="' + o.paymentMethod.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
+
         html += '<label style="font-size:12px;color:#374151">Customer Note</label>';
         html += '<textarea id="noNote" style="width:100%;height:70px;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">' + o.customerNote.replace(/</g, '&lt;') + '</textarea>';
-
-        html += '<label style="font-size:12px;color:#374151">Products</label><span style="font-size:11px;color:#9ca3af"> (' + app.products.length + ' known products loaded)</span><div style="margin:6px 0 8px">' + itemsHtml + '</div>';
-        html += '<button type="button" onclick="app.addOrderItemRow()" style="background:#6b7280;margin-bottom:15px">+ Add another product</button>';
 
         html += '<button type="button" onclick="app.submitNewOrder()" ' + (app.addOrderSaving ? 'disabled' : '') + '>' + (app.addOrderSaving ? 'Saving...' : 'Save Order') + '</button>';
         html += '<button type="button" onclick="app.closeAddOrder()" style="background:#6b7280">Cancel</button>';
