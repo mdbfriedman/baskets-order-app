@@ -534,6 +534,52 @@
         return { address: address, city: city };
       },
 
+      // Attaches Google Places Autocomplete to the Add Order address field.
+      // Called every time the Add Order form's HTML is (re)inserted into the
+      // DOM (opening the form, adding/removing a product row) since each
+      // re-render replaces the whole form's innerHTML and creates a brand
+      // new <input> element that needs its own Autocomplete instance.
+      initAddressAutocomplete: function() {
+        var input = document.getElementById('noAddress');
+        if (!input) return;
+        if (!window.google || !google.maps || !google.maps.places) {
+          // Maps script hasn't finished loading yet — onGoogleMapsLoaded()
+          // (see bottom of page) will call this again once it has.
+          return;
+        }
+
+        var autocomplete = new google.maps.places.Autocomplete(input, {
+          types: ['address'],
+          componentRestrictions: { country: 'us' },
+          fields: ['address_components', 'formatted_address']
+        });
+
+        // Bias (not restrict) suggestions toward New Jersey, matching the
+        // NJ-city handling already used elsewhere in this app.
+        autocomplete.setBounds(new google.maps.LatLngBounds(
+          new google.maps.LatLng(38.78, -75.60),
+          new google.maps.LatLng(41.36, -73.85)
+        ));
+
+        autocomplete.addListener('place_changed', function() {
+          var place = autocomplete.getPlace();
+          var comps = place.address_components || [];
+          var get = function(type) {
+            var match = comps.filter(function(c) { return c.types.indexOf(type) !== -1; })[0];
+            return match ? match.long_name : '';
+          };
+          // Rebuild as "123 Main Street Lakewood" (no commas/state/zip) so it
+          // stays compatible with splitAddress() above, which expects a
+          // plain space-separated string ending in the city name.
+          var streetNumber = get('street_number');
+          var route = get('route');
+          var city = get('locality') || get('sublocality') || get('administrative_area_level_3') || get('administrative_area_level_2');
+          var rebuilt = [streetNumber, route, city].filter(Boolean).join(' ');
+          input.value = rebuilt || place.formatted_address || input.value;
+          if (app.newOrder) app.newOrder.address = input.value;
+        });
+      },
+
       getAllDates: function() {
         return [... new Set(app.orders.map(function(o) { return o.deliveryDate; }))].sort();
       },
@@ -914,6 +960,7 @@
 
         if (app.showAddOrder) {
           appDiv.innerHTML = app.renderAddOrderForm();
+          app.initAddressAutocomplete();
           return;
         }
 
@@ -962,6 +1009,15 @@
     };
 
     app.checkSetup();
+
+    // Fires once the Google Maps script below finishes loading. If the Add
+    // Order form happens to already be open at that point, attach
+    // autocomplete to its address field now (initAddressAutocomplete() is a
+    // no-op until this has run, so opening the form earlier doesn't error).
+    function onGoogleMapsLoaded() {
+      if (app.showAddOrder) app.initAddressAutocomplete();
+    }
   </script>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyATreXEw7EY5PyaP5mxvBdRhitVv1fysVY&libraries=places&loading=async&callback=onGoogleMapsLoaded" async defer></script>
 </body>
 </html>
