@@ -436,15 +436,15 @@
         var o = app.newOrder;
 
         var itemsHtml = o.items.map(function(item, idx) {
-          return '<div style="display:flex;gap:8px;margin-bottom:8px;align-items:flex-start">' +
-            '<div style="position:relative;flex:3">' +
+          return '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;align-items:flex-start;position:relative;z-index:' + (100 - idx) + '">' +
+            '<div style="position:relative;z-index:1;flex:1 1 160px;min-width:140px">' +
             '<input type="text" autocomplete="off" id="noItemProduct_' + idx + '" placeholder="Start typing a product..." value="' + (item.product || '').replace(/"/g, '&quot;') + '" ' +
             'oninput="app.filterProductSuggestions(' + idx + ', this.value)" ' +
             'onblur="setTimeout(function(){ var b=document.getElementById(\'noItemSuggestions_' + idx + '\'); if(b) b.innerHTML=\'\'; }, 300)" ' +
             'style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #d1d5db;border-radius:6px">' +
-            '<div id="noItemSuggestions_' + idx + '" style="position:absolute;top:100%;left:0;right:0;z-index:20;max-height:200px;overflow-y:auto"></div>' +
+            '<div id="noItemSuggestions_' + idx + '" style="position:absolute;top:100%;left:0;right:0;z-index:1000;max-height:200px;overflow-y:auto;background:white;box-shadow:0 4px 10px rgba(0,0,0,0.15);border-radius:0 0 6px 6px"></div>' +
             '</div>' +
-            '<input type="number" min="1" id="noItemQty_' + idx + '" value="' + (item.quantity || 1) + '" style="flex:1;padding:8px;border:1px solid #d1d5db;border-radius:6px">' +
+            '<input type="number" min="1" id="noItemQty_' + idx + '" value="' + (item.quantity || 1) + '" style="flex:0 1 70px;min-width:60px;padding:8px;border:1px solid #d1d5db;border-radius:6px">' +
             (o.items.length > 1 ? '<button type="button" onclick="app.removeOrderItemRow(' + idx + ')" style="background:#ef4444;width:36px;padding:8px 0;margin:0">✕</button>' : '<span style="width:36px"></span>') +
             '</div>';
         }).join('');
