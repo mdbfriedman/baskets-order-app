@@ -249,6 +249,225 @@ const KNOWN_PRODUCT_SKUS = [
   "salad cups - 12 - Quinoa"
 ];
 
+// Known-good sku -> price map, captured from the same Aug 31, 2026 product
+// export as KNOWN_PRODUCT_SKUS above (WooCommerce Products -> Export, "All
+// product types"). Baked directly into the code so Add Order's Product Cost
+// auto-fill is instant and doesn't depend on WooCommerce's API being up or
+// fast — that live variation-price fetch (fetchWooCommerceVariationPrices
+// below) is what kept timing out/lagging for product families with lots of
+// variations (salads, fruit cups). Prices for the 3 products the store
+// itself has no price set for are simply absent here, same as they'd come
+// back absent from a live fetch. Update this whenever prices change by
+// re-exporting and regenerating this block.
+const KNOWN_PRODUCT_PRICES = {
+  "Caesar Salad - Small - Rosebowl": 30,
+  "Caesar Salad - Medium - Tray": 65,
+  "Caesar Salad - Medium - Pan": 45,
+  "Caesar Salad - Large - Tray": 80,
+  "Caesar Salad - Large - Pan": 60,
+  "Onion Caesar Salad - Small - Rosebowl": 30,
+  "Onion Caesar Salad - Medium - Tray": 70,
+  "Onion Caesar Salad - Medium - Pan": 50,
+  "Onion Caesar Salad - Large - Tray": 80,
+  "Onion Caesar Salad - Large - Pan": 60,
+  "Purple Cabbage Salad - Small - Rosebowl": 30,
+  "Purple Cabbage Salad - Medium - Tray": 70,
+  "Purple Cabbage Salad - Medium - Pan": 50,
+  "Purple Cabbage Salad - Large - Tray": 80,
+  "Purple Cabbage Salad - Large - Pan": 60,
+  "Nish Nosh Salad - Small - Rosebowl": 30,
+  "Nish Nosh Salad - Medium - Tray": 75,
+  "Nish Nosh Salad - Medium - Pan": 50,
+  "Nish Nosh Salad - Large - Tray": 85,
+  "Nish Nosh Salad - Large - Pan": 60,
+  "Ramen Sesame Salad - Small - Rosebowl": 35,
+  "Ramen Sesame Salad - Medium - Tray": 75,
+  "Ramen Sesame Salad - Medium - Pan": 50,
+  "Ramen Sesame Salad - Large - Pan": 60,
+  "Ramen Sesame Salad - Large - Tray": 85,
+  "Greek (Parve) Salad - Small - Rosebowl": 40,
+  "Greek (Parve) Salad - Medium - Tray": 80,
+  "Greek (Parve) Salad - Medium - Pan": 60,
+  "Greek (Parve) Salad - Large - Tray": 90,
+  "Greek (Parve) Salad - Large - Pan": 70,
+  "Portabella Mushroom Salad - Small - Rosebowl": 40,
+  "Portabella Mushroom Salad - Medium - Tray": 85,
+  "Portabella Mushroom Salad - Medium - Pan": 60,
+  "Portabella Mushroom Salad - Large - Tray": 105,
+  "Portabella Mushroom Salad - Large - Pan": 85,
+  "Hearts of Palm Salad - Small - Rosebowl": 40,
+  "Hearts of Palm Salad - Medium - Tray": 80,
+  "Hearts of Palm Salad - Medium - Pan": 60,
+  "Hearts of Palm Salad - Large - Tray": 105,
+  "Hearts of Palm Salad - Large - Pan": 80,
+  "Citrus Salad - Small - Rosebowl": 40,
+  "Citrus Salad - Medium - Tray": 80,
+  "Citrus Salad - Medium - Pan": 60,
+  "Citrus Salad - Large - Tray": 95,
+  "Citrus Salad - Large - Pan": 75,
+  "Mango Pomegranate Salad - Small - Rosebowl": 50,
+  "Mango Pomegranate Salad - Medium - Tray": 85,
+  "Mango Pomegranate Salad - Medium - Pan": 65,
+  "Mango Pomegranate Salad - Large - Tray": 105,
+  "Mango Pomegranate Salad - Large - Pan": 85,
+  "Sushi Salad - Small - Rosebowl": 50,
+  "Sushi Salad - Medium - Tray": 85,
+  "Sushi Salad - Medium - Pan": 65,
+  "Sushi Salad - Large - Tray": 105,
+  "Sushi Salad - Large - Pan": 85,
+  "Quinoa (Lettuce) Salad - Small - Rosebowl": 50,
+  "Quinoa (Lettuce) Salad - Medium - Tray": 80,
+  "Quinoa (Lettuce) Salad - Medium - Pan": 60,
+  "Quinoa (Lettuce) Salad - Large - Tray": 100,
+  "Quinoa (Lettuce) Salad - Large - Pan": 80,
+  "Feta Cheese Greek Salad (Dairy) - Small - Rosebowl": 50,
+  "Feta Cheese Greek Salad (Dairy) - Medium - Tray": 85,
+  "Feta Cheese Greek Salad (Dairy) - Medium - Pan": 65,
+  "Feta Cheese Greek Salad (Dairy) - Large - Tray": 105,
+  "Feta Cheese Greek Salad (Dairy) - Large - Pan": 85,
+  "Feta Mushroom Salad (Dairy) - Small - Rosebowl": 50,
+  "Feta Mushroom Salad (Dairy) - Medium - Tray": 80,
+  "Feta Mushroom Salad (Dairy) - Medium - Pan": 60,
+  "Feta Mushroom Salad (Dairy) - Large - Tray": 100,
+  "Feta Mushroom Salad (Dairy) - Large - Pan": 80,
+  "Sweet Potato Salad - Small - Rosebowl": 50,
+  "Sweet Potato Salad - Medium - Tray": 80,
+  "Sweet Potato Salad - Medium - Pan": 60,
+  "Sweet Potato Salad - Large - Tray": 105,
+  "Sweet Potato Salad - Large - Pan": 85,
+  "Broccoli Salad - Small - Rosebowl": 50,
+  "Broccoli Salad - Medium - Tray": 80,
+  "Broccoli Salad - Medium - Pan": 60,
+  "Broccoli Salad - Large - Tray": 105,
+  "Broccoli Salad - Large - Pan": 85,
+  "Broccoli Cabbage Salad - Small - Rosebowl": 50,
+  "Broccoli Cabbage Salad - Medium - Tray": 80,
+  "Broccoli Cabbage Salad - Medium - Pan": 60,
+  "Broccoli Cabbage Salad - Large - Tray": 100,
+  "Broccoli Cabbage Salad - Large - Pan": 80,
+  "12\" sliced platter": 50,
+  "8x14": 40,
+  "14\" sliced platter": 60,
+  "salad cups - 12 - Ceasar": 72,
+  "salad cups - 12 - Citrus": 72,
+  "salad cups - 12 - Nish Nosh": 72,
+  "Decorative Cubed Platter - Small": 45,
+  "Decorative Cubed Platter - Medium": 60,
+  "Decorative Cubed Platter - Large": 80,
+  "Decorative Cubed Platter - Extra Large": 105,
+  "salad cups - 12 - Cabbage": 84,
+  "salad cups - 12 - Greek": 84,
+  "salad cups - 12 - Mango": 84,
+  "salad cups - 12 - Mushroom": 84,
+  "salad cups - 12 - Quinoa": 84,
+  "14x21 - Standard": 150,
+  "14x21 - Plus": 175,
+  "2 oz Fruit Cups - Mango - 12": 51,
+  "2 oz Fruit Cups - Mango - 24": 102,
+  "2 oz Fruit Cups - Kiwi - 24": 102,
+  "2 oz Fruit Cups - Kiwi - 12": 51,
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 32": 72,
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 24": 54,
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 16": 36,
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 12": 27,
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 48": 108,
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 40": 90,
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 36": 81,
+  "3 oz covered cups - Assorted Melons and Pineapple - 12": 45,
+  "3 oz covered cups - Assorted Melons and Pineapple - 24": 90,
+  "3 oz covered cups - Assorted Melons and Pineapple - 36": 135,
+  "3 oz covered cups - Assorted Melons and Pineapple - 48": 180,
+  "3 oz covered cups - Kiwi - 12": 75,
+  "3 oz covered cups - Mango - 12": 75,
+  "2 oz glass cups - Assorted Melons and Pineapple - 24": 108,
+  "2 oz glass cups - Assorted Melons and Pineapple - 36": 162,
+  "2 oz glass cups - Assorted Melons and Pineapple - 48": 216,
+  "2 oz glass cups - Kiwi - 12": 72,
+  "2 oz glass cups - Mango - 12": 72,
+  "8 oz glass cups - Assorted Melons and Pineapple - 12": 72,
+  "8 oz glass cups - Kiwi - 12": 90,
+  "8 oz glass cups - Mango - 12": 90,
+  "Smoothies - Assorted - 15": 45,
+  "Smoothies - Assorted - 24": 72,
+  "Smoothies - Assorted - 30": 90,
+  "Smoothies - Assorted - 36": 108,
+  "Smoothies in Glass cups - Assorted - 24": 108,
+  "Smoothies in Glass cups - Assorted - 48": 216,
+  "Smoothies in Glass cups - Assorted - 36": 162,
+  "Glass Salad Cups - 12 - Cabbage": 96,
+  "Glass Salad Cups - 12 - Greek": 96,
+  "Glass Salad Cups - 12 - Mango": 96,
+  "Glass Salad Cups - 12 - Mushroom": 96,
+  "Glass Salad Cups - 12 - Quinoa": 99,
+  "Glass Salad Cups - 12 - Ceasar": 85,
+  "Glass Salad Cups - 12 - Citrus": 96,
+  "Glass Salad Cups - 12 - Nish Nosh": 96,
+  "16\" sliced platter - Standard": 85,
+  "16\" sliced platter - Plus": 95,
+  "16x16 - Standard": 105,
+  "16x16 - Plus": 125,
+  "16x16 - Grand": 145,
+  "Fruit Cake (Available Monday-Wednesday only)": 75,
+  "18x18 - Standard": 200,
+  "18x18 - Grand": 250,
+  "14x14": 75,
+  "Sectional": 32,
+  "Lucite Fruit Tray": 85,
+  "Set of Lucites": 170,
+  "Cubed Fruit - 9x13 pan - 2 pans- 4 melons - Bite Sized": 70,
+  "Cubed Fruit - 9x13 pan - 2 pans- 4 melons - Diced": 90,
+  "Cubed Fruit - 9x13 pan - Watermelon - Bite Sized": 35,
+  "Cubed Fruit - 9x13 pan - Watermelon - Diced": 45,
+  "Cubed Fruit - 9x13 pan - Canteloupe - Bite Sized": 35,
+  "Cubed Fruit - 9x13 pan - Canteloupe - Diced": 45,
+  "Cubed Fruit - 9x13 pan - Honeydew - Bite Sized": 35,
+  "Cubed Fruit - 9x13 pan - Honeydew - Diced": 45,
+  "Cubed Fruit - 9x13 pan - Pineapple - Bite Sized": 35,
+  "Cubed Fruit - 9x13 pan - Pineapple - Diced": 45,
+  "Cubed Fruit - 2 lb container - Watermelon - Bite Sized": 18,
+  "Cubed Fruit - 2 lb container - Canteloupe - Bite Sized": 18,
+  "Cubed Fruit - 2 lb container - Canteloupe - Diced": 20,
+  "Cubed Fruit - 2 lb container - Honeydew - Bite Sized": 18,
+  "Cubed Fruit - 2 lb container - Honeydew - Diced": 20,
+  "Cubed Fruit - 2 lb container - Pineapple - Bite Sized": 18,
+  "Cubed Fruit - 2 lb container - Pineapple - Diced": 20,
+  "Cubed Fruit - 2 lb container - Mango - Diced": 36,
+  "Cubed Fruit - 2 lb container - Mango - Bite Sized": 36,
+  "Basic Simcha Package": 380,
+  "Small Simcha Package": 240,
+  "Upgraded Simcha Package": 506,
+  "Deluxe Simcha Package": 720,
+  "L'chaim/Sweet Table Package": 225,
+  "Upgraded L'chaim/Sweet Table Package": 310,
+  "Exotic Fruit Platter - Small": 115,
+  "Exotic Fruit Platter - Medium": 195,
+  "Exotic Fruit Platter - Large": 325,
+  "Barbeque Corn Nut Salad - Small - Rosebowl": 30,
+  "Barbeque Corn Nut Salad - Medium - Tray": 75,
+  "Barbeque Corn Nut Salad - Medium - Pan": 55,
+  "Barbeque Corn Nut Salad - Large - Tray": 85,
+  "Barbeque Corn Nut Salad - Large - Pan": 65,
+  "Salad Dressing - Caesar": 8,
+  "Salad Dressing - Nish Nosh": 8,
+  "Salad Dressing - Portabella": 8,
+  "Salad Dressing - Quinoa": 8,
+  "Salad Dressing - Mango": 8,
+  "Salad Dressing - Cabbage": 8,
+  "Tu B'shvat - Mini Fresh Fruit Board": 20,
+  "Tu B'shvat - Mini Dried Fruit Board": 20,
+  "Tu B'shvat - Fresh Fruit Board": 55,
+  "Tu B'shvat - Flower Board Dried Fruit": 50,
+  "Tu B'shvat - Lined Board Dried Fruit": 50,
+  "Tu B'shvat - Tu B'shvat Salad": 90,
+  "Acai Trays - Small": 125,
+  "Acai Trays - Medium": 175,
+  "Acai Trays - Large": 300,
+  "Shehechyanu Fruit Board": 55,
+  "Simanim Salad": 50,
+  "Cubed Fruit - 9x13 pan - Mango - Bite Sized": 110,
+  "Cubed Fruit - 9x13 pan - Mango - Diced": 110
+};
+
 
 // Runs `fn` over `items` with at most `limit` requests in flight at once —
 // fast (parallel), but bounded so we don't hammer a modest WordPress host.
@@ -952,25 +1171,40 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'GET' && req.url.startsWith('/api/product-prices')) {
-    // Best-effort sku -> price map for Add Order's Product Cost auto-fill.
-    // Split into two steps because firing one variations call per variable
-    // product all at once (the old single-shot approach) is exactly what's
-    // timed out on this store's API before:
-    //   - no query params: fast pass over the top-level products list only,
+    // Sku -> price map for Add Order's Product Cost auto-fill. Serves the
+    // baked-in KNOWN_PRODUCT_PRICES by default — instant, and immune to
+    // whatever was causing basketsbyblimi.com's variations endpoint to lag
+    // or time out under load (same reasoning as KNOWN_PRODUCT_SKUS for
+    // /api/products above). Update KNOWN_PRODUCT_PRICES whenever prices
+    // change.
+    //
+    // Add ?live=1 to instead pull fresh straight from WooCommerce, in two
+    // steps because firing one variations call per variable product all at
+    // once (the old single-shot approach) is exactly what's timed out on
+    // this store's API before:
+    //   - ?live=1 alone: fast pass over the top-level products list only,
     //     returns simple-product prices plus the variable-product ids that
     //     still need their variations fetched.
-    //   - ?variationIds=1,2,3: fetches just that small batch's variations.
-    //     The client (index.html) requests these in small batches so a slow
+    //   - ?variationIds=1,2,3: fetches just that small batch's variations
+    //     (implies live — only meaningful as a follow-up to ?live=1). The
+    //     client (index.html) requests these in small batches so a slow
     //     response from the store can never blow the whole feature's timeout.
+    const variationIdsMatch = req.url.match(/[?&]variationIds=([^&]+)/);
+    const wantsLive = req.url.includes('live=1') || variationIdsMatch;
+
+    if (!wantsLive) {
+      res.status(200).json({ prices: KNOWN_PRODUCT_PRICES, source: 'static' });
+      return;
+    }
+
     const wcKey = process.env.WC_CONSUMER_KEY;
     const wcSecret = process.env.WC_CONSUMER_SECRET;
     const wcUrl = process.env.WC_STORE_URL || 'https://basketsbyblimi.com';
     if (!wcKey || !wcSecret) {
-      res.status(200).json({ prices: {}, variableProductIds: [], source: 'unavailable', error: 'WooCommerce API credentials not configured' });
+      res.status(200).json({ prices: KNOWN_PRODUCT_PRICES, variableProductIds: [], source: 'static-fallback', error: 'WooCommerce API credentials not configured' });
       return;
     }
 
-    const variationIdsMatch = req.url.match(/[?&]variationIds=([^&]+)/);
     if (variationIdsMatch) {
       const ids = decodeURIComponent(variationIdsMatch[1]).split(',').map(s => parseInt(s, 10)).filter(n => !isNaN(n));
       const now = Date.now();
