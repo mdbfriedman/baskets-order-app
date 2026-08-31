@@ -279,6 +279,7 @@
           deliveryAddress: '',
           customerNote: '',
           paymentMethod: '',
+          total: '',
           items: [{ product: '', quantity: 1 }]
         };
         app.addOrderError = '';
@@ -309,6 +310,7 @@
         app.newOrder.deliveryAddress = g('noDeliveryAddress');
         app.newOrder.customerNote = g('noNote');
         app.newOrder.paymentMethod = g('noPayment');
+        app.newOrder.total = g('noTotal');
         app.newOrder.items.forEach(function(item, idx) {
           item.product = g('noItemProduct_' + idx);
           var q = parseInt(g('noItemQty_' + idx), 10);
@@ -368,6 +370,7 @@
             deliveryAddress: o.deliveryAddress.trim(),
             customerNote: o.customerNote.trim(),
             paymentMethod: o.paymentMethod.trim(),
+            total: o.total.trim(),
             items: validItems
           };
           if (savedKey) {
@@ -485,6 +488,9 @@
 
         html += '<label style="font-size:12px;color:#374151">Payment Method</label>';
         html += '<input type="text" id="noPayment" value="' + o.paymentMethod.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
+
+        html += '<label style="font-size:12px;color:#374151">Total</label>';
+        html += '<input type="number" step="0.01" min="0" inputmode="decimal" id="noTotal" value="' + o.total.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
 
         html += '<label style="font-size:12px;color:#374151">Customer Note</label>';
         html += '<textarea id="noNote" style="width:100%;height:70px;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">' + o.customerNote.replace(/</g, '&lt;') + '</textarea>';
