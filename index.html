@@ -69,6 +69,7 @@
       showSetup: false,
       showAddOrder: false,
       newOrder: null,
+      isEditingOrder: false, // true when the Add Order form is actually editing an existing order
       addOrderError: '',
       addOrderSaving: false,
       labelSize: '4x3',
@@ -334,6 +335,7 @@
         var today = new Date();
         var todayISO = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
         app.newOrder = {
+          orderNumber: '',
           deliveryDate: todayISO,
           lastName: '',
           deliveryName: '',
@@ -345,8 +347,44 @@
           deliveryCost: '',
           total: '',
           productCostAutoValue: null, // last value we auto-filled, so we can tell a manual edit apart from our own fill
+          totalAutoValue: null, // same idea for Total, which auto-derives from Product Cost + Delivery Cost
           items: [{ product: '', quantity: 1 }]
         };
+        app.isEditingOrder = false;
+        app.addOrderError = '';
+        app.addOrderSaving = false;
+        app.showAddOrder = true;
+        app.render();
+      },
+
+      // Opens the same form pre-filled with an existing order's data, for
+      // the pencil-icon "edit" button on each order — so a phone-in change
+      // can be made right in the app instead of going straight to the sheet.
+      openEditOrder: function(orderIdx) {
+        var dayOrders = app.getOrdersForDate(app.selectedDate);
+        var order = dayOrders[orderIdx];
+        if (!order) return;
+        app.newOrder = {
+          orderNumber: order.orderNumber || '',
+          // order.deliveryDate is stored/displayed as "2026/08/31"; the date
+          // input needs "2026-08-31".
+          deliveryDate: (order.deliveryDate || '').split('/').join('-'),
+          lastName: order.lastName === 'Unknown' ? '' : (order.lastName || ''),
+          deliveryName: order.deliveredTo || '',
+          pickupOrDelivery: order.pickupOrDelivery || 'delivery',
+          deliveryAddress: order.address || '',
+          customerNote: order.customerNote || '',
+          paymentMethod: order.paymentMethod || '',
+          productCost: order.productCost || '',
+          deliveryCost: order.deliveryCost || '',
+          total: order.total || '',
+          productCostAutoValue: null,
+          totalAutoValue: null,
+          items: (order.items && order.items.length)
+            ? order.items.map(function(i) { return { product: i.product, quantity: i.quantity || 1 }; })
+            : [{ product: '', quantity: 1 }]
+        };
+        app.isEditingOrder = true;
         app.addOrderError = '';
         app.addOrderSaving = false;
         app.showAddOrder = true;
@@ -356,6 +394,7 @@
       closeAddOrder: function() {
         app.showAddOrder = false;
         app.newOrder = null;
+        app.isEditingOrder = false;
         app.render();
       },
 
@@ -398,6 +437,10 @@
           app.newOrder.items.push({ product: '', quantity: 1 });
         }
         app.render();
+        // The removed item's price (if any) needs to come back out of
+        // Product Cost / Total — re-render just rebuilt the fields fresh
+        // from app.newOrder, so recompute against the now-shorter list.
+        app.recalcProductCost();
       },
 
       submitNewOrder: async function() {
@@ -437,6 +480,8 @@
             deliveryAddress: o.deliveryAddress.trim(),
             customerNote: o.customerNote.trim(),
             paymentMethod: o.paymentMethod.trim(),
+            productCost: o.productCost.trim(),
+            deliveryCost: o.deliveryCost.trim(),
             total: o.total.trim(),
             items: validItems
           };
@@ -444,7 +489,13 @@
             try { body.serviceAccount = JSON.parse(savedKey); } catch (e) {}
           }
 
-          var response = await fetch('/api/add-order', {
+          var endpoint = '/api/add-order';
+          if (app.isEditingOrder) {
+            endpoint = '/api/update-order';
+            body.orderNumber = o.orderNumber;
+          }
+
+          var response = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
@@ -455,6 +506,7 @@
           app.addOrderSaving = false;
           app.showAddOrder = false;
           app.newOrder = null;
+          app.isEditingOrder = false;
           await app.loadOrders();
         } catch (e) {
           app.addOrderSaving = false;
@@ -516,7 +568,10 @@
       // just don't contribute, so it silently degrades to manual entry.
       // Only overwrites Product Cost while it's empty or still holds exactly
       // what we last auto-filled — the moment the user types their own
-      // number, this backs off and leaves it alone.
+      // number, this backs off and leaves it alone. When the priced items
+      // drop to zero (e.g. the only priced product was removed) this clears
+      // Product Cost back to blank instead of leaving the old sum sitting
+      // there — same story for Total, via recalcOrderTotal below.
       recalcProductCost: function() {
         if (!app.newOrder) return;
         var el = document.getElementById('noProductCost');
@@ -531,25 +586,30 @@
           sum += price * qty;
           any = true;
         });
-        if (!any) return;
-        var formatted = sum.toFixed(2);
+        var formatted = any ? sum.toFixed(2) : '';
         el.value = formatted;
         app.newOrder.productCostAutoValue = formatted;
         app.recalcOrderTotal();
       },
 
       // Total = Product Cost + Delivery Cost, recalculated live whenever
-      // either changes. If neither has a value yet, Total is left alone so
-      // someone can still just type a total directly without the breakdown.
+      // either changes (including dropping back to blank when both are
+      // blank — e.g. after removing the last priced item — rather than
+      // leaving a stale amount sitting there). Same "leave it alone once
+      // hand-typed" rule as Product Cost: once you edit Total directly it
+      // stops being overwritten, until you clear it back to empty.
       recalcOrderTotal: function() {
+        if (!app.newOrder) return;
         var pcEl = document.getElementById('noProductCost');
         var dcEl = document.getElementById('noDeliveryCost');
         var totalEl = document.getElementById('noTotal');
         if (!totalEl) return;
+        if (totalEl.value !== '' && totalEl.value !== app.newOrder.totalAutoValue) return;
         var pc = pcEl ? parseFloat(pcEl.value) : NaN;
         var dc = dcEl ? parseFloat(dcEl.value) : NaN;
-        if (isNaN(pc) && isNaN(dc)) return;
-        totalEl.value = ((isNaN(pc) ? 0 : pc) + (isNaN(dc) ? 0 : dc)).toFixed(2);
+        var formatted = (isNaN(pc) && isNaN(dc)) ? '' : ((isNaN(pc) ? 0 : pc) + (isNaN(dc) ? 0 : dc)).toFixed(2);
+        totalEl.value = formatted;
+        app.newOrder.totalAutoValue = formatted;
       },
 
       renderAddOrderForm: function() {
@@ -574,7 +634,7 @@
         }).join('');
 
         var html = '<div class="auth-box" style="max-width:600px">';
-        html += '<h2>Add Order</h2>';
+        html += '<h2>' + (app.isEditingOrder ? 'Edit Order' : 'Add Order') + '</h2>';
         html += '<p style="color:#6b7280;margin-bottom:15px;font-size:13px">Pick products from the suggestions as you type so they match your store\'s SKUs exactly — free-typing something that doesn\'t match will keep it out of your product totals.</p>';
         if (app.addOrderError) html += '<div class="error">' + app.addOrderError + '</div>';
 
@@ -608,7 +668,7 @@
         html += '<input type="number" step="0.01" min="0" inputmode="decimal" id="noDeliveryCost" oninput="app.recalcOrderTotal();" value="' + o.deliveryCost.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
 
         html += '<label style="font-size:12px;color:#374151">Total</label>';
-        html += '<input type="number" step="0.01" min="0" inputmode="decimal" id="noTotal" value="' + o.total.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
+        html += '<input type="number" step="0.01" min="0" inputmode="decimal" id="noTotal" oninput="if (app.newOrder) app.newOrder.totalAutoValue = null;" value="' + o.total.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
 
         html += '<label style="font-size:12px;color:#374151">Payment Method</label>';
         html += '<input type="text" id="noPayment" value="' + o.paymentMethod.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
@@ -616,7 +676,7 @@
         html += '<label style="font-size:12px;color:#374151">Customer Note</label>';
         html += '<textarea id="noNote" style="width:100%;height:70px;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">' + o.customerNote.replace(/</g, '&lt;') + '</textarea>';
 
-        html += '<button type="button" onclick="app.submitNewOrder()" ' + (app.addOrderSaving ? 'disabled' : '') + '>' + (app.addOrderSaving ? 'Saving...' : 'Save Order') + '</button>';
+        html += '<button type="button" onclick="app.submitNewOrder()" ' + (app.addOrderSaving ? 'disabled' : '') + '>' + (app.addOrderSaving ? 'Saving...' : (app.isEditingOrder ? 'Save Changes' : 'Save Order')) + '</button>';
         html += '<button type="button" onclick="app.closeAddOrder()" style="background:#6b7280">Cancel</button>';
 
         html += '</div>';
@@ -1147,8 +1207,8 @@
           html += '<div class="orders-box">';
           dayOrders.forEach(function(order, orderIdx) {
             html += '<div class="order-item"><div style="display:flex;justify-content:space-between;align-items:start"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#059669;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
-            if (order.deliverTo) html += '<div class="order-address">' + order.deliverTo + '</div>';
-            html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div></div><div style="display:flex;gap:5px"><button onclick="app.downloadOrder(' + orderIdx + ')" style="background:#2563eb;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📥 Word</button><button onclick="app.downloadOrderToGoogleDocs(' + orderIdx + ')" style="background:#ea4335;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📄 Docs</button></div></div>';
+            if (order.deliveredTo) html += '<div class="order-address">Deliver to: ' + order.deliveredTo + '</div>';
+            html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div></div><div style="display:flex;gap:5px"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#6b7280;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">✏️ Edit</button><button onclick="app.downloadOrder(' + orderIdx + ')" style="background:#2563eb;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📥 Word</button><button onclick="app.downloadOrderToGoogleDocs(' + orderIdx + ')" style="background:#ea4335;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📄 Docs</button></div></div>';
             html += '<div class="order-items">';
             if (order.items) {
               order.items.forEach(function(item, idx) {
