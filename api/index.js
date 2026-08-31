@@ -1,6 +1,5 @@
 const crypto = require('crypto');
 
-
 const KNOWN_PRODUCT_SKUS = [
   "12\" sliced platter",
   "14\" sliced platter",
@@ -478,6 +477,16 @@ export default async function handler(req, res) {
     return;
   }
 
+  // Hands the Google Maps API key to the page at request time instead of it
+  // being hardcoded in index.html — keeps it out of the committed source
+  // (and out of GitHub's secret scanner) while still being usable client-side,
+  // which the Maps JavaScript API requires regardless. Restrict the key by
+  // HTTP referrer in Google Cloud Console so it can't be used from elsewhere.
+  if (req.method === 'GET' && req.url === '/api/maps-key') {
+    res.status(200).json({ key: process.env.GOOGLE_MAPS_API_KEY || '' });
+    return;
+  }
+
   if (req.method === 'POST' && req.url === '/api/load-orders') {
     try {
       let serviceAccount;
@@ -539,8 +548,8 @@ export default async function handler(req, res) {
       }
 
       const {
-        deliveryDate, lastName, deliveredTo, pickupOrDelivery,
-        address, customerNote, paymentMethod, items
+        deliveryDate, lastName, deliveryName, pickupOrDelivery,
+        deliveryAddress, customerNote, paymentMethod, items
       } = req.body;
 
       if (!deliveryDate || !lastName || !String(lastName).trim()) {
@@ -578,9 +587,9 @@ export default async function handler(req, res) {
         productNames.join(', '),
         quantities.join(', '),
         '', // Quantity of Individual — left blank; the product's SKU already encodes pack size
-        (deliveredTo || '').trim(),
+        (deliveryName || '').trim(),
         pickupOrDelivery || 'delivery',
-        (address || '').trim(),
+        (deliveryAddress || '').trim(),
         '', // Total — not calculated here
         (paymentMethod || '').trim(),
         (customerNote || '').trim()
