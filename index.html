@@ -691,6 +691,18 @@
           }
         }
         
+        // Before falling back to "last word = city": if the last word is a
+        // common street suffix (Ave, St, Rd, ...), there's no city typed in
+        // this address at all -- it just ends at the street. Treating that
+        // suffix as the city was the bug behind "705 Albert Ave" printing
+        // as address "705 Albert" / city "Ave". Keep the whole string
+        // together instead of manufacturing a fake city out of the suffix.
+        var streetSuffixes = ['ave', 'ave.', 'avenue', 'st', 'st.', 'street', 'rd', 'rd.', 'road', 'dr', 'dr.', 'drive', 'ln', 'ln.', 'lane', 'ct', 'ct.', 'court', 'pl', 'pl.', 'place', 'blvd', 'blvd.', 'boulevard', 'way', 'ter', 'ter.', 'terrace', 'cir', 'cir.', 'circle', 'sq', 'sq.', 'square', 'pkwy', 'pkwy.', 'parkway', 'hwy', 'hwy.', 'highway', 'trl', 'trl.', 'trail', 'loop', 'path', 'walk'];
+        var lastWordLower = parts[parts.length - 1].toLowerCase();
+        if (streetSuffixes.indexOf(lastWordLower) !== -1) {
+          return { address: fullAddress, city: '' };
+        }
+
         // If no known city found, use last word (fallback)
         var city = parts[parts.length - 1];
         var address = parts.slice(0, -1).join(' ');
@@ -1053,126 +1065,81 @@
         });
       },
 
-      printLabels: function() {
-        var dayOrders = app.getOrdersForDate(app.selectedDate);
-        var labelDim, heightDim, padding, fontSize, headerSize, productSize, addressSize, countSize;
-        
-        if (app.labelSize === '4x3') {
-          labelDim = '4in';
-          heightDim = '3in';
-          padding = '10px';
-          fontSize = '12px';
-          headerSize = '8px';
-          productSize = '12px';
-          addressSize = '10px';
-          countSize = '16px';
-        } else if (app.labelSize === '3x2') {
-          labelDim = '3in';
-          heightDim = '2in';
-          padding = '10px';
-          fontSize = '12px';
-          headerSize = '8px';
-          productSize = '12px';
-          addressSize = '10px';
-          countSize = '16px';
-        } else if (app.labelSize === '2x1') {
-          labelDim = '2in';
-          heightDim = '1in';
-          padding = '4px';
-          fontSize = '8px';
-          headerSize = '6px';
-          productSize = '8px';
-          addressSize = '7px';
-          countSize = '10px';
+      // Font/spacing per label size. '4x3' and '3x2' used to share the
+      // exact same (small) type sizes -- copy-pasted from one to the other
+      // at some point and never tuned up for the bigger label -- which is
+      // why a 4x3 label came out of the printer mostly blank: the same
+      // handful of short lines that fill a 3x2 label just don't reach far
+      // down a label a third taller. Sized independently now so each one
+      // actually fills its label. Also fixes .count silently ignoring the
+      // countSize it computed and always printing at a hardcoded 14px.
+      getLabelStyleConfig: function(size) {
+        if (size === '4x3') {
+          return { labelDim: '4in', heightDim: '3in', padding: '16px', fontSize: '22px', headerSize: '13px', productSize: '20px', addressSize: '16px', countSize: '18px' };
+        } else if (size === '3x2') {
+          return { labelDim: '3in', heightDim: '2in', padding: '10px', fontSize: '14px', headerSize: '9px', productSize: '13px', addressSize: '11px', countSize: '14px' };
+        } else if (size === '2x1') {
+          return { labelDim: '2in', heightDim: '1in', padding: '4px', fontSize: '8px', headerSize: '6px', productSize: '8px', addressSize: '7px', countSize: '10px' };
         }
-        
-        var noteFontSize = Math.ceil(parseInt(fontSize) * 1.5) + 'px';
-        var html = '<html><head><style>* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + labelDim + ' !important;height:' + heightDim + ' !important;border:2px solid #000;padding:' + padding + ' !important;margin:0 0 5px 0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:block;position:relative}.header{font-size:' + headerSize + ';font-weight:bold;display:block;margin:0;padding:0}.name{font-size:' + fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product{font-size:' + productSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.address{font-size:' + addressSize + ';line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + noteFontSize + ';font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.count{font-size:14px;font-weight:bold;position:absolute;top:2px;right:4px;margin:0;padding:0}</style></head><body>';
-        dayOrders.forEach(function(order) {
+        // Unknown/unset labelSize -- fall back to the smallest, safest
+        // preset rather than silently rendering with undefined CSS values.
+        return app.getLabelStyleConfig('2x1');
+      },
+
+      // Builds the full print-ready HTML page (styles + one .label div per
+      // item) for a list of orders, sized per app.labelSize. Shared by
+      // printLabels (whole day) and printOrder (one order) so the two never
+      // drift out of sync with each other the way the old copy-pasted
+      // versions of this did.
+      buildLabelsHtml: function(orders) {
+        var cfg = app.getLabelStyleConfig(app.labelSize);
+        var noteFontSize = Math.ceil(parseInt(cfg.fontSize) * 1.5) + 'px';
+        var html = '<html><head><style>* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + cfg.labelDim + ' !important;height:' + cfg.heightDim + ' !important;border:2px solid #000;padding:' + cfg.padding + ' !important;margin:0 0 5px 0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:block;position:relative}.header{font-size:' + cfg.headerSize + ';font-weight:bold;display:block;margin:0;padding:0}.name{font-size:' + cfg.fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product{font-size:' + cfg.productSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.address{font-size:' + cfg.addressSize + ';line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + noteFontSize + ';font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.count{font-size:' + cfg.countSize + ';font-weight:bold;position:absolute;top:2px;right:4px;margin:0;padding:0}</style></head><body>';
+        orders.forEach(function(order) {
           if (order.items) {
             // Delivery Name (who to hand it to) takes priority; falls back to
             // the customer's own name for the common case where nobody
             // filled in a separate delivery name (self-delivery).
             var deliveryNameDisplay = (order.deliveredTo && order.deliveredTo.trim()) ? order.deliveredTo.trim() : app.cleanLastName(order.lastName);
             var addressParts = app.splitAddress(order.address);
+            var addressHtml = addressParts.city ? (addressParts.address + '<br>' + addressParts.city) : addressParts.address;
             order.items.forEach(function(item, idx) {
               html += '<div class="label">' +
                 '<div class="count">' + (idx + 1) + ' of ' + order.items.length + '</div>' +
                 '<div class="header">BASKETS BY BLIMI</div>' +
                 '<div class="name">' + deliveryNameDisplay + '</div>' +
                 '<div class="product">' + item.product + '</div>' +
-                '<div class="address">' + addressParts.address + '<br>' + addressParts.city + '</div>' +
+                '<div class="address">' + addressHtml + '</div>' +
                 (order.customerNote ? '<div class="note"><strong>Note:</strong> ' + order.customerNote + '</div>' : '') +
                 '</div>';
             });
           }
         });
         html += '</body></html>';
+        return html;
+      },
+
+      // Opens a blank tab, writes the label HTML into it, and triggers
+      // print. Split out so printLabels/printOrder are just "build the
+      // HTML, then print it" -- one place to fix if the print mechanics
+      // ever need to change again.
+      openAndPrintHtml: function(html) {
         var w = window.open('', '_blank');
         w.document.write(html);
         w.document.close();
         setTimeout(function() { w.print(); }, 500);
       },
 
+      printLabels: function() {
+        var dayOrders = app.getOrdersForDate(app.selectedDate);
+        app.openAndPrintHtml(app.buildLabelsHtml(dayOrders));
+      },
+
       printOrder: function(orderIndex) {
         var dayOrders = app.getOrdersForDate(app.selectedDate);
         var order = dayOrders[orderIndex];
         if (!order) return;
-
-        var labelDim, heightDim, padding, fontSize, headerSize, productSize, addressSize, countSize;
-        if (app.labelSize === '4x3') {
-          labelDim = '4in';
-          heightDim = '3in';
-          padding = '10px';
-          fontSize = '12px';
-          headerSize = '8px';
-          productSize = '12px';
-          addressSize = '10px';
-          countSize = '16px';
-        } else if (app.labelSize === '3x2') {
-          labelDim = '3in';
-          heightDim = '2in';
-          padding = '10px';
-          fontSize = '12px';
-          headerSize = '8px';
-          productSize = '12px';
-          addressSize = '10px';
-          countSize = '16px';
-        } else if (app.labelSize === '2x1') {
-          labelDim = '2in';
-          heightDim = '1in';
-          padding = '4px';
-          fontSize = '8px';
-          headerSize = '6px';
-          productSize = '8px';
-          addressSize = '7px';
-          countSize = '10px';
-        }
-        
-        var noteFontSize = Math.ceil(parseInt(fontSize) * 1.5) + 'px';
-        var html = '<html><head><style>* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + labelDim + ' !important;height:' + heightDim + ' !important;border:2px solid #000;padding:' + padding + ' !important;margin:0 0 5px 0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:block;position:relative}.header{font-size:' + headerSize + ';font-weight:bold;display:block;margin:0;padding:0}.name{font-size:' + fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product{font-size:' + productSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.address{font-size:' + addressSize + ';line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + noteFontSize + ';font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.count{font-size:14px;font-weight:bold;position:absolute;top:2px;right:4px;margin:0;padding:0}</style></head><body>';
-        
-        var deliveryNameDisplay = (order.deliveredTo && order.deliveredTo.trim()) ? order.deliveredTo.trim() : app.cleanLastName(order.lastName);
-        var addressParts = app.splitAddress(order.address);
-
-        if (order.items) {
-          order.items.forEach(function(item, idx) {
-            html += '<div class="label">' +
-              '<div class="count">' + (idx + 1) + ' of ' + order.items.length + '</div>' +
-              '<div class="header">BASKETS BY BLIMI</div>' +
-              '<div class="name">' + deliveryNameDisplay + '</div>' +
-              '<div class="product">' + item.product + '</div>' +
-              '<div class="address">' + addressParts.address + '<br>' + addressParts.city + '</div>' +
-              (order.customerNote ? '<div class="note"><strong>Note:</strong> ' + order.customerNote + '</div>' : '') +
-              '</div>';
-          });
-        }
-        
-        html += '</body></html>';
-        var w = window.open('', '_blank');
-        w.document.write(html);
-        w.document.close();
-        setTimeout(function() { w.print(); }, 500);
+        app.openAndPrintHtml(app.buildLabelsHtml([order]));
       },
 
       render: function() {
