@@ -843,6 +843,41 @@ export default async function handler(req, res) {
     return;
   }
 
+  // Server-backed file download, used by downloadLabels/downloadOrder in
+  // index.html instead of the old client-side Blob + <a download> trick.
+  // That trick depends on the browser/WebView both supporting blob: URLs
+  // and honoring the `download` attribute on a synthetic click — Chrome on
+  // desktop does, but plenty of Android contexts (WebViews without a
+  // registered download handler, some in-app browsers, some "installed as
+  // an app" PWA shells) silently do nothing or half-start a download that
+  // never lands anywhere. A real HTTP response with a Content-Disposition:
+  // attachment header is handled by the OS/browser's normal download
+  // machinery instead of JS, which is far more universally supported.
+  // index.html submits a real (invisible) HTML form POST here rather than
+  // fetching + blobbing the response, for the same reason: a genuine
+  // navigation triggers native download handling; a fetched blob would hit
+  // the exact same gap this is meant to fix.
+  if (req.method === 'POST' && req.url === '/api/download-doc') {
+    try {
+      const filename = (req.body && req.body.filename || 'download.doc').toString();
+      const content = req.body && req.body.content;
+      const mimeType = (req.body && req.body.mimeType) || 'application/msword';
+      if (content === undefined || content === null) {
+        res.status(400).send('Missing content');
+        return;
+      }
+      // Strip anything that could break the Content-Disposition header or
+      // act as a path segment; keep it simple and readable.
+      const safeFilename = filename.replace(/[\r\n"]/g, '').replace(/[^a-zA-Z0-9 ._()-]/g, '_') || 'download.doc';
+      res.setHeader('Content-Type', mimeType + '; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="' + safeFilename + '"');
+      res.status(200).send(content);
+    } catch (error) {
+      res.status(500).send('Error: ' + error.message);
+    }
+    return;
+  }
+
   if (req.method === 'POST' && req.url === '/api/setup') {
     try {
       const { serviceAccount } = req.body;
@@ -1097,7 +1132,13 @@ export default async function handler(req, res) {
       });
 
       if (!createResponse.ok) {
-        throw new Error(`Failed to create Google Doc: ${createResponse.status}`);
+        // Surface Google's actual explanation (e.g. "Docs API has not been
+        // used in project ... before or it is disabled", or a permission
+        // message naming the missing scope/access) instead of just the
+        // status code — a bare "403" isn't enough to tell a disabled API
+        // apart from a permissions problem apart from a quota issue.
+        const errorBody = await createResponse.text();
+        throw new Error(`Failed to create Google Doc: ${createResponse.status} ${errorBody.slice(0, 500)}`);
       }
 
       const docData = await createResponse.json();
@@ -1123,7 +1164,8 @@ export default async function handler(req, res) {
       });
 
       if (!insertResponse.ok) {
-        throw new Error(`Failed to insert content: ${insertResponse.status}`);
+        const errorBody = await insertResponse.text();
+        throw new Error(`Failed to insert content: ${insertResponse.status} ${errorBody.slice(0, 500)}`);
       }
 
       // Return the document URL
