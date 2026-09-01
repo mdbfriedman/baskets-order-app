@@ -72,7 +72,9 @@
       isEditingOrder: false, // true when the Add Order form is actually editing an existing order
       addOrderError: '',
       addOrderSaving: false,
-      labelSize: '4x3',
+      // Remembered across visits (this device only) so it doesn't silently
+      // reset to the default every time the page reloads.
+      labelSize: localStorage.getItem('labelSize') || '4x3',
 
       checkSetup: async function() {
         try {
@@ -244,6 +246,14 @@
               var key = item.product;
               if (item.quantityIndividual) {
                 key = item.quantityIndividual + ' ' + item.product;
+              }
+              // Special instructions get folded into the grouping key too --
+              // otherwise a plain Caesar Salad and a "no nuts" Caesar Salad
+              // silently merge into one "2x Caesar Salad" up top, hiding the
+              // fact that one of the two needs to be made differently. This
+              // splits them into their own separate totals line instead.
+              if (item.specialInstructions) {
+                key += ' (' + item.specialInstructions + ')';
               }
               totals[key] = (totals[key] || 0) + item.quantity;
             });
@@ -870,70 +880,6 @@
         }, 5000);
       },
 
-      downloadAllToGoogleDocs: function() {
-        var dayOrders = app.getOrdersForDate(app.selectedDate);
-        if (dayOrders.length === 0) {
-          alert('No orders to download');
-          return;
-        }
-
-        var content = 'BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '\n\n';
-        
-        dayOrders.forEach(function(order, orderIdx) {
-          if (order.items) {
-            var cleanName = app.cleanLastName(order.lastName);
-            var addressParts = app.splitAddress(order.address);
-            order.items.forEach(function(item, idx) {
-              content += '========================================\n';
-              content += 'Order ' + (idx + 1) + ' of ' + order.items.length + '\n';
-              content += '\n';
-              content += cleanName + '\n';
-              var productDisplay = item.product;
-              if (item.quantityIndividual) {
-                productDisplay = item.quantityIndividual + ' ' + item.product;
-              }
-              content += productDisplay + '\n';
-              if (item.specialInstructions) {
-                content += '(' + item.specialInstructions + ')\n';
-              }
-              content += addressParts.address + '\n';
-              content += addressParts.city + '\n';
-              if (order.customerNote) {
-                content += '\nNOTE: ' + order.customerNote + '\n';
-              }
-              content += '\n';
-            });
-          }
-        });
-
-        var body = {
-          title: 'BasketsByBlimi_' + app.selectedDate + '_AllOrders',
-          content: content
-        };
-
-        var savedKey = localStorage.getItem('serviceAccount');
-        if (savedKey) {
-          body.serviceAccount = JSON.parse(savedKey);
-        }
-
-        fetch('/api/create-google-doc', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
-        })
-        .then(function(res) { return res.json(); })
-        .then(function(data) {
-          if (data.docUrl) {
-            window.open(data.docUrl, '_blank');
-          } else {
-            alert('Error creating Google Doc: ' + (data.error || 'Unknown error'));
-          }
-        })
-        .catch(function(err) {
-          alert('Error: ' + err.message);
-        });
-      },
-
       downloadLabels: function() {
         var dayOrders = app.getOrdersForDate(app.selectedDate);
         if (dayOrders.length === 0) {
@@ -967,71 +913,12 @@
         app.triggerFileDownload('BasketsByBlimi_' + app.selectedDate + '_' + cleanName + '.doc', app.buildLabelsHtml([order]), 'application/msword');
       },
 
-      downloadOrderToGoogleDocs: function(orderIdx) {
-        var dayOrders = app.getOrdersForDate(app.selectedDate);
-        if (orderIdx < 0 || orderIdx >= dayOrders.length) {
-          alert('Order not found');
-          return;
-        }
-
-        var order = dayOrders[orderIdx];
-        if (!order.items) {
-          alert('No items in this order');
-          return;
-        }
-
-        var cleanName = app.cleanLastName(order.lastName);
-        var addressParts = app.splitAddress(order.address);
-        
-        // Create formatted text content
-        var content = 'BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '\n\n';
-        order.items.forEach(function(item, idx) {
-          content += '========================================\n';
-          content += 'Order ' + (idx + 1) + ' of ' + order.items.length + '\n';
-          content += '\n';
-          content += cleanName + '\n';
-          var productDisplay = item.product;
-          if (item.quantityIndividual) {
-            productDisplay = item.quantityIndividual + ' ' + item.product;
-          }
-          content += productDisplay + '\n';
-          if (item.specialInstructions) {
-            content += '(' + item.specialInstructions + ')\n';
-          }
-          content += addressParts.address + '\n';
-          content += addressParts.city + '\n';
-          if (order.customerNote) {
-            content += '\nNOTE: ' + order.customerNote + '\n';
-          }
-          content += '\n';
-        });
-
-        var body = {
-          title: 'BasketsByBlimi_' + app.selectedDate + '_' + cleanName,
-          content: content
-        };
-
-        var savedKey = localStorage.getItem('serviceAccount');
-        if (savedKey) {
-          body.serviceAccount = JSON.parse(savedKey);
-        }
-
-        fetch('/api/create-google-doc', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
-        })
-        .then(function(res) { return res.json(); })
-        .then(function(data) {
-          if (data.docUrl) {
-            window.open(data.docUrl, '_blank');
-          } else {
-            alert('Error creating Google Doc: ' + (data.error || 'Unknown error'));
-          }
-        })
-        .catch(function(err) {
-          alert('Error: ' + err.message);
-        });
+      // Switches which label size print/download use, and remembers the
+      // choice on this device so it's still selected next visit.
+      setLabelSize: function(size) {
+        app.labelSize = size;
+        localStorage.setItem('labelSize', size);
+        app.render();
       },
 
       // Font/spacing per label size. '4x3' and '3x2' used to share the
@@ -1043,34 +930,47 @@
       // actually fills its label. Also fixes .count silently ignoring the
       // countSize it computed and always printing at a hardcoded 14px.
       //
-      // STATUS as of Sep 1 (afternoon): the Word download (which opens this
-      // same HTML in Microsoft Word, not through a print driver) confirmed
-      // sized right at 4in x 3in once Word's own mso page-size rule was
-      // added (see buildLabelsHtml). But an actual physical test print
-      // through the label PRINTER the same afternoon came out with content
-      // only filling part of the physical label and cut off on one edge --
-      // so the earlier "confirmed correct" note below was premature; it was
-      // never actually verified against a real print, only against the
-      // Word doc. The physical printer goes through its own driver/page
-      // negotiation that Word and the browser-preview don't, so this is
-      // back to being an open problem specifically for that path. Do not
-      // re-guess at swapping labelDim/heightDim blind again -- that was
-      // tried once already (see git history) and it burned 3 physical
-      // labels by desyncing the feed length. Get the printer model, the
-      // label's real ruler-measured dimensions, and what page-size options
-      // actually exist in that print dialog before changing this again.
+      // RESOLVED (Sep): the 4x3 physical print problem turned out to be
+      // neither a CSS sizing nor a rotation problem at all -- the Windows
+      // driver's Paper Name was set to a completely different, unrelated
+      // size (100mm x 150mm, ~4x6in) than the actual loaded stock (4x3in),
+      // so it was scaling/positioning our correctly-sized page onto the
+      // wrong canvas the whole time. Fixed by adding a matching custom
+      // paper size (101.6mm x 76.2mm) in the printer's own "Page settings"
+      // dialog and selecting it there -- nothing in this file needed to
+      // change once that was found. Worth checking FIRST on any future
+      // "wrong size on THIS printer" report, before touching this code:
+      // Windows Settings/Control Panel -> Devices and Printers -> right-
+      // click the printer -> Printing preferences -> Page settings -> Paper
+      // Name actually matches the label stock physically loaded.
       getLabelStyleConfig: function(size) {
         if (size === '4x3') {
-          return { labelDim: '4in', heightDim: '3in', padding: '16px', fontSize: '22px', headerSize: '13px', productSize: '20px', addressSize: '16px', countSize: '18px' };
+          return { labelDim: '4in', heightDim: '3in', padding: '16px', fontSize: '22px', headerSize: '13px', productSize: '20px', addressSize: '16px', countSize: '18px', qrSize: '34px' };
         } else if (size === '3x2') {
-          return { labelDim: '3in', heightDim: '2in', padding: '10px', fontSize: '14px', headerSize: '9px', productSize: '13px', addressSize: '11px', countSize: '14px' };
+          return { labelDim: '3in', heightDim: '2in', padding: '10px', fontSize: '14px', headerSize: '9px', productSize: '13px', addressSize: '11px', countSize: '14px', qrSize: '26px' };
         } else if (size === '2x1') {
-          return { labelDim: '2in', heightDim: '1in', padding: '4px', fontSize: '8px', headerSize: '6px', productSize: '8px', addressSize: '7px', countSize: '10px' };
+          return { labelDim: '2in', heightDim: '1in', padding: '4px', fontSize: '8px', headerSize: '6px', productSize: '8px', addressSize: '7px', countSize: '10px', qrSize: '18px' };
+        } else if (size === '2.25x1.25') {
+          // The small thermal label option, alongside 4x3 -- sized up
+          // slightly from the 2x1 preset since this label has ~40% more
+          // area (2.25 x 1.25 = 2.8125 sq in vs 2 x 1 = 2 sq in).
+          return { labelDim: '2.25in', heightDim: '1.25in', padding: '5px', fontSize: '10px', headerSize: '7px', productSize: '9px', addressSize: '8px', countSize: '9px', qrSize: '20px' };
         }
         // Unknown/unset labelSize -- fall back to the smallest, safest
         // preset rather than silently rendering with undefined CSS values.
         return app.getLabelStyleConfig('2x1');
       },
+
+      // Tiny (386-byte) QR code for basketsbyblimi.com, generated once
+      // ahead of time and embedded directly rather than loaded from a live
+      // QR-generator URL at print time. These labels need to render
+      // correctly wherever/whenever they're printed -- including offline,
+      // or from a Word doc opened later on a machine with no internet --
+      // so nothing about how the label looks should depend on a network
+      // request succeeding at that moment. Verified (decoded back with
+      // zbar) to actually scan to https://basketsbyblimi.com before this
+      // was embedded.
+      QR_CODE_DATA_URI: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQgAAAEIAQAAAACLjVdSAAABSUlEQVR4nO2YO27FMAwEZ4N3/ytPCn1sJ4WryAxkV4I8xWJBUiQjN9/XHfASL/ESmxIfgLSzRCLEeVNH6UI/ECBg7GaMmzpKV/pBQIgEmxnpnpRR+gQRMTNbntNRivCWWKPjEaLnS/fAiEFOrlRRutKPU4LEVlUX66hC5Jwd+ZUsy3RUISKz32heBHp47Pi+XOJjPLizLVunoxQRkpBmhQRismU/NuMjM0tGV9Z/VlG6sn4whpd5b8yO80sjBDARQZsdsmv96BOLRDTRELasH53oI22fXBLBLd/bz3FMLxrtDHHDfLn2p6avQBhPTB2lC+NjbMPMyJI21234vlz2Y0d0eEROFaVL60cunrTymh3r6Q/iaEAI2fe97Z+tkqJjjVpV6V8Rl/2YY4zxtAqponSlH7PrcEy5x2UVpU/sP57T8RIv8RL/j/gGZkeBDjI2DJYAAAAASUVORK5CYII=',
 
       // Builds the full print-ready HTML page (styles + one .label div per
       // item) for a list of orders, sized per app.labelSize. Shared by
@@ -1080,6 +980,23 @@
       buildLabelsHtml: function(orders) {
         var cfg = app.getLabelStyleConfig(app.labelSize);
         var noteFontSize = Math.ceil(parseInt(cfg.fontSize) * 1.5) + 'px';
+        // The QR code (and the count badge stacked under it) live in an
+        // absolutely-positioned column in the top-right corner, which does
+        // NOT push the normal-flow text (header/name/product/address) out
+        // of its way -- so without extra room reserved, a long product
+        // name or address could render right underneath/behind the QR
+        // image. Reserving that space as extra padding on the *right* side
+        // of the whole label (on top of the normal padding) keeps every
+        // line of flowing text clear of that corner for the label's full
+        // height, not just near the top, at the cost of a slightly
+        // narrower text column throughout -- simpler and safer than trying
+        // to wrap text around the image only near the top, especially
+        // given Word's limited CSS support.
+        var paddingNum = parseInt(cfg.padding);
+        var qrSizeNum = parseInt(cfg.qrSize);
+        var rightPadding = (paddingNum + qrSizeNum + 4) + 'px';
+        var labelPadding = cfg.padding + ' ' + rightPadding + ' ' + cfg.padding + ' ' + cfg.padding;
+        var countTop = (2 + qrSizeNum + 3) + 'px';
         // Word's HTML-as-.doc converter only picks up page size/margins from
         // its own "mso" CSS dialect -- a *named* @page selector (Section1
         // here) applied to a div via the "page" property -- and silently
@@ -1091,7 +1008,7 @@
         // rules are declared so print (unnamed @page) and Word (named
         // Section1 + div.Section1) each get the page size from the one
         // they actually read.
-        var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>@page Section1{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';mso-page-orientation:portrait;margin:0in 0in 0in 0in;}div.Section1{page:Section1;}* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + cfg.labelDim + ' !important;height:' + cfg.heightDim + ' !important;border:2px solid #000;padding:' + cfg.padding + ' !important;margin:0 0 5px 0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:block;position:relative}.header{font-size:' + cfg.headerSize + ';font-weight:bold;display:block;margin:0;padding:0}.name{font-size:' + cfg.fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product{font-size:' + cfg.productSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.address{font-size:' + cfg.addressSize + ';line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + noteFontSize + ';font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.item-note{font-size:' + cfg.addressSize + ';font-weight:bold;font-style:italic;margin:1px 0 0 0;display:block;word-break:break-word}.count{font-size:' + cfg.countSize + ';font-weight:bold;position:absolute;top:2px;right:4px;margin:0;padding:0}</style></head><body><div class="Section1">';
+        var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>@page Section1{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';mso-page-orientation:portrait;margin:0in 0in 0in 0in;}div.Section1{page:Section1;}* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + cfg.labelDim + ' !important;height:' + cfg.heightDim + ' !important;border:2px solid #000;padding:' + labelPadding + ' !important;margin:0 0 5px 0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:block;position:relative}.header{font-size:' + cfg.headerSize + ';font-weight:bold;display:block;margin:0;padding:0}.name{font-size:' + cfg.fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product{font-size:' + cfg.productSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.address{font-size:' + cfg.addressSize + ';line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + noteFontSize + ';font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.item-note{font-size:' + cfg.addressSize + ';font-weight:bold;font-style:italic;margin:1px 0 0 0;display:block;word-break:break-word}.qr{width:' + cfg.qrSize + ';height:' + cfg.qrSize + ';position:absolute;top:2px;right:2px;margin:0;padding:0}.count{font-size:' + cfg.countSize + ';font-weight:bold;position:absolute;top:' + countTop + ';right:2px;margin:0;padding:0}</style></head><body><div class="Section1">';
         // Counts labels emitted so far so every label after the first opens
         // on its own fresh page. Needed because Word doesn't reliably clip
         // content to .label's fixed height/overflow:hidden the way a
@@ -1128,6 +1045,7 @@
               }
               labelCount++;
               html += '<div class="label">' +
+                '<img class="qr" src="' + app.QR_CODE_DATA_URI + '" alt="">' +
                 '<div class="count">' + (idx + 1) + ' of ' + order.items.length + '</div>' +
                 '<div class="header">BASKETS BY BLIMI</div>' +
                 '<div class="name">' + deliveryNameDisplay + '</div>' +
@@ -1207,7 +1125,16 @@
           html += '</div></div>';
         }
 
-        html += '<div class="action-buttons"><button class="print-btn" onclick="app.openAddOrder()" style="background:#16a34a">+ Add Order</button><button class="print-btn" onclick="app.printLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#7c3aed">🖨️ Print All Labels</button><button class="print-btn" onclick="app.downloadLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#2563eb">📥 Download All to Word</button><button class="print-btn" onclick="app.downloadAllToGoogleDocs()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#ea4335">📄 Google Docs</button></div>';
+        // Picks which getLabelStyleConfig preset print/download use. Only
+        // the two sizes actually in use are offered; more presets already
+        // exist in getLabelStyleConfig (3x2, 2x1) and can be added here
+        // later without touching that function.
+        html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px;color:#374151"><label for="labelSizeSelect">Label size:</label><select id="labelSizeSelect" onchange="app.setLabelSize(this.value)" style="padding:6px 8px;border:1px solid #d1d5db;border-radius:6px">' +
+          '<option value="4x3"' + (app.labelSize === '4x3' ? ' selected' : '') + '>4in x 3in (large)</option>' +
+          '<option value="2.25x1.25"' + (app.labelSize === '2.25x1.25' ? ' selected' : '') + '>2.25in x 1.25in (small)</option>' +
+          '</select></div>';
+
+        html += '<div class="action-buttons"><button class="print-btn" onclick="app.openAddOrder()" style="background:#16a34a">+ Add Order</button><button class="print-btn" onclick="app.printLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#7c3aed">🖨️ Print All Labels</button><button class="print-btn" onclick="app.downloadLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#2563eb">📥 Download All to Word</button></div>';
 
         if (dayOrders.length === 0) {
           html += '<div class="empty-state">No orders for this date</div>';
@@ -1223,7 +1150,7 @@
               var totalDisplay = /^\$/.test(order.total) ? order.total : ('$' + order.total);
               html += '<div style="font-size:14px;color:#16a34a;font-weight:bold;margin-top:5px">Total: ' + totalDisplay + '</div>';
             }
-            html += '</div><div style="display:flex;gap:5px"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#6b7280;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">✏️ Edit</button><button onclick="app.printOrder(' + orderIdx + ')" title="Print this order\'s label(s) straight to your label printer" style="background:#7c3aed;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">🖨️ Print</button><button onclick="app.downloadOrder(' + orderIdx + ')" style="background:#2563eb;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📥 Word</button><button onclick="app.downloadOrderToGoogleDocs(' + orderIdx + ')" style="background:#ea4335;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📄 Docs</button></div></div>';
+            html += '</div><div style="display:flex;gap:5px"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#6b7280;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">✏️ Edit</button><button onclick="app.printOrder(' + orderIdx + ')" title="Print this order\'s label(s) straight to your label printer" style="background:#7c3aed;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">🖨️ Print</button><button onclick="app.downloadOrder(' + orderIdx + ')" style="background:#2563eb;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📥 Word</button></div></div>';
             html += '<div class="order-items">';
             if (order.items) {
               order.items.forEach(function(item, idx) {
