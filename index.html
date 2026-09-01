@@ -780,6 +780,55 @@
         app.render();
       },
 
+      // Triggers a real file download via a hidden form POST to
+      // /api/download-doc, instead of the Blob + <a download> trick this
+      // used to use. That trick relies on the browser/WebView both
+      // supporting blob: object URLs and honoring a synthetic click on an
+      // <a download> element — Chrome desktop does, but on Android
+      // (WebViews without a registered download handler, some in-app
+      // browsers, some "installed as an app" PWA/TWA shells) it commonly
+      // does nothing, or looks like it's starting a download that never
+      // actually lands anywhere. A genuine HTTP response carrying
+      // Content-Disposition: attachment is handled by the OS/browser's own
+      // download machinery instead of JS, which works far more broadly.
+      // The form posts into a hidden iframe so the visible app page never
+      // navigates away or loses its state.
+      triggerFileDownload: function(filename, content, mimeType) {
+        var iframeName = 'downloadFrame_' + Date.now();
+        var iframe = document.createElement('iframe');
+        iframe.name = iframeName;
+        iframe.style.display = 'none';
+        document.body.appendChild(iframe);
+
+        var form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '/api/download-doc';
+        form.target = iframeName;
+        form.style.display = 'none';
+
+        function addField(name, value) {
+          var input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = name;
+          input.value = value;
+          form.appendChild(input);
+        }
+        addField('filename', filename);
+        addField('content', content);
+        addField('mimeType', mimeType);
+
+        document.body.appendChild(form);
+        form.submit();
+
+        // Clean up once the download has had time to start. Left in the
+        // DOM a beat longer than the click, since the actual file transfer
+        // happens after this returns.
+        setTimeout(function() {
+          if (form.parentNode) document.body.removeChild(form);
+          if (iframe.parentNode) document.body.removeChild(iframe);
+        }, 5000);
+      },
+
       downloadAllToGoogleDocs: function() {
         var dayOrders = app.getOrdersForDate(app.selectedDate);
         if (dayOrders.length === 0) {
@@ -878,15 +927,7 @@
 
         htmlContent += '</body></html>';
 
-        var blob = new Blob([htmlContent], { type: 'application/msword' });
-        var url = window.URL.createObjectURL(blob);
-        var link = document.createElement('a');
-        link.href = url;
-        link.download = 'BasketsByBlimi_' + app.selectedDate + '_Labels.doc';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
+        app.triggerFileDownload('BasketsByBlimi_' + app.selectedDate + '_Labels.doc', htmlContent, 'application/msword');
       },
 
       downloadOrder: function(orderIdx) {
@@ -928,15 +969,7 @@
 
         htmlContent += '</body></html>';
 
-        var blob = new Blob([htmlContent], { type: 'application/msword' });
-        var url = window.URL.createObjectURL(blob);
-        var link = document.createElement('a');
-        link.href = url;
-        link.download = 'BasketsByBlimi_' + app.selectedDate + '_' + cleanName + '.doc';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
+        app.triggerFileDownload('BasketsByBlimi_' + app.selectedDate + '_' + cleanName + '.doc', htmlContent, 'application/msword');
       },
 
       downloadOrderToGoogleDocs: function(orderIdx) {
