@@ -1073,17 +1073,31 @@
       // down a label a third taller. Sized independently now so each one
       // actually fills its label. Also fixes .count silently ignoring the
       // countSize it computed and always printing at a hardcoded 14px.
+      //
+      // UNRESOLVED as of the night of Sep 1: the '4x3' preset's actual
+      // physical dimensions are still not confirmed. Timeline of evidence
+      // so far --
+      //   - 4in wide x 3in tall (this current setting): text fills the
+      //     label much better now (font-size fix), but content still sits
+      //     in only PART of the box with blank space alongside it. Never
+      //     caused extra blank labels to eject.
+      //   - Tried 3in wide x 4in tall (swapped, since the print dialog for
+      //     this driver's "100mm x 76mm" custom size has NO Portrait/
+      //     Landscape option at all): text printed in the exact same
+      //     orientation as before -- so this was never a rotation problem
+      //     -- and the taller page overshot the label's real feed length,
+      //     spilling the print job across 3 extra blank labels. Reverted.
+      // Net conclusion: the printed *content* is now sized right (bigger
+      // font fixed that), but the *page* dimensions this code assumes
+      // (4in x 3in) don't actually match this specific label roll, and
+      // guessing at swapped dimensions blind wastes physical labels. Next
+      // step should be getting the label's REAL measured width x length
+      // (ruler, not the driver's "100mm x 76mm" claim, which may itself be
+      // wrong) and the printer's exact model, then setting labelDim/
+      // heightDim to match precisely instead of guessing again.
       getLabelStyleConfig: function(size) {
         if (size === '4x3') {
-          // Width/height swapped from the literal "4x3" (4in wide) on
-          // purpose: the printer's own driver has "100mm x 76mm" (~4x3in)
-          // registered as a FIXED-orientation custom label with no
-          // Portrait/Landscape toggle available in the print dialog, and
-          // testing showed it's actually printing that as a narrower,
-          // taller canvas (~3in wide x 4in tall) regardless of what this
-          // page's CSS declared -- so matching that orientation here
-          // instead of fighting it.
-          return { labelDim: '3in', heightDim: '4in', padding: '16px', fontSize: '22px', headerSize: '13px', productSize: '20px', addressSize: '16px', countSize: '18px' };
+          return { labelDim: '4in', heightDim: '3in', padding: '16px', fontSize: '22px', headerSize: '13px', productSize: '20px', addressSize: '16px', countSize: '18px' };
         } else if (size === '3x2') {
           return { labelDim: '3in', heightDim: '2in', padding: '10px', fontSize: '14px', headerSize: '9px', productSize: '13px', addressSize: '11px', countSize: '14px' };
         } else if (size === '2x1') {
