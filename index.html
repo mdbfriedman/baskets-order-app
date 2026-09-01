@@ -331,7 +331,7 @@
           total: '',
           productCostAutoValue: null, // last value we auto-filled, so we can tell a manual edit apart from our own fill
           totalAutoValue: null, // same idea for Total, which auto-derives from Product Cost + Delivery Cost
-          items: [{ product: '', quantity: 1 }]
+          items: [{ product: '', quantity: 1, specialInstructions: '' }]
         };
         app.isEditingOrder = false;
         app.addOrderError = '';
@@ -364,8 +364,8 @@
           productCostAutoValue: null,
           totalAutoValue: null,
           items: (order.items && order.items.length)
-            ? order.items.map(function(i) { return { product: i.product, quantity: i.quantity || 1 }; })
-            : [{ product: '', quantity: 1 }]
+            ? order.items.map(function(i) { return { product: i.product, quantity: i.quantity || 1, specialInstructions: i.specialInstructions || '' }; })
+            : [{ product: '', quantity: 1, specialInstructions: '' }]
         };
         app.isEditingOrder = true;
         app.addOrderError = '';
@@ -404,12 +404,13 @@
           item.product = g('noItemProduct_' + idx);
           var q = parseInt(g('noItemQty_' + idx), 10);
           item.quantity = isNaN(q) ? 1 : q;
+          item.specialInstructions = g('noItemNotes_' + idx);
         });
       },
 
       addOrderItemRow: function() {
         app.syncNewOrderFromDom();
-        app.newOrder.items.push({ product: '', quantity: 1 });
+        app.newOrder.items.push({ product: '', quantity: 1, specialInstructions: '' });
         app.render();
       },
 
@@ -599,7 +600,8 @@
         var o = app.newOrder;
 
         var itemsHtml = o.items.map(function(item, idx) {
-          return '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;align-items:flex-start;position:relative;z-index:' + (100 - idx) + '">' +
+          return '<div style="margin-bottom:8px;position:relative;z-index:' + (100 - idx) + '">' +
+            '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start">' +
             '<div style="position:relative;z-index:1;flex:1 1 160px;min-width:140px">' +
             '<input type="text" autocomplete="off" id="noItemProduct_' + idx + '" placeholder="Start typing a product..." value="' + (item.product || '').replace(/"/g, '&quot;') + '" ' +
             'oninput="app.filterProductSuggestions(' + idx + ', this.value); app.recalcProductCost();" ' +
@@ -613,6 +615,16 @@
             // Positioned against the whole row (not just the narrower product
             // input) so it's wider and easier to tap on mobile, per request.
             '<div id="noItemSuggestions_' + idx + '" style="position:absolute;top:100%;left:0;right:0;z-index:1000;max-height:200px;overflow-y:auto;background:white;box-shadow:0 4px 10px rgba(0,0,0,0.15);border-radius:0 0 6px 6px"></div>' +
+            '</div>' +
+            // Per-item special instructions -- e.g. "no nuts" on just this
+            // item, not the whole order (that's the separate Customer Note
+            // field below). Direct-mutates app.newOrder.items[idx] on every
+            // keystroke the same way quantity does, so it survives a
+            // re-render (adding/removing a row) without needing a page-wide
+            // form sync first.
+            '<input type="text" autocomplete="off" id="noItemNotes_' + idx + '" placeholder="Special instructions for this item (optional), e.g. no nuts" value="' + (item.specialInstructions || '').replace(/"/g, '&quot;') + '" ' +
+            'oninput="if (app.newOrder && app.newOrder.items[' + idx + ']) { app.newOrder.items[' + idx + '].specialInstructions = this.value; }" ' +
+            'style="width:100%;box-sizing:border-box;padding:6px 8px;margin-top:4px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;color:#4b5563">' +
             '</div>';
         }).join('');
 
@@ -881,6 +893,9 @@
                 productDisplay = item.quantityIndividual + ' ' + item.product;
               }
               content += productDisplay + '\n';
+              if (item.specialInstructions) {
+                content += '(' + item.specialInstructions + ')\n';
+              }
               content += addressParts.address + '\n';
               content += addressParts.city + '\n';
               if (order.customerNote) {
@@ -980,6 +995,9 @@
             productDisplay = item.quantityIndividual + ' ' + item.product;
           }
           content += productDisplay + '\n';
+          if (item.specialInstructions) {
+            content += '(' + item.specialInstructions + ')\n';
+          }
           content += addressParts.address + '\n';
           content += addressParts.city + '\n';
           if (order.customerNote) {
@@ -1073,7 +1091,7 @@
         // rules are declared so print (unnamed @page) and Word (named
         // Section1 + div.Section1) each get the page size from the one
         // they actually read.
-        var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>@page Section1{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';mso-page-orientation:portrait;margin:0in 0in 0in 0in;}div.Section1{page:Section1;}* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + cfg.labelDim + ' !important;height:' + cfg.heightDim + ' !important;border:2px solid #000;padding:' + cfg.padding + ' !important;margin:0 0 5px 0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:block;position:relative}.header{font-size:' + cfg.headerSize + ';font-weight:bold;display:block;margin:0;padding:0}.name{font-size:' + cfg.fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product{font-size:' + cfg.productSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.address{font-size:' + cfg.addressSize + ';line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + noteFontSize + ';font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.count{font-size:' + cfg.countSize + ';font-weight:bold;position:absolute;top:2px;right:4px;margin:0;padding:0}</style></head><body><div class="Section1">';
+        var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>@page Section1{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';mso-page-orientation:portrait;margin:0in 0in 0in 0in;}div.Section1{page:Section1;}* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + cfg.labelDim + ' !important;height:' + cfg.heightDim + ' !important;border:2px solid #000;padding:' + cfg.padding + ' !important;margin:0 0 5px 0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:block;position:relative}.header{font-size:' + cfg.headerSize + ';font-weight:bold;display:block;margin:0;padding:0}.name{font-size:' + cfg.fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product{font-size:' + cfg.productSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.address{font-size:' + cfg.addressSize + ';line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + noteFontSize + ';font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.item-note{font-size:' + cfg.addressSize + ';font-weight:bold;font-style:italic;margin:1px 0 0 0;display:block;word-break:break-word}.count{font-size:' + cfg.countSize + ';font-weight:bold;position:absolute;top:2px;right:4px;margin:0;padding:0}</style></head><body><div class="Section1">';
         // Counts labels emitted so far so every label after the first opens
         // on its own fresh page. Needed because Word doesn't reliably clip
         // content to .label's fixed height/overflow:hidden the way a
@@ -1114,6 +1132,7 @@
                 '<div class="header">BASKETS BY BLIMI</div>' +
                 '<div class="name">' + deliveryNameDisplay + '</div>' +
                 '<div class="product">' + productDisplay + '</div>' +
+                (item.specialInstructions ? '<div class="item-note">' + item.specialInstructions + '</div>' : '') +
                 '<div class="address">' + addressHtml + '</div>' +
                 (order.customerNote ? '<div class="note"><strong>Note:</strong> ' + order.customerNote + '</div>' : '') +
                 '</div>';
@@ -1208,7 +1227,11 @@
             html += '<div class="order-items">';
             if (order.items) {
               order.items.forEach(function(item, idx) {
-                html += '<div><strong>' + item.product + '</strong> <span>qty: ' + item.quantity + ' • <strong>' + (idx + 1) + ' of ' + order.items.length + '</strong></span></div>';
+                // Special instructions wrapped into the same left-hand <span>
+                // as the product name (not a third bare sibling) so the row
+                // stays exactly two flex children -- product info on the
+                // left, qty/count on the right -- same as before.
+                html += '<div><span><strong>' + item.product + '</strong>' + (item.specialInstructions ? ' <span style="color:#dc2626;font-weight:normal;font-size:12px">(' + item.specialInstructions + ')</span>' : '') + '</span> <span>qty: ' + item.quantity + ' • <strong>' + (idx + 1) + ' of ' + order.items.length + '</strong></span></div>';
               });
             }
             html += '</div>';
