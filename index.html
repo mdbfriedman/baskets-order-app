@@ -1025,12 +1025,22 @@
       // actually fills its label. Also fixes .count silently ignoring the
       // countSize it computed and always printing at a hardcoded 14px.
       //
-      // RESOLVED as of Sep 1: 4in wide x 3in tall is confirmed correct --
-      // label size prints right on both the printer and the Word download
-      // (which was fixed separately to share this same config; see
-      // buildLabelsHtml). See git history on this block for the earlier
-      // back-and-forth (orientation swap tried and reverted) before this
-      // was confirmed.
+      // STATUS as of Sep 1 (afternoon): the Word download (which opens this
+      // same HTML in Microsoft Word, not through a print driver) confirmed
+      // sized right at 4in x 3in once Word's own mso page-size rule was
+      // added (see buildLabelsHtml). But an actual physical test print
+      // through the label PRINTER the same afternoon came out with content
+      // only filling part of the physical label and cut off on one edge --
+      // so the earlier "confirmed correct" note below was premature; it was
+      // never actually verified against a real print, only against the
+      // Word doc. The physical printer goes through its own driver/page
+      // negotiation that Word and the browser-preview don't, so this is
+      // back to being an open problem specifically for that path. Do not
+      // re-guess at swapping labelDim/heightDim blind again -- that was
+      // tried once already (see git history) and it burned 3 physical
+      // labels by desyncing the feed length. Get the printer model, the
+      // label's real ruler-measured dimensions, and what page-size options
+      // actually exist in that print dialog before changing this again.
       getLabelStyleConfig: function(size) {
         if (size === '4x3') {
           return { labelDim: '4in', heightDim: '3in', padding: '16px', fontSize: '22px', headerSize: '13px', productSize: '20px', addressSize: '16px', countSize: '18px' };
@@ -1064,6 +1074,23 @@
         // Section1 + div.Section1) each get the page size from the one
         // they actually read.
         var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>@page Section1{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';mso-page-orientation:portrait;margin:0in 0in 0in 0in;}div.Section1{page:Section1;}* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + cfg.labelDim + ' !important;height:' + cfg.heightDim + ' !important;border:2px solid #000;padding:' + cfg.padding + ' !important;margin:0 0 5px 0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:block;position:relative}.header{font-size:' + cfg.headerSize + ';font-weight:bold;display:block;margin:0;padding:0}.name{font-size:' + cfg.fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product{font-size:' + cfg.productSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.address{font-size:' + cfg.addressSize + ';line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + noteFontSize + ';font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.count{font-size:' + cfg.countSize + ';font-weight:bold;position:absolute;top:2px;right:4px;margin:0;padding:0}</style></head><body><div class="Section1">';
+        // Counts labels emitted so far so every label after the first opens
+        // on its own fresh page. Needed because Word doesn't reliably clip
+        // content to .label's fixed height/overflow:hidden the way a
+        // browser does -- when one label's content (a long note especially,
+        // at 1.5x the name font) runs taller than the box, Word just lets
+        // it flow past the border into the space where the next label
+        // starts, instead of cutting it off. page-break-inside:avoid on
+        // .label only stops a label from being split internally; it does
+        // nothing to force the *next* label onto a new page, so overflow
+        // from one order's label was bleeding into the next order's label
+        // and both were printing as if merged into one. A real forced break
+        // before each label (the `<br clear=all style='...page-break-
+        // before:always'>` form, since Word needs `mso-special-character:
+        // line-break` on the <br> for a plain page-break-before to actually
+        // take effect) guarantees a hard boundary between labels no matter
+        // how much any single one overflows.
+        var labelCount = 0;
         orders.forEach(function(order) {
           if (order.items) {
             // Delivery Name (who to hand it to) takes priority; falls back to
@@ -1078,6 +1105,10 @@
               // HTML so consolidating onto this shared builder doesn't drop it,
               // and print now shows it too since it never had before.
               var productDisplay = item.quantityIndividual ? (item.quantityIndividual + ' ' + item.product) : item.product;
+              if (labelCount > 0) {
+                html += "<br clear=all style='mso-special-character:line-break;page-break-before:always'>";
+              }
+              labelCount++;
               html += '<div class="label">' +
                 '<div class="count">' + (idx + 1) + ' of ' + order.items.length + '</div>' +
                 '<div class="header">BASKETS BY BLIMI</div>' +
