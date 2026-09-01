@@ -252,6 +252,23 @@
         return totals;
       },
 
+      // Sums the Total field across every order for a date, for the daily
+      // revenue line under the order count. Cleans each order's total the
+      // same way it's cleaned for display (strip a leading "$", allow
+      // commas) before parsing, and simply skips any order with no total
+      // or an unparseable one rather than letting it wreck the sum.
+      getDayRevenue: function(date) {
+        var dayOrders = app.getOrdersForDate(date);
+        var sum = 0;
+        dayOrders.forEach(function(order) {
+          if (!order.total) return;
+          var cleaned = order.total.toString().replace(/^\$/, '').replace(/,/g, '').trim();
+          var n = parseFloat(cleaned);
+          if (!isNaN(n)) sum += n;
+        });
+        return sum;
+      },
+
       // Pulls the full, live product/variation SKU list straight from WooCommerce
       // (via the backend, which holds the API credentials) so "Add Order" can
       // suggest every real product, not just ones that already showed up in past
@@ -1188,7 +1205,8 @@
         var dates = app.getAllDates();
         var currentIdx = dates.indexOf(app.selectedDate);
 
-        var html = '<div class="date-nav"><button onclick="app.previousDate()" ' + (currentIdx === 0 ? 'disabled' : '') + '>←</button><div class="date-display"><h2>' + app.formatDateDisplay(app.selectedDate) + '</h2><p>' + dayOrders.length + ' orders</p></div><button onclick="app.nextDate()" ' + (currentIdx === dates.length - 1 ? 'disabled' : '') + '>→</button></div>';
+        var dayRevenue = app.getDayRevenue(app.selectedDate);
+        var html = '<div class="date-nav"><button onclick="app.previousDate()" ' + (currentIdx === 0 ? 'disabled' : '') + '>←</button><div class="date-display"><h2>' + app.formatDateDisplay(app.selectedDate) + '</h2><p>' + dayOrders.length + ' orders</p>' + (dayRevenue > 0 ? '<p style="color:#16a34a;font-weight:bold;font-size:15px;margin-top:2px">$' + dayRevenue.toFixed(2) + ' total</p>' : '') + '</div><button onclick="app.nextDate()" ' + (currentIdx === dates.length - 1 ? 'disabled' : '') + '>→</button></div>';
 
         if (Object.keys(totals).length > 0) {
           html += '<div class="totals-box"><h3>Product Totals</h3><div class="totals-grid">';
@@ -1207,7 +1225,14 @@
           dayOrders.forEach(function(order, orderIdx) {
             html += '<div class="order-item"><div style="display:flex;justify-content:space-between;align-items:start"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#059669;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
             if (order.deliveredTo) html += '<div class="order-address">Deliver to: ' + order.deliveredTo + '</div>';
-            html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div></div><div style="display:flex;gap:5px"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#6b7280;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">✏️ Edit</button><button onclick="app.downloadOrder(' + orderIdx + ')" style="background:#2563eb;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📥 Word</button><button onclick="app.downloadOrderToGoogleDocs(' + orderIdx + ')" style="background:#ea4335;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📄 Docs</button></div></div>';
+            html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div>';
+            if (order.total) {
+              // Sheet cell may or may not already include a "$" depending on
+              // how it was typed/formatted there — don't double it up.
+              var totalDisplay = /^\$/.test(order.total) ? order.total : ('$' + order.total);
+              html += '<div style="font-size:14px;color:#16a34a;font-weight:bold;margin-top:5px">Total: ' + totalDisplay + '</div>';
+            }
+            html += '</div><div style="display:flex;gap:5px"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#6b7280;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">✏️ Edit</button><button onclick="app.downloadOrder(' + orderIdx + ')" style="background:#2563eb;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📥 Word</button><button onclick="app.downloadOrderToGoogleDocs(' + orderIdx + ')" style="background:#ea4335;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📄 Docs</button></div></div>';
             html += '<div class="order-items">';
             if (order.items) {
               order.items.forEach(function(item, idx) {
