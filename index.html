@@ -951,10 +951,15 @@
         } else if (size === '2x1') {
           return { labelDim: '2in', heightDim: '1in', padding: '4px', fontSize: '8px', headerSize: '6px', productSize: '8px', addressSize: '7px', countSize: '10px', qrSize: '18px' };
         } else if (size === '2.25x1.25') {
-          // The small thermal label option, alongside 4x3 -- sized up
-          // slightly from the 2x1 preset since this label has ~40% more
-          // area (2.25 x 1.25 = 2.8125 sq in vs 2 x 1 = 2 sq in).
-          return { labelDim: '2.25in', heightDim: '1.25in', padding: '5px', fontSize: '10px', headerSize: '7px', productSize: '9px', addressSize: '8px', countSize: '9px', qrSize: '20px' };
+          // The small thermal label option, alongside 4x3. Physical
+          // dimensions (2.25in x 1.25in) intentionally NOT touched here --
+          // those match the printer's own custom paper profile (57.15mm x
+          // 31.75mm) already set up for this size; changing them would
+          // desync from that the same way the 4x3 dimension mismatch did
+          // earlier. Font sizes bumped up and padding tightened instead,
+          // after an initial pass left too much unused blank space below
+          // the content on a typical multi-line label.
+          return { labelDim: '2.25in', heightDim: '1.25in', padding: '4px', fontSize: '13px', headerSize: '8px', productSize: '12px', addressSize: '10px', countSize: '10px', qrSize: '22px' };
         }
         // Unknown/unset labelSize -- fall back to the smallest, safest
         // preset rather than silently rendering with undefined CSS values.
