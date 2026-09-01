@@ -1052,7 +1052,18 @@
       buildLabelsHtml: function(orders) {
         var cfg = app.getLabelStyleConfig(app.labelSize);
         var noteFontSize = Math.ceil(parseInt(cfg.fontSize) * 1.5) + 'px';
-        var html = '<html><head><style>* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + cfg.labelDim + ' !important;height:' + cfg.heightDim + ' !important;border:2px solid #000;padding:' + cfg.padding + ' !important;margin:0 0 5px 0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:block;position:relative}.header{font-size:' + cfg.headerSize + ';font-weight:bold;display:block;margin:0;padding:0}.name{font-size:' + cfg.fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product{font-size:' + cfg.productSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.address{font-size:' + cfg.addressSize + ';line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + noteFontSize + ';font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.count{font-size:' + cfg.countSize + ';font-weight:bold;position:absolute;top:2px;right:4px;margin:0;padding:0}</style></head><body>';
+        // Word's HTML-as-.doc converter only picks up page size/margins from
+        // its own "mso" CSS dialect -- a *named* @page selector (Section1
+        // here) applied to a div via the "page" property -- and silently
+        // ignores the plain, unnamed "@page{size:...}" rule just below,
+        // which is the one browsers use for print. That's why the printed
+        // label came out the right size but the Word download kept landing
+        // on default Letter paper no matter what labelDim/heightDim said:
+        // the size was computed correctly, Word just never saw it. Both
+        // rules are declared so print (unnamed @page) and Word (named
+        // Section1 + div.Section1) each get the page size from the one
+        // they actually read.
+        var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>@page Section1{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';mso-page-orientation:portrait;margin:0in 0in 0in 0in;}div.Section1{page:Section1;}* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + cfg.labelDim + ' !important;height:' + cfg.heightDim + ' !important;border:2px solid #000;padding:' + cfg.padding + ' !important;margin:0 0 5px 0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:block;position:relative}.header{font-size:' + cfg.headerSize + ';font-weight:bold;display:block;margin:0;padding:0}.name{font-size:' + cfg.fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product{font-size:' + cfg.productSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.address{font-size:' + cfg.addressSize + ';line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + noteFontSize + ';font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.count{font-size:' + cfg.countSize + ';font-weight:bold;position:absolute;top:2px;right:4px;margin:0;padding:0}</style></head><body><div class="Section1">';
         orders.forEach(function(order) {
           if (order.items) {
             // Delivery Name (who to hand it to) takes priority; falls back to
@@ -1078,7 +1089,7 @@
             });
           }
         });
-        html += '</body></html>';
+        html += '</div></body></html>';
         return html;
       },
 
