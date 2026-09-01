@@ -926,37 +926,11 @@
           return;
         }
 
-        var htmlContent = '<html><head><meta charset="utf-8"><title>Baskets by Blimi Labels</title></head><body>';
-        htmlContent += '<h1>BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '</h1>';
-        htmlContent += '<p>Use Word\'s Mail Merge or Labels feature to format for your label printer.</p>';
-        htmlContent += '<hr>';
-        
-        dayOrders.forEach(function(order, orderIdx) {
-          if (order.items) {
-            var cleanName = app.cleanLastName(order.lastName);
-            var addressParts = app.splitAddress(order.address);
-            order.items.forEach(function(item, idx) {
-              htmlContent += '<p style="border:1px solid #000; padding:10px; margin:10px 0; page-break-inside:avoid; position:relative">';
-              htmlContent += '<div style="text-align:right;font-size:9px;color:#999;margin-bottom:8px">Order ' + (idx + 1) + ' of ' + order.items.length + '</div>';
-              htmlContent += '<b>' + cleanName + '</b><br>';
-              var productDisplay = item.product;
-              if (item.quantityIndividual) {
-                productDisplay = item.quantityIndividual + ' ' + item.product;
-              }
-              htmlContent += '<b>' + productDisplay + '</b><br>';
-              htmlContent += addressParts.address + '<br>';
-              htmlContent += addressParts.city + '<br>';
-              if (order.customerNote) {
-                htmlContent += '<br><b>NOTE: ' + order.customerNote + '</b>';
-              }
-              htmlContent += '</p>';
-            });
-          }
-        });
-
-        htmlContent += '</body></html>';
-
-        app.triggerFileDownload('BasketsByBlimi_' + app.selectedDate + '_Labels.doc', htmlContent, 'application/msword');
+        // Shares buildLabelsHtml with printLabels so the Word download is
+        // sized identically to what comes out of the label printer (see
+        // getLabelStyleConfig comment above) instead of the old hardcoded
+        // one-size html that never picked up labelSize at all.
+        app.triggerFileDownload('BasketsByBlimi_' + app.selectedDate + '_Labels.doc', app.buildLabelsHtml(dayOrders), 'application/msword');
       },
 
       downloadOrder: function(orderIdx) {
@@ -972,33 +946,10 @@
           return;
         }
 
-        var htmlContent = '<html><head><meta charset="utf-8"><title>Baskets by Blimi Labels</title></head><body>';
-        htmlContent += '<h1>BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '</h1>';
-        htmlContent += '<p>Use Word\'s Mail Merge or Labels feature to format for your label printer.</p>';
-        htmlContent += '<hr>';
-        
         var cleanName = app.cleanLastName(order.lastName);
-        var addressParts = app.splitAddress(order.address);
-        order.items.forEach(function(item, idx) {
-          htmlContent += '<p style="border:1px solid #000; padding:10px; margin:10px 0; page-break-inside:avoid; position:relative">';
-          htmlContent += '<div style="text-align:right;font-size:9px;color:#999;margin-bottom:8px">Order ' + (idx + 1) + ' of ' + order.items.length + '</div>';
-          htmlContent += '<b>' + cleanName + '</b><br>';
-          var productDisplay = item.product;
-          if (item.quantityIndividual) {
-            productDisplay = item.quantityIndividual + ' ' + item.product;
-          }
-          htmlContent += '<b>' + productDisplay + '</b><br>';
-          htmlContent += addressParts.address + '<br>';
-          htmlContent += addressParts.city + '<br>';
-          if (order.customerNote) {
-            htmlContent += '<br><b>NOTE: ' + order.customerNote + '</b>';
-          }
-          htmlContent += '</p>';
-        });
 
-        htmlContent += '</body></html>';
-
-        app.triggerFileDownload('BasketsByBlimi_' + app.selectedDate + '_' + cleanName + '.doc', htmlContent, 'application/msword');
+        // Same shared builder as printOrder -- see downloadLabels above.
+        app.triggerFileDownload('BasketsByBlimi_' + app.selectedDate + '_' + cleanName + '.doc', app.buildLabelsHtml([order]), 'application/msword');
       },
 
       downloadOrderToGoogleDocs: function(orderIdx) {
@@ -1074,27 +1025,12 @@
       // actually fills its label. Also fixes .count silently ignoring the
       // countSize it computed and always printing at a hardcoded 14px.
       //
-      // UNRESOLVED as of the night of Sep 1: the '4x3' preset's actual
-      // physical dimensions are still not confirmed. Timeline of evidence
-      // so far --
-      //   - 4in wide x 3in tall (this current setting): text fills the
-      //     label much better now (font-size fix), but content still sits
-      //     in only PART of the box with blank space alongside it. Never
-      //     caused extra blank labels to eject.
-      //   - Tried 3in wide x 4in tall (swapped, since the print dialog for
-      //     this driver's "100mm x 76mm" custom size has NO Portrait/
-      //     Landscape option at all): text printed in the exact same
-      //     orientation as before -- so this was never a rotation problem
-      //     -- and the taller page overshot the label's real feed length,
-      //     spilling the print job across 3 extra blank labels. Reverted.
-      // Net conclusion: the printed *content* is now sized right (bigger
-      // font fixed that), but the *page* dimensions this code assumes
-      // (4in x 3in) don't actually match this specific label roll, and
-      // guessing at swapped dimensions blind wastes physical labels. Next
-      // step should be getting the label's REAL measured width x length
-      // (ruler, not the driver's "100mm x 76mm" claim, which may itself be
-      // wrong) and the printer's exact model, then setting labelDim/
-      // heightDim to match precisely instead of guessing again.
+      // RESOLVED as of Sep 1: 4in wide x 3in tall is confirmed correct --
+      // label size prints right on both the printer and the Word download
+      // (which was fixed separately to share this same config; see
+      // buildLabelsHtml). See git history on this block for the earlier
+      // back-and-forth (orientation swap tried and reverted) before this
+      // was confirmed.
       getLabelStyleConfig: function(size) {
         if (size === '4x3') {
           return { labelDim: '4in', heightDim: '3in', padding: '16px', fontSize: '22px', headerSize: '13px', productSize: '20px', addressSize: '16px', countSize: '18px' };
@@ -1126,11 +1062,16 @@
             var addressParts = app.splitAddress(order.address);
             var addressHtml = addressParts.city ? (addressParts.address + '<br>' + addressParts.city) : addressParts.address;
             order.items.forEach(function(item, idx) {
+              // quantityIndividual (e.g. "3 Individual") prefixes the product
+              // name when set -- carried over from the old Word-only download
+              // HTML so consolidating onto this shared builder doesn't drop it,
+              // and print now shows it too since it never had before.
+              var productDisplay = item.quantityIndividual ? (item.quantityIndividual + ' ' + item.product) : item.product;
               html += '<div class="label">' +
                 '<div class="count">' + (idx + 1) + ' of ' + order.items.length + '</div>' +
                 '<div class="header">BASKETS BY BLIMI</div>' +
                 '<div class="name">' + deliveryNameDisplay + '</div>' +
-                '<div class="product">' + item.product + '</div>' +
+                '<div class="product">' + productDisplay + '</div>' +
                 '<div class="address">' + addressHtml + '</div>' +
                 (order.customerNote ? '<div class="note"><strong>Note:</strong> ' + order.customerNote + '</div>' : '') +
                 '</div>';
