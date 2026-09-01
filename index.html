@@ -891,7 +891,7 @@
         // sized identically to what comes out of the label printer (see
         // getLabelStyleConfig comment above) instead of the old hardcoded
         // one-size html that never picked up labelSize at all.
-        app.triggerFileDownload('BasketsByBlimi_' + app.selectedDate + '_Labels.doc', app.buildLabelsHtml(dayOrders), 'application/msword');
+        app.triggerFileDownload('BasketsByBlimi_' + app.selectedDate + '_Labels.doc', app.buildLabelsHtml(dayOrders, true), 'application/msword');
       },
 
       downloadOrder: function(orderIdx) {
@@ -910,7 +910,7 @@
         var cleanName = app.cleanLastName(order.lastName);
 
         // Same shared builder as printOrder -- see downloadLabels above.
-        app.triggerFileDownload('BasketsByBlimi_' + app.selectedDate + '_' + cleanName + '.doc', app.buildLabelsHtml([order]), 'application/msword');
+        app.triggerFileDownload('BasketsByBlimi_' + app.selectedDate + '_' + cleanName + '.doc', app.buildLabelsHtml([order], true), 'application/msword');
       },
 
       // Switches which label size print/download use, and remembers the
@@ -944,12 +944,17 @@
       // click the printer -> Printing preferences -> Page settings -> Paper
       // Name actually matches the label stock physically loaded.
       getLabelStyleConfig: function(size) {
+        // qrSize was originally set far too small to reliably scan (e.g.
+        // 34px / ~0.35in on the 4x3 label -- each QR module worked out to
+        // roughly a single printed pixel). Bumped up across every preset so
+        // the printed code is physically big enough for a phone or webcam
+        // to focus on and read.
         if (size === '4x3') {
-          return { labelDim: '4in', heightDim: '3in', padding: '16px', fontSize: '22px', headerSize: '13px', productSize: '20px', addressSize: '16px', countSize: '18px', qrSize: '34px' };
+          return { labelDim: '4in', heightDim: '3in', padding: '16px', fontSize: '22px', headerSize: '13px', productSize: '20px', addressSize: '16px', countSize: '18px', qrSize: '80px' };
         } else if (size === '3x2') {
-          return { labelDim: '3in', heightDim: '2in', padding: '10px', fontSize: '14px', headerSize: '9px', productSize: '13px', addressSize: '11px', countSize: '14px', qrSize: '26px' };
+          return { labelDim: '3in', heightDim: '2in', padding: '10px', fontSize: '14px', headerSize: '9px', productSize: '13px', addressSize: '11px', countSize: '14px', qrSize: '60px' };
         } else if (size === '2x1') {
-          return { labelDim: '2in', heightDim: '1in', padding: '4px', fontSize: '8px', headerSize: '6px', productSize: '8px', addressSize: '7px', countSize: '10px', qrSize: '18px' };
+          return { labelDim: '2in', heightDim: '1in', padding: '4px', fontSize: '8px', headerSize: '6px', productSize: '8px', addressSize: '7px', countSize: '10px', qrSize: '40px' };
         } else if (size === '2.25x1.25') {
           // The small thermal label option, alongside 4x3. Physical
           // dimensions (2.25in x 1.25in) intentionally NOT touched here --
@@ -959,7 +964,7 @@
           // earlier. Font sizes bumped up and padding tightened instead,
           // after an initial pass left too much unused blank space below
           // the content on a typical multi-line label.
-          return { labelDim: '2.25in', heightDim: '1.25in', padding: '4px', fontSize: '13px', headerSize: '8px', productSize: '12px', addressSize: '10px', countSize: '10px', qrSize: '22px' };
+          return { labelDim: '2.25in', heightDim: '1.25in', padding: '4px', fontSize: '13px', headerSize: '8px', productSize: '12px', addressSize: '10px', countSize: '10px', qrSize: '50px' };
         }
         // Unknown/unset labelSize -- fall back to the smallest, safest
         // preset rather than silently rendering with undefined CSS values.
@@ -982,7 +987,7 @@
       // printLabels (whole day) and printOrder (one order) so the two never
       // drift out of sync with each other the way the old copy-pasted
       // versions of this did.
-      buildLabelsHtml: function(orders) {
+      buildLabelsHtml: function(orders, forWord) {
         var cfg = app.getLabelStyleConfig(app.labelSize);
         var noteFontSize = Math.ceil(parseInt(cfg.fontSize) * 1.5) + 'px';
         // The QR code (and the count badge stacked under it) live in an
@@ -1013,7 +1018,7 @@
         // rules are declared so print (unnamed @page) and Word (named
         // Section1 + div.Section1) each get the page size from the one
         // they actually read.
-        var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>@page Section1{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';mso-page-orientation:portrait;margin:0in 0in 0in 0in;}div.Section1{page:Section1;}* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + cfg.labelDim + ' !important;height:' + cfg.heightDim + ' !important;border:2px solid #000;padding:' + labelPadding + ' !important;margin:0 0 5px 0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:block;position:relative}.header{font-size:' + cfg.headerSize + ';font-weight:bold;display:block;margin:0;padding:0}.name{font-size:' + cfg.fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product{font-size:' + cfg.productSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.address{font-size:' + cfg.addressSize + ';line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + noteFontSize + ';font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.item-note{font-size:' + cfg.addressSize + ';font-weight:bold;font-style:italic;margin:1px 0 0 0;display:block;word-break:break-word}.qr{width:' + cfg.qrSize + ';height:' + cfg.qrSize + ';position:absolute;top:2px;right:2px;margin:0;padding:0}.count{font-size:' + cfg.countSize + ';font-weight:bold;position:absolute;top:' + countTop + ';right:2px;margin:0;padding:0}</style></head><body><div class="Section1">';
+        var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>@page Section1{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';mso-page-orientation:portrait;margin:0in 0in 0in 0in;}div.Section1{page:Section1;}* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + cfg.labelDim + ' !important;height:' + cfg.heightDim + ' !important;border:2px solid #000;padding:' + labelPadding + ' !important;margin:0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:block;position:relative}.header{font-size:' + cfg.headerSize + ';font-weight:bold;display:block;margin:0;padding:0}.name{font-size:' + cfg.fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product{font-size:' + cfg.productSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.address{font-size:' + cfg.addressSize + ';line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + noteFontSize + ';font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.item-note{font-size:' + cfg.addressSize + ';font-weight:bold;font-style:italic;margin:1px 0 0 0;display:block;word-break:break-word}.qr{width:' + cfg.qrSize + ';height:' + cfg.qrSize + ';position:absolute;top:2px;right:2px;margin:0;padding:0}.count{font-size:' + cfg.countSize + ';font-weight:bold;position:absolute;top:' + countTop + ';right:2px;margin:0;padding:0}</style></head><body><div class="Section1">';
         // Counts labels emitted so far so every label after the first opens
         // on its own fresh page. Needed because Word doesn't reliably clip
         // content to .label's fixed height/overflow:hidden the way a
@@ -1029,7 +1034,24 @@
         // before:always'>` form, since Word needs `mso-special-character:
         // line-break` on the <br> for a plain page-break-before to actually
         // take effect) guarantees a hard boundary between labels no matter
-        // how much any single one overflows.
+        // how much any single one overflows. This is ONLY emitted for Word
+        // (forWord===true) now -- a real browser already starts a fresh
+        // page for every label on its own, because .label's fixed height
+        // exactly equals the @page size. Adding this SAME forced break in
+        // the browser/print path on top of that double-counted the page
+        // break: label 1 already filled page 1 (natural break to page 2),
+        // then the forced <br> immediately forced ANOTHER break right at
+        // the top of that fresh page, so a fully blank page appeared after
+        // every label (confirmed by rendering 3 orders and getting 5 pages
+        // instead of 3 -- page 1 = label 1, page 2 = blank, page 3 = label
+        // 2, ...). That blank page is what was showing up as "the bottom of
+        // one label spilling into the next" -- nothing to do with the
+        // physical label/backing paper size.
+        // .label also used to carry a 5px bottom margin (left over from an
+        // earlier layout that packed multiple labels per sheet), which is
+        // removed too -- with @page sized to exactly one label there's no
+        // room for it and no need for it now that each label gets its own
+        // page.
         var labelCount = 0;
         orders.forEach(function(order) {
           if (order.items) {
@@ -1045,7 +1067,7 @@
               // HTML so consolidating onto this shared builder doesn't drop it,
               // and print now shows it too since it never had before.
               var productDisplay = item.quantityIndividual ? (item.quantityIndividual + ' ' + item.product) : item.product;
-              if (labelCount > 0) {
+              if (labelCount > 0 && forWord) {
                 html += "<br clear=all style='mso-special-character:line-break;page-break-before:always'>";
               }
               labelCount++;
