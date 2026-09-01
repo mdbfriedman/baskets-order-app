@@ -996,7 +996,11 @@
           // matching the margin this preset has held at since the 55x29mm
           // shrink -- see probe_address measurements: addressSize past 11px
           // here costs far more height than it looks like it should.
-          return { labelDim: '55mm', heightDim: '29mm', padding: '4px', fontSize: '12px', headerSize: '8px', productSize: '10px', addressSize: '11px', countSize: '11px', qrSize: '50px' };
+          // headerSize got over-corrected down to 8px (smaller than its
+          // original 9px!) while chasing headroom for the above -- fixed
+          // back up to 11px (visibly bigger than original, as intended)
+          // after confirming there was still 13%+ headroom to spare.
+          return { labelDim: '55mm', heightDim: '29mm', padding: '4px', fontSize: '12px', headerSize: '11px', productSize: '10px', addressSize: '11px', countSize: '11px', qrSize: '50px' };
         }
         // Unknown/unset labelSize -- fall back to the smallest, safest
         // preset rather than silently rendering with undefined CSS values.
