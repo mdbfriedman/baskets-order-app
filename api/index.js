@@ -672,6 +672,14 @@ function parseSheetData(values) {
   // won't have a cost breakdown to pre-fill, only whatever Total it has.
   const productCostIdx = headers.findIndex(h => h.includes('product cost'));
   const deliveryCostIdx = headers.findIndex(h => h.includes('delivery cost'));
+  // Per-item special instructions (e.g. "no nuts" on just the salad, not
+  // every item in the order) -- a new trailing column, absent (-1) until
+  // it's actually added to the sheet's header row. Deliberately split on
+  // "|", not "," like the other per-item columns: this is free text
+  // someone types ("no nuts, extra napkins"), and a bare comma-split would
+  // corrupt the positional alignment with itemNames/quantities the moment
+  // a note contains a comma.
+  const itemNotesIdx = headers.findIndex(h => h.includes('special instructions'));
 
   for (let i = 1; i < values.length; i++) {
     const row = values[i];
@@ -680,6 +688,7 @@ function parseSheetData(values) {
     const itemsStr = row[itemIdx] || '';
     const qtyStr = row[qtyIdx] || '1';
     const qtyIndividualStr = row[qtyIndividualIdx] || '';
+    const itemNotesStr = itemNotesIdx === -1 ? '' : (row[itemNotesIdx] || '');
 
     const items = [];
     if (itemsStr) {
@@ -692,12 +701,14 @@ function parseSheetData(values) {
         const parsed = parseInt(q.trim());
         return isNaN(parsed) ? '' : parsed;
       });
+      const itemNotes = itemNotesStr.split('|').map(n => n.trim());
 
       itemNames.forEach((name, idx) => {
         items.push({
           product: name,
           quantity: quantities[idx] || 1,
-          quantityIndividual: qtyIndividuals[idx] || ''
+          quantityIndividual: qtyIndividuals[idx] || '',
+          specialInstructions: itemNotes[idx] || ''
         });
       });
     }
@@ -731,9 +742,13 @@ function parseSheetData(values) {
 // A=Delivery Date, B=Order Number, C=Name, D=Line Item Name, E=Quantity,
 // F=Quantity of Individual, G=Deliver To Last Name, H=Pickup/Delivery,
 // I=Delivery Address, J=Total, K=Payment Method, L=Customer Note,
-// M=Product Cost, N=Delivery Cost. M/N are new — add those two header
-// labels to the sheet yourself if you want to see them there; this always
-// writes into those columns either way.
+// M=Product Cost, N=Delivery Cost, O=Item Special Instructions. M/N/O are
+// new — add those header labels to the sheet yourself if you want to see
+// them there; this always writes into those columns either way. O in
+// particular MUST be added as a trailing column (after N), not inserted
+// between existing ones — the sheet ranges below are hardcoded by column
+// count (A:O), so an inserted column would shift everything after it out
+// from under those ranges and scramble unrelated data.
 function validateAndBuildOrderRow(body, orderNumber) {
   const {
     deliveryDate, lastName, deliveryName, pickupOrDelivery,
@@ -753,6 +768,12 @@ function validateAndBuildOrderRow(body, orderNumber) {
     const q = parseInt(i && i.quantity, 10);
     return isNaN(q) ? 1 : q;
   });
+  // Aligned the same way quantities is (one entry per raw item, not
+  // filtered down like productNames) so position idx still lines up with
+  // the same item across all three per-item columns. "|" instead of ","
+  // so a note like "no nuts, easy on sauce" doesn't get mistaken for a
+  // column delimiter and thrown out of alignment with the other items.
+  const itemNotes = items.map(i => String((i && i.specialInstructions) || '').trim());
 
   if (productNames.length === 0) {
     return { error: 'At least one item with a product is required' };
@@ -772,7 +793,8 @@ function validateAndBuildOrderRow(body, orderNumber) {
     (paymentMethod || '').trim(),
     (customerNote || '').trim(),
     (productCost || '').toString().trim(),
-    (deliveryCost || '').toString().trim()
+    (deliveryCost || '').toString().trim(),
+    itemNotes.join('|')
   ];
 
   return { row };
@@ -932,7 +954,11 @@ export default async function handler(req, res) {
       const accessToken = await getAccessToken(serviceAccount);
 
       const sheetId = '1hW5nnsCyPVxNBXGV1CywgBaE1f9wMQxZEWk-rHu71hM';
-      const range = 'Sheet1!A:L';
+      // Was A:L, missing M/N (Product Cost/Delivery Cost -- they round-trip
+      // on save but were silently never read back on load through this
+      // range) and now O (the new per-item special instructions column).
+      // Widened to cover all of them.
+      const range = 'Sheet1!A:O';
 
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}`;
       const response = await fetch(url, {
@@ -985,7 +1011,7 @@ export default async function handler(req, res) {
       const accessToken = await getAccessToken(serviceAccount);
 
       const sheetId = '1hW5nnsCyPVxNBXGV1CywgBaE1f9wMQxZEWk-rHu71hM';
-      const range = 'Sheet1!A:N';
+      const range = 'Sheet1!A:O';
 
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
       const response = await fetch(url, {
@@ -1045,7 +1071,7 @@ export default async function handler(req, res) {
       // than trusting a row number the client loaded earlier — someone
       // could have added or removed a row in the sheet in the meantime,
       // and this way an edit can never land on the wrong row.
-      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent('Sheet1!A:N')}`;
+      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent('Sheet1!A:O')}`;
       const readResp = await fetch(readUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
       if (!readResp.ok) {
         const errBody = await readResp.text();
@@ -1071,7 +1097,7 @@ export default async function handler(req, res) {
         return;
       }
 
-      const updateRange = `Sheet1!A${rowNumber}:N${rowNumber}`;
+      const updateRange = `Sheet1!A${rowNumber}:O${rowNumber}`;
       const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(updateRange)}?valueInputOption=USER_ENTERED`;
       const updateResp = await fetch(updateUrl, {
         method: 'PUT',
