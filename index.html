@@ -964,7 +964,7 @@
           // earlier. Font sizes bumped up and padding tightened instead,
           // after an initial pass left too much unused blank space below
           // the content on a typical multi-line label.
-          return { labelDim: '2.25in', heightDim: '1.25in', padding: '4px', fontSize: '17px', headerSize: '9px', productSize: '15px', addressSize: '12px', countSize: '11px', qrSize: '50px' };
+          return { labelDim: '2.25in', heightDim: '1.25in', padding: '4px', fontSize: '15px', headerSize: '9px', productSize: '13px', addressSize: '11px', countSize: '11px', qrSize: '50px' };
         }
         // Unknown/unset labelSize -- fall back to the smallest, safest
         // preset rather than silently rendering with undefined CSS values.
@@ -1004,7 +1004,13 @@
         // given Word's limited CSS support.
         var paddingNum = parseInt(cfg.padding);
         var qrSizeNum = parseInt(cfg.qrSize);
-        var rightPadding = (paddingNum + qrSizeNum + 4) + 'px';
+        // The qr/count column sits right:5px from the label's right edge
+        // (bumped from 2px -- at 2px the "1 of 1" count text was rendering
+        // close enough to the border to look cut off in Chrome's print
+        // preview on the small label). Reservation below is kept 3px wider
+        // than that offset (+7 instead of +4) so wrapped text still clears
+        // the column with the same buffer as before.
+        var rightPadding = (paddingNum + qrSizeNum + 7) + 'px';
         var labelPadding = cfg.padding + ' ' + rightPadding + ' ' + cfg.padding + ' ' + cfg.padding;
         var countTop = (2 + qrSizeNum + 3) + 'px';
         // Word's HTML-as-.doc converter only picks up page size/margins from
@@ -1018,7 +1024,7 @@
         // rules are declared so print (unnamed @page) and Word (named
         // Section1 + div.Section1) each get the page size from the one
         // they actually read.
-        var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>@page Section1{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';mso-page-orientation:portrait;margin:0in 0in 0in 0in;}div.Section1{page:Section1;}* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + cfg.labelDim + ' !important;height:' + cfg.heightDim + ' !important;border:2px solid #000;padding:' + labelPadding + ' !important;margin:0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:block;position:relative}.header{font-size:' + cfg.headerSize + ';font-weight:bold;display:block;margin:0;padding:0}.name{font-size:' + cfg.fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product{font-size:' + cfg.productSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.address{font-size:' + cfg.addressSize + ';line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + noteFontSize + ';font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.item-note{font-size:' + cfg.addressSize + ';font-weight:bold;font-style:italic;margin:1px 0 0 0;display:block;word-break:break-word}.qr{width:' + cfg.qrSize + ';height:' + cfg.qrSize + ';position:absolute;top:2px;right:2px;margin:0;padding:0}.count{font-size:' + cfg.countSize + ';font-weight:bold;position:absolute;top:' + countTop + ';right:2px;margin:0;padding:0}</style></head><body><div class="Section1">';
+        var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>@page Section1{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';mso-page-orientation:portrait;margin:0in 0in 0in 0in;}div.Section1{page:Section1;}* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + cfg.labelDim + ' !important;height:' + cfg.heightDim + ' !important;border:2px solid #000;padding:' + labelPadding + ' !important;margin:0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:block;position:relative}.header{font-size:' + cfg.headerSize + ';font-weight:bold;display:block;margin:0;padding:0}.name{font-size:' + cfg.fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product{font-size:' + cfg.productSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.address{font-size:' + cfg.addressSize + ';line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + noteFontSize + ';font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.item-note{font-size:' + cfg.addressSize + ';font-weight:bold;font-style:italic;margin:1px 0 0 0;display:block;word-break:break-word}.qr{width:' + cfg.qrSize + ';height:' + cfg.qrSize + ';position:absolute;top:2px;right:5px;margin:0;padding:0}.count{font-size:' + cfg.countSize + ';font-weight:bold;position:absolute;top:' + countTop + ';right:5px;margin:0;padding:0;white-space:nowrap}</style></head><body><div class="Section1">';
         // Counts labels emitted so far so every label after the first opens
         // on its own fresh page. Needed because Word doesn't reliably clip
         // content to .label's fixed height/overflow:hidden the way a
