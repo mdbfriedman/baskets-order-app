@@ -956,20 +956,28 @@
         } else if (size === '2x1') {
           return { labelDim: '2in', heightDim: '1in', padding: '4px', fontSize: '8px', headerSize: '6px', productSize: '8px', addressSize: '7px', countSize: '10px', qrSize: '40px' };
         } else if (size === '2.25x1.25') {
-          // The small thermal label option, alongside 4x3. This was
-          // declared as 2.25in x 1.25in (== 57.15mm x 31.75mm) for a while,
-          // on the assumption that's what the printer driver's custom
-          // paper profile was set to -- confirmed via a screenshot of the
-          // driver's actual Paper Manage dialog that it's really 57mm x
-          // 31mm (the driver only takes whole mm). That's a small but real
-          // mismatch: our CSS page was very slightly TALLER than the
-          // physical page Windows was actually printing to, so content
-          // that fit our box could still spill off the real page -- which
-          // is exactly what showed up as a label bleeding onto a second
-          // sheet even after there was visible margin to spare in-browser.
-          // Declared directly in mm now, matching the driver exactly, so
-          // there's no unit-conversion rounding to drift out of sync again.
-          return { labelDim: '57mm', heightDim: '31mm', padding: '4px', fontSize: '15px', headerSize: '9px', productSize: '13px', addressSize: '11px', countSize: '11px', qrSize: '50px' };
+          // The small thermal label option, alongside 4x3. The driver's
+          // Paper Manage dialog says this paper is 57mm x 31mm, but real
+          // test prints showed the printer's actual usable print window is
+          // a bit smaller AND slightly offset from that -- printing at
+          // exactly 57x31mm cut off the top and (more severely) the right
+          // side, and nudging the driver's own Position Adjustment offset
+          // just traded a top cutoff for a bottom cutoff instead of fixing
+          // both, meaning the true printable window genuinely doesn't have
+          // room for the full 57x31mm no matter how it's aligned.
+          // Deliberately declaring the page a few mm SMALLER than the
+          // driver's stated size on both axes (55x29 instead of 57x31) so
+          // there's real slack on every edge and the printer's positioning
+          // imprecision (a mm or two) stops mattering, rather than chasing
+          // an exact offset value test print by test print. The label
+          // prints slightly inset from the physical edges as a result --
+          // a small tradeoff for not losing real content/border on any side.
+          // Width specifically was probed down to 52mm before settling here
+          // -- below ~55mm the address line wraps onto an extra line and
+          // eats nearly all the vertical headroom (4.8% instead of 15.9%),
+          // so going narrower than this would trade a right-edge fix for a
+          // new bottom-overflow risk.
+          return { labelDim: '55mm', heightDim: '29mm', padding: '4px', fontSize: '15px', headerSize: '9px', productSize: '13px', addressSize: '11px', countSize: '11px', qrSize: '50px' };
         }
         // Unknown/unset labelSize -- fall back to the smallest, safest
         // preset rather than silently rendering with undefined CSS values.
