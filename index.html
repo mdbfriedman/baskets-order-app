@@ -1075,7 +1075,15 @@
       // countSize it computed and always printing at a hardcoded 14px.
       getLabelStyleConfig: function(size) {
         if (size === '4x3') {
-          return { labelDim: '4in', heightDim: '3in', padding: '16px', fontSize: '22px', headerSize: '13px', productSize: '20px', addressSize: '16px', countSize: '18px' };
+          // Width/height swapped from the literal "4x3" (4in wide) on
+          // purpose: the printer's own driver has "100mm x 76mm" (~4x3in)
+          // registered as a FIXED-orientation custom label with no
+          // Portrait/Landscape toggle available in the print dialog, and
+          // testing showed it's actually printing that as a narrower,
+          // taller canvas (~3in wide x 4in tall) regardless of what this
+          // page's CSS declared -- so matching that orientation here
+          // instead of fighting it.
+          return { labelDim: '3in', heightDim: '4in', padding: '16px', fontSize: '22px', headerSize: '13px', productSize: '20px', addressSize: '16px', countSize: '18px' };
         } else if (size === '3x2') {
           return { labelDim: '3in', heightDim: '2in', padding: '10px', fontSize: '14px', headerSize: '9px', productSize: '13px', addressSize: '11px', countSize: '14px' };
         } else if (size === '2x1') {
