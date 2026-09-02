@@ -1033,7 +1033,7 @@
 
             if (order.customerNote) {
               y += app.mmFromPx('2px');
-              var noteFontPx = Math.ceil(parseInt(cfg.fontSize) * 1.5) + 'px';
+              var noteFontPx = cfg.noteSize || (Math.ceil(parseInt(cfg.fontSize) * 0.8) + 'px');
               addWrapped('Note: ' + order.customerNote, noteFontPx, 'bold');
             }
 
@@ -1108,11 +1108,22 @@
           // address should be easy for a delivery person to read at a
           // glance. Plenty of blank space below the content at the old
           // sizes (see earlier verification renders), so there's room.
-          return { labelDim: '4in', heightDim: '3in', padding: '16px', fontSize: '22px', headerSize: '17px', productSize: '20px', addressSize: '16px', countSize: '18px', qrSize: '80px' };
+          // noteSize (Sep): customerNote used to render at fontSize*1.5
+          // (33px here) regardless of how long the note was -- fine for a
+          // short one-line note, but real customer notes are "good wishes"
+          // that can run a few full sentences, and at 33px even one
+          // sentence overflowed WAY past the label's height (confirmed on a
+          // real Word download: -67% headroom, the note visibly bled past
+          // the label's border into where the next label/page starts).
+          // 13px verified via headroom measurement against a real ~300-
+          // character multi-sentence note ("Mazel Tov! Wishing you both...
+          // Iris Road.") at 20.4% headroom -- comfortably fits, with margin
+          // to spare for something a bit longer still.
+          return { labelDim: '4in', heightDim: '3in', padding: '16px', fontSize: '22px', headerSize: '17px', productSize: '20px', addressSize: '16px', countSize: '18px', qrSize: '80px', noteSize: '13px' };
         } else if (size === '3x2') {
-          return { labelDim: '3in', heightDim: '2in', padding: '10px', fontSize: '14px', headerSize: '9px', productSize: '13px', addressSize: '11px', countSize: '14px', qrSize: '60px' };
+          return { labelDim: '3in', heightDim: '2in', padding: '10px', fontSize: '14px', headerSize: '9px', productSize: '13px', addressSize: '11px', countSize: '14px', qrSize: '60px', noteSize: '10px' };
         } else if (size === '2x1') {
-          return { labelDim: '2in', heightDim: '1in', padding: '4px', fontSize: '8px', headerSize: '6px', productSize: '8px', addressSize: '7px', countSize: '10px', qrSize: '40px' };
+          return { labelDim: '2in', heightDim: '1in', padding: '4px', fontSize: '8px', headerSize: '6px', productSize: '8px', addressSize: '7px', countSize: '10px', qrSize: '40px', noteSize: '6px' };
         } else if (size === '2.25x1.25') {
           // The small thermal label option, alongside 4x3. The driver's
           // Paper Manage dialog says this paper is 57mm x 31mm, but real
@@ -1205,7 +1216,16 @@
           // product/address) 5mm right, leaving that as blank space on the
           // physical label's left edge instead. The right-anchored QR/count
           // aren't touched since only the PDF's left side was reported off.
-          return { labelDim: '55mm', heightDim: '29mm', padding: '4px', fontSize: '10px', headerSize: '11px', productSize: '8px', addressSize: '12px', countSize: '11px', qrSize: '50px', printRightTrim: '18px', qrRightOffset: '20px', pdfLeftShiftMm: 5 };
+          // noteSize (Sep): same overflow bug as the 4x3 preset, worse here
+          // since there's so little room to begin with -- even a SHORT
+          // one-sentence note ("Mazel Tov! Best wishes from the Friedman
+          // family.") only just fits at 7px (8.4% headroom); the old
+          // fontSize*1.5 formula (15px) was wildly overflowing even on a
+          // short note (-26.3%). This preset genuinely has little room for
+          // notes at all -- matches the earlier "most small labels won't be
+          // getting notes" call -- so 7px is about the ceiling, not a
+          // comfortable size; a longer note will likely still overflow.
+          return { labelDim: '55mm', heightDim: '29mm', padding: '4px', fontSize: '10px', headerSize: '11px', productSize: '8px', addressSize: '12px', countSize: '11px', qrSize: '50px', printRightTrim: '18px', qrRightOffset: '20px', pdfLeftShiftMm: 5, noteSize: '7px' };
         }
         // Unknown/unset labelSize -- fall back to the smallest, safest
         // preset rather than silently rendering with undefined CSS values.
@@ -1230,7 +1250,13 @@
       // versions of this did.
       buildLabelsHtml: function(orders, forWord) {
         var cfg = app.getLabelStyleConfig(app.labelSize);
-        var noteFontSize = Math.ceil(parseInt(cfg.fontSize) * 1.5) + 'px';
+        // Was fontSize*1.5 -- fine for a short one-liner, but real customer
+        // notes are "good wishes" that can run a few full sentences, and at
+        // 1.5x even one sentence badly overflowed the label (see noteSize
+        // comment on the 4x3 preset above for the real numbers). Each
+        // preset now sets its own verified noteSize; the *0.8 fallback only
+        // applies to a preset that doesn't set one.
+        var noteFontSize = cfg.noteSize || (Math.ceil(parseInt(cfg.fontSize) * 0.8) + 'px');
         // The QR code (and the count badge stacked under it) live in an
         // absolutely-positioned column in the top-right corner, which does
         // NOT push the normal-flow text (header/name/product/address) out
