@@ -1058,8 +1058,26 @@
         // fine on screen). Reservation below stays 1px wider than that
         // offset (+10) so wrapped text still clears the column.
         var rightPadding = (paddingNum + qrSizeNum + 10) + 'px';
-        var labelPadding = cfg.padding + ' ' + rightPadding + ' ' + cfg.padding + ' ' + cfg.padding;
+        // Word doesn't reliably honor position:absolute the way a browser
+        // does -- it was rendering the QR image as if it were a floating
+        // inline image at the very start of the content instead of pinned
+        // to the top-right corner, which squeezed the header/name/product/
+        // address into a narrow column beside it instead of under it (only
+        // caught once an actual Word download was tested, since every
+        // verification render up to that point used headless Chromium,
+        // which handles position:absolute correctly). Word gets a totally
+        // different, table-based two-column layout below instead (tables
+        // are one of the few layout mechanisms Word's HTML engine renders
+        // predictably) -- so it doesn't need the print path's right-padding
+        // reservation trick to keep text clear of an absolutely-positioned
+        // QR column; plain symmetric padding is enough since the table's
+        // own column split does that job instead.
+        var labelPadding = forWord
+          ? (cfg.padding + ' ' + cfg.padding + ' ' + cfg.padding + ' ' + cfg.padding)
+          : (cfg.padding + ' ' + rightPadding + ' ' + cfg.padding + ' ' + cfg.padding);
         var countTop = (2 + qrSizeNum + 3) + 'px';
+        var wordGap = 6;
+        var wordRightColPx = qrSizeNum + wordGap;
         // Word's HTML-as-.doc converter only picks up page size/margins from
         // its own "mso" CSS dialect -- a *named* @page selector (Section1
         // here) applied to a div via the "page" property -- and silently
@@ -1071,7 +1089,7 @@
         // rules are declared so print (unnamed @page) and Word (named
         // Section1 + div.Section1) each get the page size from the one
         // they actually read.
-        var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>@page Section1{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';mso-page-orientation:portrait;margin:0in 0in 0in 0in;}div.Section1{page:Section1;}* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + cfg.labelDim + ' !important;height:' + cfg.heightDim + ' !important;padding:' + labelPadding + ' !important;margin:0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:block;position:relative}.header{font-size:' + cfg.headerSize + ';font-weight:bold;display:block;text-align:center;border:1px solid #000;margin:0;padding:1px 0}.name{font-size:' + cfg.fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product{font-size:' + cfg.productSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.address{font-size:' + cfg.addressSize + ';font-weight:bold;line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + noteFontSize + ';font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.item-note{font-size:' + cfg.addressSize + ';font-weight:bold;font-style:italic;margin:1px 0 0 0;display:block;word-break:break-word}.qr{width:' + cfg.qrSize + ';height:' + cfg.qrSize + ';position:absolute;top:2px;right:9px;margin:0;padding:0}.count{font-size:' + cfg.countSize + ';font-weight:bold;position:absolute;top:' + countTop + ';right:9px;margin:0;padding:0;white-space:nowrap}</style></head><body><div class="Section1">';
+        var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>@page Section1{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';mso-page-orientation:portrait;margin:0in 0in 0in 0in;}div.Section1{page:Section1;}* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + cfg.labelDim + ' !important;height:' + cfg.heightDim + ' !important;padding:' + labelPadding + ' !important;margin:0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:block;position:relative}.header{font-size:' + cfg.headerSize + ';font-weight:bold;display:block;text-align:center;border:1px solid #000;margin:0;padding:1px 0}.name{font-size:' + cfg.fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product{font-size:' + cfg.productSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.address{font-size:' + cfg.addressSize + ';font-weight:bold;line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + noteFontSize + ';font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.item-note{font-size:' + cfg.addressSize + ';font-weight:bold;font-style:italic;margin:1px 0 0 0;display:block;word-break:break-word}.qr{width:' + cfg.qrSize + ';height:' + cfg.qrSize + ';position:absolute;top:2px;right:9px;margin:0;padding:0}.count{font-size:' + cfg.countSize + ';font-weight:bold;position:absolute;top:' + countTop + ';right:9px;margin:0;padding:0;white-space:nowrap}.qrWord{width:' + cfg.qrSize + ';height:' + cfg.qrSize + ';display:block;margin:0 0 3px auto;padding:0}.countWord{font-size:' + cfg.countSize + ';font-weight:bold;text-align:right;margin:0;padding:0;white-space:nowrap}</style></head><body><div class="Section1">';
         // Counts labels emitted so far so every label after the first opens
         // on its own fresh page. Needed because Word doesn't reliably clip
         // content to .label's fixed height/overflow:hidden the way a
@@ -1124,16 +1142,34 @@
                 html += "<br clear=all style='mso-special-character:line-break;page-break-before:always'>";
               }
               labelCount++;
-              html += '<div class="label">' +
-                '<img class="qr" src="' + app.QR_CODE_DATA_URI + '" alt="">' +
-                '<div class="count">' + (idx + 1) + ' of ' + order.items.length + '</div>' +
-                '<div class="header">BASKETS BY BLIMI</div>' +
+              var textBlockHtml = '<div class="header">BASKETS BY BLIMI</div>' +
                 '<div class="name">' + deliveryNameDisplay + '</div>' +
                 '<div class="product">' + productDisplay + '</div>' +
                 (item.specialInstructions ? '<div class="item-note">' + item.specialInstructions + '</div>' : '') +
                 '<div class="address">' + addressHtml + '</div>' +
-                (order.customerNote ? '<div class="note"><strong>Note:</strong> ' + order.customerNote + '</div>' : '') +
-                '</div>';
+                (order.customerNote ? '<div class="note"><strong>Note:</strong> ' + order.customerNote + '</div>' : '');
+              if (forWord) {
+                // Table-based two-column layout instead of the print path's
+                // absolutely-positioned QR column -- see the comment above
+                // labelPadding for why.
+                html += '<div class="label">' +
+                  '<table width="100%" height="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;height:100%;table-layout:fixed">' +
+                  '<tr>' +
+                  '<td valign="top" style="padding:0">' + textBlockHtml + '</td>' +
+                  '<td valign="top" align="right" width="' + wordRightColPx + '" style="width:' + wordRightColPx + 'px;padding:0">' +
+                  '<img class="qrWord" src="' + app.QR_CODE_DATA_URI + '" alt="">' +
+                  '<div class="countWord">' + (idx + 1) + ' of ' + order.items.length + '</div>' +
+                  '</td>' +
+                  '</tr>' +
+                  '</table>' +
+                  '</div>';
+              } else {
+                html += '<div class="label">' +
+                  '<img class="qr" src="' + app.QR_CODE_DATA_URI + '" alt="">' +
+                  '<div class="count">' + (idx + 1) + ' of ' + order.items.length + '</div>' +
+                  textBlockHtml +
+                  '</div>';
+              }
             });
           }
         });
