@@ -965,7 +965,16 @@
         // runs under the QR/count column in the top-right corner.
         var textWidthMm = pageWmm - (2 * padMm) - qrMm - app.mmFromPx('10px');
 
-        var doc = new window.jspdf.jsPDF({ unit: 'mm', format: [pageWmm, pageHmm] });
+        // jsPDF defaults to portrait and will silently SWAP a [width,height]
+        // format's two values to force height >= width unless orientation
+        // is told explicitly which way the page actually goes -- both label
+        // presets are wider than tall, so without this every PDF came out
+        // rotated 90 degrees (confirmed against a real download: a 55x29mm
+        // label came out as a 29x55mm page, with the header text run off
+        // the now much-narrower edge since the text-wrap math was still
+        // sized for the real 55mm width).
+        var orientation = pageWmm > pageHmm ? 'l' : 'p';
+        var doc = new window.jspdf.jsPDF({ unit: 'mm', format: [pageWmm, pageHmm], orientation: orientation });
         var firstPage = true;
 
         function addWrapped(text, sizePx, style, lineGapFactor) {
@@ -987,7 +996,7 @@
           var addressLines = addressParts.city ? [addressParts.address, addressParts.city] : [addressParts.address];
 
           order.items.forEach(function(item, idx) {
-            if (!firstPage) doc.addPage([pageWmm, pageHmm]);
+            if (!firstPage) doc.addPage([pageWmm, pageHmm], orientation);
             firstPage = false;
             y = padMm;
 
