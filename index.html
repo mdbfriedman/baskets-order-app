@@ -1141,28 +1141,28 @@
           // character multi-sentence note ("Mazel Tov! Wishing you both...
           // Iris Road.") at 20.4% headroom -- comfortably fits, with margin
           // to spare for something a bit longer still.
-          // printLeftShiftPx (Sep): real print showed flush-left text
-          // (name/product/address) missing its first character, same
-          // left-edge-cutoff pattern already seen and fixed on the small
-          // label -- this preset never got that treatment since it hadn't
-          // been reported here before. First reported as needing ~2mm right
-          // (~7.6px, shipped as 8px) -- a follow-up real print still showed
-          // the first letter missing at 8px, so doubled to 16px (~4mm).
-          // Verified via headroom probe up to 32px that pushing this much
-          // further left has no right-side collision risk and barely
-          // touches headroom (42.3% at 16px vs. 49.2% at 8px, still huge
-          // margin on this preset) -- so there's real room to keep nudging
-          // this further if 16px still isn't enough on the next test print.
-          // wordLeftShiftPx (Sep): first report that the Word download is
-          // ALSO landing with its left edge cut off on this preset -- Word
-          // never got any left/right correction before (only the print path
-          // did, via printLeftShiftPx above; PDF has its own separate
-          // pdfLeftShiftMm mechanism used only by the small label). No
-          // measured mm amount given yet, so this is a first-pass guess
-          // (half of the print path's correction) the same way printLeftShiftPx
-          // itself started -- nudge up or down and re-test once there's a
-          // real measurement, the same way printRightTrim/qrRightOffset were
-          // tuned in a few real rounds on the small label.
+          // printLeftShiftPx / wordLeftShiftPx (Sep, round 3): still cut off
+          // "a millimeter or two" on the left on BOTH the print path (was
+          // 16px/4mm) and the Word download (was 8px/2mm) even after the
+          // round-2 fix, AND now reported "right up against the edge" on the
+          // right side on both too. Two changes together: pushed both shift
+          // values up further (print 16->24px/~6mm, word 8->20px/~5.3mm --
+          // word gets a bigger jump since its round-2 guess was never
+          // confirmed against a real measurement and evidently undershot),
+          // and gave the right edge more breathing room too -- padding
+          // bumped 16->18px (adds a little margin on every side, including
+          // Word's untouched right edge) and the print path's QR/count
+          // column moved further from the edge (qrRightOffset 9px default ->
+          // explicit 16px, same mechanism already proven on the small
+          // label). fontSize/headerSize/productSize/addressSize/countSize
+          // all trimmed down slightly too (per your "squeeze the font a
+          // little" -- smaller text needs less horizontal room, which is
+          // what actually buys back margin on the right without shrinking
+          // the usable page any further). Re-verified via headroom probe
+          // against the same worst-case long-product/long-address/long-note
+          // combination as before -- still holds double-digit headroom
+          // across every note-length step (see noteSizeThresholds below,
+          // re-tuned for the smaller base fontSize).
           // noteSizeThresholds (Sep): a single fixed noteSize (was 13px)
           // can't work for arbitrary-length notes -- "a few sentences" of
           // good wishes can run anywhere from one short line to several
@@ -1187,7 +1187,7 @@
           // (20.4% even at 1000 chars, still 16.3% at 1200) -- small and
           // hard to read at that point, but a genuinely enormous note
           // degrading to small text beats it overflowing past the label.
-          return { labelDim: '4in', heightDim: '3in', padding: '16px', fontSize: '22px', headerSize: '17px', productSize: '20px', addressSize: '16px', countSize: '18px', qrSize: '80px', noteSizeThresholds: [{ maxLen: 80, size: 16 }, { maxLen: 150, size: 15 }, { maxLen: 250, size: 13 }, { maxLen: 350, size: 11 }, { maxLen: 450, size: 10 }, { maxLen: 550, size: 9 }, { maxLen: 700, size: 8 }, { maxLen: 1000, size: 7 }, { maxLen: Infinity, size: 6 }], printLeftShiftPx: 16, wordLeftShiftPx: 8 };
+          return { labelDim: '4in', heightDim: '3in', padding: '18px', fontSize: '20px', headerSize: '16px', productSize: '18px', addressSize: '15px', countSize: '16px', qrSize: '80px', qrRightOffset: '16px', noteSizeThresholds: [{ maxLen: 80, size: 16 }, { maxLen: 150, size: 15 }, { maxLen: 250, size: 13 }, { maxLen: 350, size: 11 }, { maxLen: 450, size: 10 }, { maxLen: 550, size: 9 }, { maxLen: 700, size: 8 }, { maxLen: 1000, size: 7 }, { maxLen: Infinity, size: 6 }], printLeftShiftPx: 24, wordLeftShiftPx: 20 };
         } else if (size === '3x2') {
           return { labelDim: '3in', heightDim: '2in', padding: '10px', fontSize: '14px', headerSize: '9px', productSize: '13px', addressSize: '11px', countSize: '14px', qrSize: '60px', noteSize: '10px' };
         } else if (size === '2x1') {
