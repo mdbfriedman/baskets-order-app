@@ -1033,8 +1033,11 @@
 
             if (order.customerNote) {
               y += app.mmFromPx('2px');
-              var noteFontPx = cfg.noteSize || (Math.ceil(parseInt(cfg.fontSize) * 0.8) + 'px');
-              addWrapped('Note: ' + order.customerNote, noteFontPx, 'bold');
+              // Same per-note length-based sizing as the print/Word path
+              // (see app.pickNoteFontPx) instead of one flat size for the
+              // whole batch, so a long note doesn't overflow just because an
+              // earlier note in the same download was short.
+              addWrapped('Note: ' + order.customerNote, app.pickNoteFontPx(cfg, order.customerNote), 'bold');
             }
 
             // QR + count, top-right -- same corner reservation as print.
@@ -1096,6 +1099,25 @@
       // Windows Settings/Control Panel -> Devices and Printers -> right-
       // click the printer -> Printing preferences -> Page settings -> Paper
       // Name actually matches the label stock physically loaded.
+      // Picks the customerNote font size for ONE specific note's text length,
+      // instead of one fixed size applied to every label in a batch. A
+      // preset can opt into this via noteSizeThresholds (ordered smallest
+      // maxLen first, last entry should use Infinity as a catch-all); a
+      // preset without thresholds keeps the old behavior (flat cfg.noteSize,
+      // or the *0.8-of-fontSize fallback for a preset that sets neither) --
+      // same result as before for every preset except 4x3, which is the
+      // only one long/multi-sentence notes were reported on so far.
+      pickNoteFontPx: function(cfg, noteText) {
+        if (cfg.noteSizeThresholds) {
+          var len = (noteText || '').length;
+          for (var i = 0; i < cfg.noteSizeThresholds.length; i++) {
+            if (len <= cfg.noteSizeThresholds[i].maxLen) return cfg.noteSizeThresholds[i].size + 'px';
+          }
+          return cfg.noteSizeThresholds[cfg.noteSizeThresholds.length - 1].size + 'px';
+        }
+        return cfg.noteSize || (Math.ceil(parseInt(cfg.fontSize) * 0.8) + 'px');
+      },
+
       getLabelStyleConfig: function(size) {
         // qrSize was originally set far too small to reliably scan (e.g.
         // 34px / ~0.35in on the 4x3 label -- each QR module worked out to
@@ -1123,11 +1145,49 @@
           // (name/product/address) missing its first character, same
           // left-edge-cutoff pattern already seen and fixed on the small
           // label -- this preset never got that treatment since it hadn't
-          // been reported here before. Reported as needing ~2mm right
-          // (~7.6px); rounded to 8px. Only shifts the left padding for
-          // print, same as the small label's fix -- doesn't touch Word
-          // (not reported affected) or the right-anchored QR/count.
-          return { labelDim: '4in', heightDim: '3in', padding: '16px', fontSize: '22px', headerSize: '17px', productSize: '20px', addressSize: '16px', countSize: '18px', qrSize: '80px', noteSize: '13px', printLeftShiftPx: 8 };
+          // been reported here before. First reported as needing ~2mm right
+          // (~7.6px, shipped as 8px) -- a follow-up real print still showed
+          // the first letter missing at 8px, so doubled to 16px (~4mm).
+          // Verified via headroom probe up to 32px that pushing this much
+          // further left has no right-side collision risk and barely
+          // touches headroom (42.3% at 16px vs. 49.2% at 8px, still huge
+          // margin on this preset) -- so there's real room to keep nudging
+          // this further if 16px still isn't enough on the next test print.
+          // wordLeftShiftPx (Sep): first report that the Word download is
+          // ALSO landing with its left edge cut off on this preset -- Word
+          // never got any left/right correction before (only the print path
+          // did, via printLeftShiftPx above; PDF has its own separate
+          // pdfLeftShiftMm mechanism used only by the small label). No
+          // measured mm amount given yet, so this is a first-pass guess
+          // (half of the print path's correction) the same way printLeftShiftPx
+          // itself started -- nudge up or down and re-test once there's a
+          // real measurement, the same way printRightTrim/qrRightOffset were
+          // tuned in a few real rounds on the small label.
+          // noteSizeThresholds (Sep): a single fixed noteSize (was 13px)
+          // can't work for arbitrary-length notes -- "a few sentences" of
+          // good wishes can run anywhere from one short line to several
+          // hundred characters, and any one fixed size either overflows on
+          // long notes or looks tiny/wastes space on short ones. Replaced
+          // with length-based steps (see app.pickNoteFontPx below, now
+          // computed per-note instead of once for the whole batch, since a
+          // batch download can mix short and long notes across orders).
+          // Re-probed against a realistic WORST case (a long product name
+          // like "Cubed Fruit - 9x13 pan - 2 pans- melons - Diced" plus a
+          // full one-line address, not just a short product/address) after
+          // the first-pass thresholds turned out optimistic against that --
+          // e.g. the first-pass 16px step only held 14.2% headroom here
+          // instead of the ~21% measured against shorter placeholder
+          // content. Every step below targets >=15% on this worst case,
+          // except the 450-char step (10px, 12.8%) which is the one
+          // instance where the next size up (11px) dropped to 5.5% -- still
+          // safely positive, just a thinner margin than the rest:
+          // <=80: 16px (30.8%), <=150: 15px (21.5%), <=250: 13px (15.9%),
+          // <=350: 11px (16.9%), <=450: 10px (12.8%), <=550: 9px (13.1%),
+          // <=700: 8px (14.2%), <=1000: 7px (13.5%), beyond that: 6px
+          // (20.4% even at 1000 chars, still 16.3% at 1200) -- small and
+          // hard to read at that point, but a genuinely enormous note
+          // degrading to small text beats it overflowing past the label.
+          return { labelDim: '4in', heightDim: '3in', padding: '16px', fontSize: '22px', headerSize: '17px', productSize: '20px', addressSize: '16px', countSize: '18px', qrSize: '80px', noteSizeThresholds: [{ maxLen: 80, size: 16 }, { maxLen: 150, size: 15 }, { maxLen: 250, size: 13 }, { maxLen: 350, size: 11 }, { maxLen: 450, size: 10 }, { maxLen: 550, size: 9 }, { maxLen: 700, size: 8 }, { maxLen: 1000, size: 7 }, { maxLen: Infinity, size: 6 }], printLeftShiftPx: 16, wordLeftShiftPx: 8 };
         } else if (size === '3x2') {
           return { labelDim: '3in', heightDim: '2in', padding: '10px', fontSize: '14px', headerSize: '9px', productSize: '13px', addressSize: '11px', countSize: '14px', qrSize: '60px', noteSize: '10px' };
         } else if (size === '2x1') {
@@ -1261,10 +1321,12 @@
         // Was fontSize*1.5 -- fine for a short one-liner, but real customer
         // notes are "good wishes" that can run a few full sentences, and at
         // 1.5x even one sentence badly overflowed the label (see noteSize
-        // comment on the 4x3 preset above for the real numbers). Each
-        // preset now sets its own verified noteSize; the *0.8 fallback only
-        // applies to a preset that doesn't set one.
-        var noteFontSize = cfg.noteSize || (Math.ceil(parseInt(cfg.fontSize) * 0.8) + 'px');
+        // comment on the 4x3 preset above for the real numbers). Font size
+        // is no longer decided once for the whole batch here -- a batch can
+        // mix short and long notes across different orders, so .note no
+        // longer carries a shared font-size in the stylesheet below; each
+        // note div gets its own inline size from app.pickNoteFontPx (see
+        // where textBlockHtml is built) sized to that specific note's length.
         // The QR code (and the count badge stacked under it) live in an
         // absolutely-positioned column in the top-right corner, which does
         // NOT push the normal-flow text (header/name/product/address) out
@@ -1322,8 +1384,15 @@
         // rather than replacing it. Word isn't affected (uses cfg.padding
         // untouched) since it wasn't reported having this problem.
         var printLeftPadding = (paddingNum + (cfg.printLeftShiftPx || 0)) + 'px';
+        // Word-only left inset, same idea as printLeftPadding above but for
+        // the Word download path -- first reported cut off on its left edge
+        // on the 4x3 preset (see wordLeftShiftPx comment there). Word was
+        // never given ANY left/right correction before now since it hadn't
+        // been reported affected; presets without wordLeftShiftPx keep the
+        // original plain symmetric padding.
+        var wordLeftPadding = (paddingNum + (cfg.wordLeftShiftPx || 0)) + 'px';
         var labelPadding = forWord
-          ? (cfg.padding + ' ' + cfg.padding + ' ' + cfg.padding + ' ' + cfg.padding)
+          ? (cfg.padding + ' ' + cfg.padding + ' ' + cfg.padding + ' ' + wordLeftPadding)
           : (cfg.padding + ' ' + rightPadding + ' ' + cfg.padding + ' ' + printLeftPadding);
         var countTop = (2 + qrSizeNum + 3) + 'px';
         // Print-only: shrinks the visible box by printRightTrim (if the
@@ -1348,7 +1417,7 @@
         // rules are declared so print (unnamed @page) and Word (named
         // Section1 + div.Section1) each get the page size from the one
         // they actually read.
-        var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>@page Section1{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';mso-page-orientation:portrait;margin:0in 0in 0in 0in;}div.Section1{page:Section1;}* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + labelWidthCss + ' !important;height:' + cfg.heightDim + ' !important;padding:' + labelPadding + ' !important;margin:0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:block;position:relative}.header{font-size:' + cfg.headerSize + ';font-weight:bold;display:block;text-align:center;border:1px solid #000;margin:0;padding:1px 0}.name{font-size:' + cfg.fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product{font-size:' + cfg.productSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.address{font-size:' + cfg.addressSize + ';font-weight:bold;line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + noteFontSize + ';font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.item-note{font-size:' + cfg.addressSize + ';font-weight:bold;font-style:italic;margin:1px 0 0 0;display:block;word-break:break-word}.qr{width:' + cfg.qrSize + ';height:' + cfg.qrSize + ';position:absolute;top:2px;right:' + qrRightOffset + ';margin:0;padding:0}.count{font-size:' + cfg.countSize + ';font-weight:bold;position:absolute;top:' + countTop + ';right:' + qrRightOffset + ';margin:0;padding:0;white-space:nowrap}.countWord{font-size:' + cfg.countSize + ';font-weight:bold;text-align:right;margin:0 0 2px 0;padding:0;white-space:nowrap}</style></head><body><div class="Section1">';
+        var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>@page Section1{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';mso-page-orientation:portrait;margin:0in 0in 0in 0in;}div.Section1{page:Section1;}* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + labelWidthCss + ' !important;height:' + cfg.heightDim + ' !important;padding:' + labelPadding + ' !important;margin:0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:block;position:relative}.header{font-size:' + cfg.headerSize + ';font-weight:bold;display:block;text-align:center;border:1px solid #000;margin:0;padding:1px 0}.name{font-size:' + cfg.fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product{font-size:' + cfg.productSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.address{font-size:' + cfg.addressSize + ';font-weight:bold;line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.item-note{font-size:' + cfg.addressSize + ';font-weight:bold;font-style:italic;margin:1px 0 0 0;display:block;word-break:break-word}.qr{width:' + cfg.qrSize + ';height:' + cfg.qrSize + ';position:absolute;top:2px;right:' + qrRightOffset + ';margin:0;padding:0}.count{font-size:' + cfg.countSize + ';font-weight:bold;position:absolute;top:' + countTop + ';right:' + qrRightOffset + ';margin:0;padding:0;white-space:nowrap}.countWord{font-size:' + cfg.countSize + ';font-weight:bold;text-align:right;margin:0 0 2px 0;padding:0;white-space:nowrap}</style></head><body><div class="Section1">';
         // Counts labels emitted so far so every label after the first opens
         // on its own fresh page. Needed because Word doesn't reliably clip
         // content to .label's fixed height/overflow:hidden the way a
@@ -1406,7 +1475,7 @@
                 '<div class="product">' + productDisplay + '</div>' +
                 (item.specialInstructions ? '<div class="item-note">' + item.specialInstructions + '</div>' : '') +
                 '<div class="address">' + addressHtml + '</div>' +
-                (order.customerNote ? '<div class="note"><strong>Note:</strong> ' + order.customerNote + '</div>' : '');
+                (order.customerNote ? '<div class="note" style="font-size:' + app.pickNoteFontPx(cfg, order.customerNote) + '"><strong>Note:</strong> ' + order.customerNote + '</div>' : '');
               if (forWord) {
                 // Word's HTML import kept breaking the QR image no matter
                 // how it was laid out: position:absolute first squeezed all
