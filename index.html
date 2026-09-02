@@ -1155,7 +1155,26 @@
           // it back; 8px product happens to also fit on one line instead of
           // two, which helped more than expected. Re-verified at ~19%
           // headroom with all of the above combined.
-          return { labelDim: '55mm', heightDim: '29mm', padding: '4px', fontSize: '10px', headerSize: '11px', productSize: '8px', addressSize: '12px', countSize: '11px', qrSize: '50px' };
+          //
+          // printRightTrim (Sep): on the actual Y813BT printing this app's
+          // own Print button (not the PDF/FlashLabel path -- that one was
+          // separately reported shifted the OPPOSITE way, too far left, and
+          // is left alone here), everything -- flush-left text AND the
+          // right-anchored QR/count -- came out shifted too far right on
+          // the physical label, with the QR/count column running closest
+          // to the true edge. Shrinks the *visible content box* by this
+          // amount, leaving it as unused blank space on the label's right
+          // edge, WITHOUT touching cfg.labelDim (the declared page/paper
+          // size the driver is set to) or the padding/qrSize numbers that
+          // the address-wrap headroom above was tuned against -- so this
+          // should be safe from the 3-line wrap regression that guards the
+          // width probe above. Only applied to the print path (see
+          // labelWidthCss in buildLabelsHtml); Word isn't affected since it
+          // wasn't reported having this problem. First-pass guess (not
+          // verified against a real print) -- nudge up or down and re-test
+          // if it's still off, the same way the qr/count 9px offset below
+          // was tuned in a few real rounds.
+          return { labelDim: '55mm', heightDim: '29mm', padding: '4px', fontSize: '10px', headerSize: '11px', productSize: '8px', addressSize: '12px', countSize: '11px', qrSize: '50px', printRightTrim: '4px', qrRightOffset: '20px' };
         }
         // Unknown/unset labelSize -- fall back to the smallest, safest
         // preset rather than silently rendering with undefined CSS values.
@@ -1195,14 +1214,27 @@
         // given Word's limited CSS support.
         var paddingNum = parseInt(cfg.padding);
         var qrSizeNum = parseInt(cfg.qrSize);
-        // The qr/count column sits right:9px from the label's right edge
-        // (bumped 2px -> 5px -> 9px across a couple of real test prints --
-        // the count text kept reading as cut off on the physical small
-        // label even with real margin to spare in the browser preview, so
-        // this is deliberately generous rather than the minimum that looked
-        // fine on screen). Reservation below stays 1px wider than that
-        // offset (+10) so wrapped text still clears the column.
-        var rightPadding = (paddingNum + qrSizeNum + 10) + 'px';
+        // The qr/count column's distance from the label's right edge.
+        // Started at 9px (bumped up from 2px -> 5px across earlier real
+        // test prints, back when the count text alone kept reading as cut
+        // off). On the physical Y813BT, even 9px wasn't enough once the
+        // whole QR code was checked (not just the count text next to it) --
+        // a real photo showed the QR itself noticeably clipped on the right
+        // while the flowing text (which already had a much bigger built-in
+        // margin -- see rightPadding below) was fully clear. Bumped to 20px
+        // for real headroom; verified via a width probe (offsets up to 30px
+        // against several worst-case long addresses) that this doesn't cost
+        // the address any wrapping room -- the text column shrinks by the
+        // same amount as this reservation grows, keeping a constant ~5px
+        // gap between the two rather than eating into safety margin. Only
+        // the 2.25x1.25 preset had this problem reported; other presets
+        // keep the original 9px via qrRightOffset falling back below.
+        var qrRightOffset = cfg.qrRightOffset || '9px';
+        var qrRightOffsetNum = parseInt(qrRightOffset);
+        // Reservation stays 1px wider than qrRightOffset so wrapped text
+        // still clears the column (same relationship as before, just now
+        // tracking whatever qrRightOffset actually is instead of a fixed 9).
+        var rightPadding = (paddingNum + qrSizeNum + qrRightOffsetNum + 1) + 'px';
         // Word doesn't reliably honor position:absolute the way a browser
         // does -- it was rendering the QR image as if it were a floating
         // inline image at the very start of the content instead of pinned
@@ -1221,6 +1253,17 @@
           ? (cfg.padding + ' ' + cfg.padding + ' ' + cfg.padding + ' ' + cfg.padding)
           : (cfg.padding + ' ' + rightPadding + ' ' + cfg.padding + ' ' + cfg.padding);
         var countTop = (2 + qrSizeNum + 3) + 'px';
+        // Print-only: shrinks the visible box by printRightTrim (if the
+        // preset sets one), leaving that sliver as blank space on the
+        // physical label's right edge instead of shifting the declared
+        // page/paper size itself -- see the printRightTrim comment on the
+        // 2.25x1.25 preset above for why. calc() mixes labelDim's own unit
+        // (mm/in) with a px trim fine; browsers convert both to a common
+        // unit internally. Word keeps the untrimmed cfg.labelDim, and
+        // presets with no printRightTrim also fall through unchanged.
+        var labelWidthCss = (!forWord && cfg.printRightTrim)
+          ? ('calc(' + cfg.labelDim + ' - ' + cfg.printRightTrim + ')')
+          : cfg.labelDim;
         // Word's HTML-as-.doc converter only picks up page size/margins from
         // its own "mso" CSS dialect -- a *named* @page selector (Section1
         // here) applied to a div via the "page" property -- and silently
@@ -1232,7 +1275,7 @@
         // rules are declared so print (unnamed @page) and Word (named
         // Section1 + div.Section1) each get the page size from the one
         // they actually read.
-        var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>@page Section1{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';mso-page-orientation:portrait;margin:0in 0in 0in 0in;}div.Section1{page:Section1;}* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + cfg.labelDim + ' !important;height:' + cfg.heightDim + ' !important;padding:' + labelPadding + ' !important;margin:0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:block;position:relative}.header{font-size:' + cfg.headerSize + ';font-weight:bold;display:block;text-align:center;border:1px solid #000;margin:0;padding:1px 0}.name{font-size:' + cfg.fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product{font-size:' + cfg.productSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.address{font-size:' + cfg.addressSize + ';font-weight:bold;line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + noteFontSize + ';font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.item-note{font-size:' + cfg.addressSize + ';font-weight:bold;font-style:italic;margin:1px 0 0 0;display:block;word-break:break-word}.qr{width:' + cfg.qrSize + ';height:' + cfg.qrSize + ';position:absolute;top:2px;right:9px;margin:0;padding:0}.count{font-size:' + cfg.countSize + ';font-weight:bold;position:absolute;top:' + countTop + ';right:9px;margin:0;padding:0;white-space:nowrap}.countWord{font-size:' + cfg.countSize + ';font-weight:bold;text-align:right;margin:0 0 2px 0;padding:0;white-space:nowrap}</style></head><body><div class="Section1">';
+        var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>@page Section1{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';mso-page-orientation:portrait;margin:0in 0in 0in 0in;}div.Section1{page:Section1;}* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + labelWidthCss + ' !important;height:' + cfg.heightDim + ' !important;padding:' + labelPadding + ' !important;margin:0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:block;position:relative}.header{font-size:' + cfg.headerSize + ';font-weight:bold;display:block;text-align:center;border:1px solid #000;margin:0;padding:1px 0}.name{font-size:' + cfg.fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product{font-size:' + cfg.productSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.address{font-size:' + cfg.addressSize + ';font-weight:bold;line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + noteFontSize + ';font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.item-note{font-size:' + cfg.addressSize + ';font-weight:bold;font-style:italic;margin:1px 0 0 0;display:block;word-break:break-word}.qr{width:' + cfg.qrSize + ';height:' + cfg.qrSize + ';position:absolute;top:2px;right:' + qrRightOffset + ';margin:0;padding:0}.count{font-size:' + cfg.countSize + ';font-weight:bold;position:absolute;top:' + countTop + ';right:' + qrRightOffset + ';margin:0;padding:0;white-space:nowrap}.countWord{font-size:' + cfg.countSize + ';font-weight:bold;text-align:right;margin:0 0 2px 0;padding:0;white-space:nowrap}</style></head><body><div class="Section1">';
         // Counts labels emitted so far so every label after the first opens
         // on its own fresh page. Needed because Word doesn't reliably clip
         // content to .label's fixed height/overflow:hidden the way a
