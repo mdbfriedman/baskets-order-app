@@ -4,6 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Baskets by Blimi</title>
+  <!-- Generates real, correctly-sized-to-the-label PDFs client-side (see
+       app.buildLabelsPdf below) so a phone can download a label file whose
+       page dimensions ARE the label -- not a full 8.5x11 sheet with the
+       label positioned on it, which is what you get from converting the
+       Word download or printing-to-PDF through Android's OS print pipeline
+       (Android's print/PDF path snaps to Letter/A4 regardless of any custom
+       @page CSS size, unlike desktop Chrome). jsPDF builds the PDF's own
+       page size directly in code instead, so there's no OS print pipeline
+       involved to second-guess the size. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f3f4f6; color: #111827; }
@@ -913,6 +923,132 @@
         app.triggerFileDownload('BasketsByBlimi_' + app.selectedDate + '_' + cleanName + '.doc', app.buildLabelsHtml([order], true), 'application/msword');
       },
 
+      // --- PDF export (for phones -- e.g. FlashLabel Pro's "open a PDF and
+      // print it" flow, which needs the PDF's own page size to already BE
+      // the label, since it prints the page as-is rather than re-flowing
+      // it) -----------------------------------------------------------
+      // mm/pt unit helpers so the PDF's page size and every coordinate on
+      // it line up with the same physical dimensions the print/Word paths
+      // already use, even though those are expressed in px/in/mm CSS units
+      // and jsPDF wants mm (for coordinates) and pt (for font sizes, always
+      // -- independent of the document's own unit).
+      mmFromDim: function(dim) {
+        var m = /^([\d.]+)(mm|in)$/.exec(dim);
+        var num = parseFloat(m[1]);
+        return m[2] === 'in' ? num * 25.4 : num;
+      },
+      mmFromPx: function(px) {
+        return parseFloat(px) * 25.4 / 96;
+      },
+      ptFromPx: function(px) {
+        return parseFloat(px) * 0.75;
+      },
+
+      // Builds a jsPDF document with one page per label, page size set
+      // directly to cfg.labelDim x cfg.heightDim -- no browser print
+      // pipeline involved, so nothing can silently substitute Letter/A4 the
+      // way Android's print-to-PDF does. Layout deliberately mirrors
+      // buildLabelsHtml's content and ordering (same fields, same bold/
+      // border treatment) but is NOT pixel-identical to it -- jsPDF lays
+      // out text by manually tracking a y-cursor rather than a real CSS
+      // engine, so it hasn't had the same real-hardware verification the
+      // print/Word paths have. Worth a test print before relying on it for
+      // a busy Friday.
+      buildLabelsPdf: function(orders) {
+        var cfg = app.getLabelStyleConfig(app.labelSize);
+        var pageWmm = app.mmFromDim(cfg.labelDim);
+        var pageHmm = app.mmFromDim(cfg.heightDim);
+        var padMm = app.mmFromPx(cfg.padding);
+        var qrMm = app.mmFromPx(cfg.qrSize);
+        var rightGapMm = app.mmFromPx('9px');
+        // Mirrors buildLabelsHtml's rightPadding reservation so text never
+        // runs under the QR/count column in the top-right corner.
+        var textWidthMm = pageWmm - (2 * padMm) - qrMm - app.mmFromPx('10px');
+
+        var doc = new window.jspdf.jsPDF({ unit: 'mm', format: [pageWmm, pageHmm] });
+        var firstPage = true;
+
+        function addWrapped(text, sizePx, style, lineGapFactor) {
+          doc.setFont('helvetica', style || 'normal');
+          doc.setFontSize(app.ptFromPx(sizePx));
+          var lines = doc.splitTextToSize(String(text), textWidthMm);
+          lines.forEach(function(line) {
+            y += app.mmFromPx(sizePx) * (lineGapFactor || 1.15);
+            doc.text(line, padMm, y);
+          });
+        }
+
+        var y; // current vertical cursor, reset per label below
+
+        orders.forEach(function(order) {
+          if (!order.items) return;
+          var deliveryNameDisplay = (order.deliveredTo && order.deliveredTo.trim()) ? order.deliveredTo.trim() : app.cleanLastName(order.lastName);
+          var addressParts = app.splitAddress(order.address);
+          var addressLines = addressParts.city ? [addressParts.address, addressParts.city] : [addressParts.address];
+
+          order.items.forEach(function(item, idx) {
+            if (!firstPage) doc.addPage([pageWmm, pageHmm]);
+            firstPage = false;
+            y = padMm;
+
+            // Header: bordered box, centered, bold -- matches .header.
+            var headerH = app.mmFromPx(cfg.headerSize) * 1.6;
+            doc.setLineWidth(0.12);
+            doc.rect(padMm, y, textWidthMm, headerH);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(app.ptFromPx(cfg.headerSize));
+            doc.text('BASKETS BY BLIMI', padMm + textWidthMm / 2, y + headerH / 2 + app.mmFromPx(cfg.headerSize) * 0.3, { align: 'center' });
+            y += headerH + app.mmFromPx('2px');
+
+            addWrapped(deliveryNameDisplay, cfg.fontSize, 'bold');
+            var productDisplay = item.quantityIndividual ? (item.quantityIndividual + ' ' + item.product) : item.product;
+            addWrapped(productDisplay, cfg.productSize, 'bold');
+            if (item.specialInstructions) addWrapped(item.specialInstructions, cfg.addressSize, 'bolditalic');
+
+            // Address: bold, ruled top and bottom -- matches .address.
+            y += app.mmFromPx('2px');
+            doc.setLineWidth(0.1);
+            doc.line(padMm, y, padMm + textWidthMm, y);
+            y += app.mmFromPx('2px');
+            addressLines.forEach(function(line) { addWrapped(line, cfg.addressSize, 'bold', 1.1); });
+            y += app.mmFromPx('2px');
+            doc.line(padMm, y, padMm + textWidthMm, y);
+
+            if (order.customerNote) {
+              y += app.mmFromPx('2px');
+              var noteFontPx = Math.ceil(parseInt(cfg.fontSize) * 1.5) + 'px';
+              addWrapped('Note: ' + order.customerNote, noteFontPx, 'bold');
+            }
+
+            // QR + count, top-right -- same corner reservation as print.
+            var qrX = pageWmm - qrMm - rightGapMm;
+            doc.addImage(app.QR_CODE_DATA_URI, 'PNG', qrX, app.mmFromPx('2px'), qrMm, qrMm);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(app.ptFromPx(cfg.countSize));
+            doc.text((idx + 1) + ' of ' + order.items.length, pageWmm - rightGapMm, app.mmFromPx('2px') + qrMm + app.mmFromPx(cfg.countSize) * 0.9, { align: 'right' });
+          });
+        });
+
+        return doc;
+      },
+
+      downloadLabelsPdf: function() {
+        var dayOrders = app.getOrdersForDate(app.selectedDate);
+        if (dayOrders.length === 0) { alert('No orders to download'); return; }
+        if (!window.jspdf) { alert('PDF library failed to load -- check your internet connection and try again.'); return; }
+        app.buildLabelsPdf(dayOrders).save('BasketsByBlimi_' + app.selectedDate + '_Labels.pdf');
+      },
+
+      downloadOrderPdf: function(orderIdx) {
+        var dayOrders = app.getOrdersForDate(app.selectedDate);
+        if (orderIdx < 0 || orderIdx >= dayOrders.length) { alert('Order not found'); return; }
+        var order = dayOrders[orderIdx];
+        if (!order.items) { alert('No items in this order'); return; }
+        if (!window.jspdf) { alert('PDF library failed to load -- check your internet connection and try again.'); return; }
+        var cleanName = app.cleanLastName(order.lastName);
+        app.buildLabelsPdf([order]).save('BasketsByBlimi_' + app.selectedDate + '_' + cleanName + '.pdf');
+      },
+
       // Switches which label size print/download use, and remembers the
       // choice on this device so it's still selected next visit.
       setLabelSize: function(size) {
@@ -1255,7 +1391,7 @@
           '<option value="2.25x1.25"' + (app.labelSize === '2.25x1.25' ? ' selected' : '') + '>2.25in x 1.25in (small)</option>' +
           '</select></div>';
 
-        html += '<div class="action-buttons"><button class="print-btn" onclick="app.openAddOrder()" style="background:#16a34a">+ Add Order</button><button class="print-btn" onclick="app.printLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#7c3aed">🖨️ Print All Labels</button><button class="print-btn" onclick="app.downloadLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#2563eb">📥 Download All to Word</button></div>';
+        html += '<div class="action-buttons"><button class="print-btn" onclick="app.openAddOrder()" style="background:#16a34a">+ Add Order</button><button class="print-btn" onclick="app.printLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#7c3aed">🖨️ Print All Labels</button><button class="print-btn" onclick="app.downloadLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#2563eb">📥 Download All to Word</button><button class="print-btn" onclick="app.downloadLabelsPdf()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' title="Correctly label-sized PDF, for printing from your phone (e.g. FlashLabel Pro)" style="background:#0f766e">📄 Download All to PDF</button></div>';
 
         if (dayOrders.length === 0) {
           html += '<div class="empty-state">No orders for this date</div>';
@@ -1271,7 +1407,7 @@
               var totalDisplay = /^\$/.test(order.total) ? order.total : ('$' + order.total);
               html += '<div style="font-size:14px;color:#16a34a;font-weight:bold;margin-top:5px">Total: ' + totalDisplay + '</div>';
             }
-            html += '</div><div style="display:flex;gap:5px"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#6b7280;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">✏️ Edit</button><button onclick="app.printOrder(' + orderIdx + ')" title="Print this order\'s label(s) straight to your label printer" style="background:#7c3aed;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">🖨️ Print</button><button onclick="app.downloadOrder(' + orderIdx + ')" style="background:#2563eb;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📥 Word</button></div></div>';
+            html += '</div><div style="display:flex;gap:5px"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#6b7280;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">✏️ Edit</button><button onclick="app.printOrder(' + orderIdx + ')" title="Print this order\'s label(s) straight to your label printer" style="background:#7c3aed;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">🖨️ Print</button><button onclick="app.downloadOrder(' + orderIdx + ')" style="background:#2563eb;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📥 Word</button><button onclick="app.downloadOrderPdf(' + orderIdx + ')" title="Correctly label-sized PDF, for printing from your phone" style="background:#0f766e;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📄 PDF</button></div></div>';
             html += '<div class="order-items">';
             if (order.items) {
               order.items.forEach(function(item, idx) {
