@@ -1119,7 +1119,15 @@
           // character multi-sentence note ("Mazel Tov! Wishing you both...
           // Iris Road.") at 20.4% headroom -- comfortably fits, with margin
           // to spare for something a bit longer still.
-          return { labelDim: '4in', heightDim: '3in', padding: '16px', fontSize: '22px', headerSize: '17px', productSize: '20px', addressSize: '16px', countSize: '18px', qrSize: '80px', noteSize: '13px' };
+          // printLeftShiftPx (Sep): real print showed flush-left text
+          // (name/product/address) missing its first character, same
+          // left-edge-cutoff pattern already seen and fixed on the small
+          // label -- this preset never got that treatment since it hadn't
+          // been reported here before. Reported as needing ~2mm right
+          // (~7.6px); rounded to 8px. Only shifts the left padding for
+          // print, same as the small label's fix -- doesn't touch Word
+          // (not reported affected) or the right-anchored QR/count.
+          return { labelDim: '4in', heightDim: '3in', padding: '16px', fontSize: '22px', headerSize: '17px', productSize: '20px', addressSize: '16px', countSize: '18px', qrSize: '80px', noteSize: '13px', printLeftShiftPx: 8 };
         } else if (size === '3x2') {
           return { labelDim: '3in', heightDim: '2in', padding: '10px', fontSize: '14px', headerSize: '9px', productSize: '13px', addressSize: '11px', countSize: '14px', qrSize: '60px', noteSize: '10px' };
         } else if (size === '2x1') {
@@ -1306,9 +1314,17 @@
         // reservation trick to keep text clear of an absolutely-positioned
         // QR column; plain symmetric padding is enough since the table's
         // own column split does that job instead.
+        // Print-only left inset: pushes flush-left content (header/name/
+        // product/address) right by printLeftShiftPx if the preset sets
+        // one, leaving that as blank space on the physical label's left
+        // edge instead -- same mechanism as printRightTrim/qrRightOffset
+        // above, just on the left side and additive to the normal padding
+        // rather than replacing it. Word isn't affected (uses cfg.padding
+        // untouched) since it wasn't reported having this problem.
+        var printLeftPadding = (paddingNum + (cfg.printLeftShiftPx || 0)) + 'px';
         var labelPadding = forWord
           ? (cfg.padding + ' ' + cfg.padding + ' ' + cfg.padding + ' ' + cfg.padding)
-          : (cfg.padding + ' ' + rightPadding + ' ' + cfg.padding + ' ' + cfg.padding);
+          : (cfg.padding + ' ' + rightPadding + ' ' + cfg.padding + ' ' + printLeftPadding);
         var countTop = (2 + qrSizeNum + 3) + 'px';
         // Print-only: shrinks the visible box by printRightTrim (if the
         // preset sets one), leaving that sliver as blank space on the
