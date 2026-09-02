@@ -964,6 +964,14 @@
         // Mirrors buildLabelsHtml's rightPadding reservation so text never
         // runs under the QR/count column in the top-right corner.
         var textWidthMm = pageWmm - (2 * padMm) - qrMm - app.mmFromPx('10px');
+        // Real-world PDF prints came out shifted left (see pdfLeftShiftMm
+        // comment on the 2.25x1.25 preset) -- leftMm is where all
+        // left-anchored content actually starts, padMm left as-is for the
+        // right-side reservation math above so only the left edge moves.
+        // Shrinks the text column by the same amount rather than changing
+        // where the QR/count sit, since only the left side was reported off.
+        var leftMm = padMm + (cfg.pdfLeftShiftMm || 0);
+        textWidthMm -= (cfg.pdfLeftShiftMm || 0);
 
         // jsPDF defaults to portrait and will silently SWAP a [width,height]
         // format's two values to force height >= width unless orientation
@@ -983,7 +991,7 @@
           var lines = doc.splitTextToSize(String(text), textWidthMm);
           lines.forEach(function(line) {
             y += app.mmFromPx(sizePx) * (lineGapFactor || 1.15);
-            doc.text(line, padMm, y);
+            doc.text(line, leftMm, y);
           });
         }
 
@@ -1003,10 +1011,10 @@
             // Header: bordered box, centered, bold -- matches .header.
             var headerH = app.mmFromPx(cfg.headerSize) * 1.6;
             doc.setLineWidth(0.12);
-            doc.rect(padMm, y, textWidthMm, headerH);
+            doc.rect(leftMm, y, textWidthMm, headerH);
             doc.setFont('helvetica', 'bold');
             doc.setFontSize(app.ptFromPx(cfg.headerSize));
-            doc.text('BASKETS BY BLIMI', padMm + textWidthMm / 2, y + headerH / 2 + app.mmFromPx(cfg.headerSize) * 0.3, { align: 'center' });
+            doc.text('BASKETS BY BLIMI', leftMm + textWidthMm / 2, y + headerH / 2 + app.mmFromPx(cfg.headerSize) * 0.3, { align: 'center' });
             y += headerH + app.mmFromPx('2px');
 
             addWrapped(deliveryNameDisplay, cfg.fontSize, 'bold');
@@ -1017,11 +1025,11 @@
             // Address: bold, ruled top and bottom -- matches .address.
             y += app.mmFromPx('2px');
             doc.setLineWidth(0.1);
-            doc.line(padMm, y, padMm + textWidthMm, y);
+            doc.line(leftMm, y, leftMm + textWidthMm, y);
             y += app.mmFromPx('2px');
             addressLines.forEach(function(line) { addWrapped(line, cfg.addressSize, 'bold', 1.1); });
             y += app.mmFromPx('2px');
-            doc.line(padMm, y, padMm + textWidthMm, y);
+            doc.line(leftMm, y, leftMm + textWidthMm, y);
 
             if (order.customerNote) {
               y += app.mmFromPx('2px');
@@ -1174,7 +1182,30 @@
           // verified against a real print) -- nudge up or down and re-test
           // if it's still off, the same way the qr/count 9px offset below
           // was tuned in a few real rounds.
-          return { labelDim: '55mm', heightDim: '29mm', padding: '4px', fontSize: '10px', headerSize: '11px', productSize: '8px', addressSize: '12px', countSize: '11px', qrSize: '50px', printRightTrim: '4px', qrRightOffset: '20px' };
+          // printRightTrim raised 4px -> 18px (you measured the app's print
+          // as ~5mm/19px too far right). Stopped one px short of the full
+          // 19px on purpose: probed every value up to 20px against the
+          // longest realistic address ("1234 Winterberry Court Apartment
+          // 12B, Lakewood, NJ 08701") and 18px is the last one that still
+          // holds positive headroom (7.2%) -- 20px flips it to -4.9%,
+          // meaning that address's text would actually run past the bottom
+          // of the label. 18px gets you ~4.76mm of the ~5mm correction,
+          // about a quarter-mm short -- should be within normal print
+          // tolerance, but if it's still visibly off, the rest likely needs
+          // to come from the driver's own Horizontal Position Adjustment
+          // rather than shrinking this box any further, since we're now at
+          // the real ceiling for this preset's width.
+          // pdfLeftShiftMm: the PDF path (opened in FlashLabel Pro, or
+          // printed from Windows via a PDF viewer's own print dialog) was
+          // separately reported drifting the OPPOSITE way from the app's
+          // Print button -- about 5mm too far LEFT instead of too far
+          // right -- so it needs its own, independent correction rather
+          // than sharing printRightTrim above. See buildLabelsPdf's use of
+          // this value: shifts the left-anchored content (header/name/
+          // product/address) 5mm right, leaving that as blank space on the
+          // physical label's left edge instead. The right-anchored QR/count
+          // aren't touched since only the PDF's left side was reported off.
+          return { labelDim: '55mm', heightDim: '29mm', padding: '4px', fontSize: '10px', headerSize: '11px', productSize: '8px', addressSize: '12px', countSize: '11px', qrSize: '50px', printRightTrim: '18px', qrRightOffset: '20px', pdfLeftShiftMm: 5 };
         }
         // Unknown/unset labelSize -- fall back to the smallest, safest
         // preset rather than silently rendering with undefined CSS values.
