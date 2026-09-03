@@ -86,6 +86,21 @@
       // reset to the default every time the page reloads.
       labelSize: localStorage.getItem('labelSize') || '4x3',
 
+      // Checkbox selection for the "Print Selected" batch actions below --
+      // lets you check off just the orders using one label size, print that
+      // batch, then check off the rest and print the other batch, instead
+      // of printing literally everything at once (which mixes both label
+      // sizes onto whatever printer/size is currently selected) or clicking
+      // Print on every order one at a time. Keyed by index into that day's
+      // getOrdersForDate() array, so it's only meaningful for the specific
+      // date/order-count it was built against -- selectedOrdersDate/
+      // selectedOrdersCount let render() detect a stale selection (date
+      // changed, or an order was added/deleted) and clear it automatically
+      // rather than risk printing the wrong order under a leftover index.
+      selectedOrderIndices: {},
+      selectedOrdersDate: null,
+      selectedOrdersCount: -1,
+
       checkSetup: async function() {
         try {
           // First check if key is saved in localStorage (on this device)
@@ -1141,31 +1156,30 @@
           // character multi-sentence note ("Mazel Tov! Wishing you both...
           // Iris Road.") at 20.4% headroom -- comfortably fits, with margin
           // to spare for something a bit longer still.
-          // printLeftShiftPx / wordLeftShiftPx (Sep, round 4): a real test
-          // print/Word-doc from round 3 showed Word only needed "a tad more"
-          // (small nudge) while the app/print path "needs more than a tad" --
-          // the two paths are no longer off by the same amount, so they get
-          // different-sized bumps this round instead of matching increments:
-          // wordLeftShiftPx 20->24px (~5.3mm->6.4mm, a small nudge) and
-          // printLeftShiftPx 24->32px (~6mm->8.5mm, a bigger jump). Right
-          // edge (padding/qrRightOffset) and font sizes untouched this round
-          // since round 3's right-side fix wasn't reported as still a
-          // problem -- only the left edge was flagged again.
-          // (Round 3 history, for reference: still cut off "a millimeter or
-          // two" on both paths even after round 2, AND "right up against the
-          // edge" on the right side on both too. Fixed via: left shifts
-          // print 16->24px/word 8->20px; padding bumped 16->18px; the
+          // printLeftShiftPx / wordLeftShiftPx (Sep, round 5): still off by
+          // ~2mm on BOTH the print path and the Word download after round 4
+          // -- reported together this time (not split like round 3's "Word
+          // just a tad, app more than a tad"), so both get the same-sized
+          // bump: printLeftShiftPx 32->40px and wordLeftShiftPx 24->32px
+          // (+8px/~2mm each). Right edge untouched again -- only the left
+          // edge was flagged this round.
+          // (Round 4: Word needed only "a tad more" (20->24px) while print
+          // "needs more than a tad" (24->32px) -- different-sized bumps that
+          // round since the two paths were off by different amounts then.
+          // Round 3: both cut off "a millimeter or two" AND "right up
+          // against the edge" on the right -- fixed via left shifts
+          // print 16->24px/word 8->20px, padding bumped 16->18px, the
           // print path's QR/count column moved further from the edge
           // (qrRightOffset 9px default -> explicit 16px, same mechanism
-          // already proven on the small label); and fontSize/headerSize/
+          // already proven on the small label), and fontSize/headerSize/
           // productSize/addressSize/countSize all trimmed down slightly per
-          // your "squeeze the font a little" -- smaller text needs less
+          // "squeeze the font a little" -- smaller text needs less
           // horizontal room, which is what bought back margin on the right
           // without shrinking the usable page any further.)
           // Re-verified via headroom probe against the same worst-case
           // long-product/long-address/long-note combination as before --
           // still holds double-digit headroom across every note-length step
-          // (see noteSizeThresholds below) even at the larger 32px shift.
+          // (see noteSizeThresholds below) even at the larger 40px shift.
           // noteSizeThresholds (Sep): a single fixed noteSize (was 13px)
           // can't work for arbitrary-length notes -- "a few sentences" of
           // good wishes can run anywhere from one short line to several
@@ -1190,7 +1204,7 @@
           // (20.4% even at 1000 chars, still 16.3% at 1200) -- small and
           // hard to read at that point, but a genuinely enormous note
           // degrading to small text beats it overflowing past the label.
-          return { labelDim: '4in', heightDim: '3in', padding: '18px', fontSize: '20px', headerSize: '16px', productSize: '18px', addressSize: '15px', countSize: '16px', qrSize: '80px', qrRightOffset: '16px', noteSizeThresholds: [{ maxLen: 80, size: 16 }, { maxLen: 150, size: 15 }, { maxLen: 250, size: 13 }, { maxLen: 350, size: 11 }, { maxLen: 450, size: 10 }, { maxLen: 550, size: 9 }, { maxLen: 700, size: 8 }, { maxLen: 1000, size: 7 }, { maxLen: Infinity, size: 6 }], printLeftShiftPx: 32, wordLeftShiftPx: 24 };
+          return { labelDim: '4in', heightDim: '3in', padding: '18px', fontSize: '20px', headerSize: '16px', productSize: '18px', addressSize: '15px', countSize: '16px', qrSize: '80px', qrRightOffset: '16px', noteSizeThresholds: [{ maxLen: 80, size: 16 }, { maxLen: 150, size: 15 }, { maxLen: 250, size: 13 }, { maxLen: 350, size: 11 }, { maxLen: 450, size: 10 }, { maxLen: 550, size: 9 }, { maxLen: 700, size: 8 }, { maxLen: 1000, size: 7 }, { maxLen: Infinity, size: 6 }], printLeftShiftPx: 40, wordLeftShiftPx: 32 };
         } else if (size === '3x2') {
           return { labelDim: '3in', heightDim: '2in', padding: '10px', fontSize: '14px', headerSize: '9px', productSize: '13px', addressSize: '11px', countSize: '14px', qrSize: '60px', noteSize: '10px' };
         } else if (size === '2x1') {
@@ -1538,6 +1552,58 @@
         app.openAndPrintHtml(app.buildLabelsHtml([order]));
       },
 
+      // Checkbox selection for batch printing -- e.g. check off every order
+      // going out on the small label, print/download just those, then
+      // switch the label size, check off the rest, and print that batch --
+      // instead of "Print All" (which doesn't make sense once a single
+      // day's orders are split across two different label sizes) or
+      // clicking Print on every single order one at a time.
+      toggleOrderSelection: function(orderIndex) {
+        if (app.selectedOrderIndices[orderIndex]) {
+          delete app.selectedOrderIndices[orderIndex];
+        } else {
+          app.selectedOrderIndices[orderIndex] = true;
+        }
+        app.render();
+      },
+
+      selectAllOrders: function() {
+        var dayOrders = app.getOrdersForDate(app.selectedDate);
+        dayOrders.forEach(function(order, idx) { app.selectedOrderIndices[idx] = true; });
+        app.render();
+      },
+
+      clearOrderSelection: function() {
+        app.selectedOrderIndices = {};
+        app.render();
+      },
+
+      // Shared by printSelected/downloadSelected/downloadSelectedPdf --
+      // pulls out just the checked orders, in their original day-order.
+      getSelectedOrders: function() {
+        var dayOrders = app.getOrdersForDate(app.selectedDate);
+        return dayOrders.filter(function(order, idx) { return app.selectedOrderIndices[idx]; });
+      },
+
+      printSelected: function() {
+        var selected = app.getSelectedOrders();
+        if (selected.length === 0) { alert('No orders selected'); return; }
+        app.openAndPrintHtml(app.buildLabelsHtml(selected));
+      },
+
+      downloadSelected: function() {
+        var selected = app.getSelectedOrders();
+        if (selected.length === 0) { alert('No orders selected'); return; }
+        app.triggerFileDownload('BasketsByBlimi_' + app.selectedDate + '_Selected_Labels.doc', app.buildLabelsHtml(selected, true), 'application/msword');
+      },
+
+      downloadSelectedPdf: function() {
+        var selected = app.getSelectedOrders();
+        if (selected.length === 0) { alert('No orders selected'); return; }
+        if (!window.jspdf) { alert('PDF library failed to load -- check your internet connection and try again.'); return; }
+        app.buildLabelsPdf(selected).save('BasketsByBlimi_' + app.selectedDate + '_Selected_Labels.pdf');
+      },
+
       render: function() {
         var appDiv = document.getElementById('app');
         
@@ -1564,6 +1630,17 @@
         }
 
         var dayOrders = app.getOrdersForDate(app.selectedDate);
+        // A selection built against a different date, or against a
+        // different number of orders on this same date (one was added or
+        // deleted since you last checked boxes), is stale -- indices could
+        // now point at the wrong order. Drop it rather than risk printing
+        // the wrong label under a leftover checkmark.
+        if (app.selectedOrdersDate !== app.selectedDate || app.selectedOrdersCount !== dayOrders.length) {
+          app.selectedOrderIndices = {};
+          app.selectedOrdersDate = app.selectedDate;
+          app.selectedOrdersCount = dayOrders.length;
+        }
+        var selectedCount = Object.keys(app.selectedOrderIndices).length;
         var totals = app.getProductTotals(app.selectedDate);
         var dates = app.getAllDates();
         var currentIdx = dates.indexOf(app.selectedDate);
@@ -1588,14 +1665,30 @@
           '<option value="2.25x1.25"' + (app.labelSize === '2.25x1.25' ? ' selected' : '') + '>2.25in x 1.25in (small)</option>' +
           '</select></div>';
 
-        html += '<div class="action-buttons"><button class="print-btn" onclick="app.openAddOrder()" style="background:#16a34a">+ Add Order</button><button class="print-btn" onclick="app.printLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#7c3aed">🖨️ Print All Labels</button><button class="print-btn" onclick="app.downloadLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#2563eb">📥 Download All to Word</button><button class="print-btn" onclick="app.downloadLabelsPdf()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' title="Correctly label-sized PDF, for printing from your phone (e.g. FlashLabel Pro)" style="background:#0f766e">📄 Download All to PDF</button></div>';
+        html += '<div class="action-buttons"><button class="print-btn" onclick="app.openAddOrder()" style="background:#16a34a">+ Add Order</button></div>';
+
+        // Batch printing by checkbox selection, replacing the old "print
+        // everything for the day" buttons -- a day's orders are usually a
+        // mix of both label sizes, so "print all" meant either printing the
+        // wrong size for half the orders or printing them one at a time.
+        // Check off just the orders going out on whichever size is picked
+        // above, print/download that batch, then switch the label size,
+        // check off the rest, and print the second batch -- two batches
+        // total instead of N individual prints.
+        html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">' +
+          '<span style="font-size:13px;color:#374151">' + selectedCount + ' selected</span>' +
+          '<button onclick="app.selectAllOrders()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#6b7280;color:white;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px">Select All</button>' +
+          '<button onclick="app.clearOrderSelection()" ' + (selectedCount === 0 ? 'disabled' : '') + ' style="background:#6b7280;color:white;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px">Clear</button>' +
+          '</div>';
+        html += '<div class="action-buttons"><button class="print-btn" onclick="app.printSelected()" ' + (selectedCount === 0 ? 'disabled' : '') + ' style="background:#7c3aed">🖨️ Print Selected (' + selectedCount + ')</button><button class="print-btn" onclick="app.downloadSelected()" ' + (selectedCount === 0 ? 'disabled' : '') + ' style="background:#2563eb">📥 Word Selected (' + selectedCount + ')</button><button class="print-btn" onclick="app.downloadSelectedPdf()" ' + (selectedCount === 0 ? 'disabled' : '') + ' title="Correctly label-sized PDF, for printing from your phone (e.g. FlashLabel Pro)" style="background:#0f766e">📄 PDF Selected (' + selectedCount + ')</button></div>';
 
         if (dayOrders.length === 0) {
           html += '<div class="empty-state">No orders for this date</div>';
         } else {
           html += '<div class="orders-box">';
           dayOrders.forEach(function(order, orderIdx) {
-            html += '<div class="order-item"><div style="display:flex;justify-content:space-between;align-items:start"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#059669;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
+            var isSelected = !!app.selectedOrderIndices[orderIdx];
+            html += '<div class="order-item" style="' + (isSelected ? 'outline:2px solid #7c3aed;outline-offset:-2px;' : '') + '"><div style="display:flex;justify-content:space-between;align-items:start"><div style="display:flex;gap:8px;align-items:start"><input type="checkbox" onchange="app.toggleOrderSelection(' + orderIdx + ')" ' + (isSelected ? 'checked' : '') + ' title="Select for batch print/download" style="margin-top:4px;width:18px;height:18px;flex-shrink:0"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#059669;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
             if (order.deliveredTo) html += '<div class="order-address">Deliver to: ' + order.deliveredTo + '</div>';
             html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div>';
             if (order.total) {
@@ -1604,7 +1697,7 @@
               var totalDisplay = /^\$/.test(order.total) ? order.total : ('$' + order.total);
               html += '<div style="font-size:14px;color:#16a34a;font-weight:bold;margin-top:5px">Total: ' + totalDisplay + '</div>';
             }
-            html += '</div><div style="display:flex;gap:5px"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#6b7280;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">✏️ Edit</button><button onclick="app.printOrder(' + orderIdx + ')" title="Print this order\'s label(s) straight to your label printer" style="background:#7c3aed;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">🖨️ Print</button><button onclick="app.downloadOrder(' + orderIdx + ')" style="background:#2563eb;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📥 Word</button><button onclick="app.downloadOrderPdf(' + orderIdx + ')" title="Correctly label-sized PDF, for printing from your phone" style="background:#0f766e;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📄 PDF</button></div></div>';
+            html += '</div></div><div style="display:flex;gap:5px"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#6b7280;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">✏️ Edit</button><button onclick="app.printOrder(' + orderIdx + ')" title="Print this order\'s label(s) straight to your label printer" style="background:#7c3aed;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">🖨️ Print</button><button onclick="app.downloadOrder(' + orderIdx + ')" style="background:#2563eb;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📥 Word</button><button onclick="app.downloadOrderPdf(' + orderIdx + ')" title="Correctly label-sized PDF, for printing from your phone" style="background:#0f766e;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📄 PDF</button></div></div>';
             html += '<div class="order-items">';
             if (order.items) {
               order.items.forEach(function(item, idx) {
