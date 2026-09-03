@@ -997,54 +997,32 @@
         });
       },
 
-      // Best-effort Unicode-bidi approximation for jsPDF, which has no
-      // RTL/bidi engine of its own -- doc.text() just draws characters
-      // left-to-right in string order. Hebrew itself doesn't need glyph
-      // shaping the way Arabic does (each Hebrew letter has one fixed
-      // form regardless of position), so the only real problem is
-      // DIRECTION: a run of Hebrew characters needs to be reversed to
-      // read correctly, and Hebrew runs need to swap places with
-      // Latin/number runs the way a real RTL-aware renderer would place
-      // them (matching how the print/Word paths already render correctly,
-      // since a browser's text engine does full bidi automatically).
-      // Neutral characters (spaces, digits, punctuation) stick to
-      // whichever real Hebrew-or-Latin run they're touching rather than
-      // splitting it, same as the real Unicode bidi algorithm's handling
-      // of neutrals -- so "Mazel Tov!" and "טוב!" both keep their "!"
-      // attached to the word next to it instead of stranding it as its
-      // own reversed run. Applied per WRAPPED LINE (after jsPDF's own
-      // line-wrapping, not before) so word-wrap still breaks at the
-      // correct logical points -- reordering the whole paragraph first
-      // and then wrapping would wrap at the wrong places entirely, since
-      // wrapping needs the original reading order to find real word
-      // boundaries. Not a full bidi implementation (real bidi handles
-      // nested embedding levels this doesn't), but should handle the
-      // common case here: a short Hebrew note, occasionally with an
-      // embedded English word, name, or number.
-      reorderForPdf: function(text) {
-        var HEBREW_RE = /[\u0590-\u05FF\uFB1D-\uFB4F]/;
-        var LATIN_RE = /[A-Za-z]/;
-        if (!HEBREW_RE.test(text)) return text;
-        var runs = [];
-        var current = '', currentHebrew = null;
-        for (var i = 0; i < text.length; i++) {
-          var ch = text[i];
-          var strong = HEBREW_RE.test(ch) ? true : (LATIN_RE.test(ch) ? false : null);
-          if (currentHebrew === null) {
-            current += ch;
-            if (strong !== null) currentHebrew = strong;
-          } else if (strong === null || strong === currentHebrew) {
-            current += ch;
-          } else {
-            runs.push({ text: current, hebrew: currentHebrew });
-            current = ch;
-            currentHebrew = strong;
-          }
-        }
-        if (current) runs.push({ text: current, hebrew: !!currentHebrew });
-        runs.forEach(function(r) { if (r.hebrew) r.text = r.text.split('').reverse().join(''); });
-        return runs.reverse().map(function(r) { return r.text; }).join('');
-      },
+      // Round 1 of the RTL fix hand-rolled a bidi approximation here (split
+      // into Hebrew/Latin runs, reverse each Hebrew run's characters,
+      // reverse the run order) and fed the ALREADY-reordered string to
+      // doc.text() as a plain string. Real-world test: letters now render
+      // correctly (the font fix worked) but the order still came out
+      // left-to-right, i.e. as if nothing had been reordered at all --
+      // consistent with jsPDF ALSO doing its own RTL handling internally
+      // for text drawn with a custom/embedded Unicode font, which would
+      // cancel out a second manual reversal stacked on top of it (reverse
+      // it myself, jsPDF reverses it back). Switched to jsPDF's own
+      // documented mechanism for this instead of guessing at another
+      // hand-rolled one: doc.text()'s options object accepts isInputRtl,
+      // which tells jsPDF the given string is logical-order RTL text and
+      // to handle the reordering (including mixed Hebrew/Latin runs
+      // within it) itself, rather than assuming the string is already in
+      // visual order the way a plain doc.text() call does.
+      // Detection stays simple -- if a wrapped line contains any Hebrew
+      // character, pass isInputRtl; a pure-Latin/number line (the common
+      // case: name, address, product) is left completely alone.
+      // Caveat: this sandbox has no network access to the real jsPDF
+      // library, so none of this can be rendered and visually checked here
+      // the way the print/Word paths were all session -- this is my best
+      // read of jsPDF's documented behavior, not something verified
+      // against a real PDF. Please test print another Hebrew note and
+      // report back exactly what's still off.
+      HEBREW_RE: /[\u0590-\u05FF\uFB1D-\uFB4F]/,
 
       // Builds a jsPDF document with one page per label, page size set
       // directly to cfg.labelDim x cfg.heightDim -- no browser print
@@ -1092,15 +1070,21 @@
           doc.setFont('FreeSansHebrew', style || 'normal');
           doc.setFontSize(app.ptFromPx(sizePx));
           // Wrap on the ORIGINAL logical text first -- splitTextToSize needs
-          // real reading order to find correct word boundaries -- then
-          // bidi-reorder each already-wrapped line just before drawing it.
-          // Reordering before wrapping would wrap at the wrong points
-          // entirely, since a bidi-reordered string's word/space positions
-          // no longer match the logical text's.
+          // real reading order to find correct word boundaries -- then pass
+          // each already-wrapped line to jsPDF's own isInputRtl handling
+          // (see the HEBREW_RE comment above) if it contains Hebrew.
+          // Wrapping AFTER reordering (if this were done manually) would
+          // wrap at the wrong points, since reordered text's word/space
+          // positions no longer match the logical text's -- wrapping stays
+          // on logical text either way, only the drawing step changes.
           var lines = doc.splitTextToSize(String(text), textWidthMm);
           lines.forEach(function(line) {
             y += app.mmFromPx(sizePx) * (lineGapFactor || 1.15);
-            doc.text(app.reorderForPdf(line), leftMm, y);
+            if (app.HEBREW_RE.test(line)) {
+              doc.text(line, leftMm, y, { isInputRtl: true });
+            } else {
+              doc.text(line, leftMm, y);
+            }
           });
         }
 
@@ -1298,7 +1282,29 @@
           // (20.4% even at 1000 chars, still 16.3% at 1200) -- small and
           // hard to read at that point, but a genuinely enormous note
           // degrading to small text beats it overflowing past the label.
-          return { labelDim: '4in', heightDim: '3in', padding: '18px', fontSize: '20px', headerSize: '16px', productSize: '18px', addressSize: '15px', countSize: '16px', qrSize: '80px', qrRightOffset: '16px', noteSizeThresholds: [{ maxLen: 80, size: 16 }, { maxLen: 150, size: 15 }, { maxLen: 250, size: 13 }, { maxLen: 350, size: 11 }, { maxLen: 450, size: 10 }, { maxLen: 550, size: 9 }, { maxLen: 700, size: 8 }, { maxLen: 1000, size: 7 }, { maxLen: Infinity, size: 6 }], printLeftShiftPx: 40, wordLeftShiftPx: 32 };
+          //
+          // Bumped again (Sep, "note should be sized bigger... go down
+          // another half inch"): the label was stopping ~1in short of the
+          // bottom on typical short/medium notes, which is exactly what
+          // the old thresholds' 20-30% headroom on those buckets predicts.
+          // Re-swept every step against the SAME worst-case content above,
+          // one integer px at a time, and found the headroom does not
+          // shrink smoothly -- each extra px eventually forces one more
+          // wrapped line, which costs far more height than 1px and can
+          // flip a step from comfortably positive straight to overflow.
+          // The <=250 through <=1000 steps were already sitting right at
+          // that wrap cliff (the next size up on every one of them went
+          // negative), so raising them further risks text running past the
+          // label edge and they're left exactly as tuned above. The <=80
+          // and <=150 steps had real slack (short notes were the visible
+          // gap): <=80 goes 16px->20px (30.8%->9.5% headroom, still safely
+          // positive against the worst case, ~27.6% typical), <=150 goes
+          // 15px->16px (21.5%->10.9%, ~28.6% typical). Together these cover
+          // the common case (short thank-you notes like the ones in real
+          // orders) with meaningfully bigger text and reclaim close to the
+          // requested half inch there; longer notes keep their prior sizes
+          // since they're already at the safe limit.
+          return { labelDim: '4in', heightDim: '3in', padding: '18px', fontSize: '20px', headerSize: '16px', productSize: '18px', addressSize: '15px', countSize: '16px', qrSize: '80px', qrRightOffset: '16px', noteSizeThresholds: [{ maxLen: 80, size: 20 }, { maxLen: 150, size: 16 }, { maxLen: 250, size: 13 }, { maxLen: 350, size: 11 }, { maxLen: 450, size: 10 }, { maxLen: 550, size: 9 }, { maxLen: 700, size: 8 }, { maxLen: 1000, size: 7 }, { maxLen: Infinity, size: 6 }], printLeftShiftPx: 40, wordLeftShiftPx: 32 };
         } else if (size === '3x2') {
           return { labelDim: '3in', heightDim: '2in', padding: '10px', fontSize: '14px', headerSize: '9px', productSize: '13px', addressSize: '11px', countSize: '14px', qrSize: '60px', noteSize: '10px' };
         } else if (size === '2x1') {
