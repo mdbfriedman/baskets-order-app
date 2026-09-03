@@ -1141,28 +1141,31 @@
           // character multi-sentence note ("Mazel Tov! Wishing you both...
           // Iris Road.") at 20.4% headroom -- comfortably fits, with margin
           // to spare for something a bit longer still.
-          // printLeftShiftPx / wordLeftShiftPx (Sep, round 3): still cut off
-          // "a millimeter or two" on the left on BOTH the print path (was
-          // 16px/4mm) and the Word download (was 8px/2mm) even after the
-          // round-2 fix, AND now reported "right up against the edge" on the
-          // right side on both too. Two changes together: pushed both shift
-          // values up further (print 16->24px/~6mm, word 8->20px/~5.3mm --
-          // word gets a bigger jump since its round-2 guess was never
-          // confirmed against a real measurement and evidently undershot),
-          // and gave the right edge more breathing room too -- padding
-          // bumped 16->18px (adds a little margin on every side, including
-          // Word's untouched right edge) and the print path's QR/count
-          // column moved further from the edge (qrRightOffset 9px default ->
-          // explicit 16px, same mechanism already proven on the small
-          // label). fontSize/headerSize/productSize/addressSize/countSize
-          // all trimmed down slightly too (per your "squeeze the font a
-          // little" -- smaller text needs less horizontal room, which is
-          // what actually buys back margin on the right without shrinking
-          // the usable page any further). Re-verified via headroom probe
-          // against the same worst-case long-product/long-address/long-note
-          // combination as before -- still holds double-digit headroom
-          // across every note-length step (see noteSizeThresholds below,
-          // re-tuned for the smaller base fontSize).
+          // printLeftShiftPx / wordLeftShiftPx (Sep, round 4): a real test
+          // print/Word-doc from round 3 showed Word only needed "a tad more"
+          // (small nudge) while the app/print path "needs more than a tad" --
+          // the two paths are no longer off by the same amount, so they get
+          // different-sized bumps this round instead of matching increments:
+          // wordLeftShiftPx 20->24px (~5.3mm->6.4mm, a small nudge) and
+          // printLeftShiftPx 24->32px (~6mm->8.5mm, a bigger jump). Right
+          // edge (padding/qrRightOffset) and font sizes untouched this round
+          // since round 3's right-side fix wasn't reported as still a
+          // problem -- only the left edge was flagged again.
+          // (Round 3 history, for reference: still cut off "a millimeter or
+          // two" on both paths even after round 2, AND "right up against the
+          // edge" on the right side on both too. Fixed via: left shifts
+          // print 16->24px/word 8->20px; padding bumped 16->18px; the
+          // print path's QR/count column moved further from the edge
+          // (qrRightOffset 9px default -> explicit 16px, same mechanism
+          // already proven on the small label); and fontSize/headerSize/
+          // productSize/addressSize/countSize all trimmed down slightly per
+          // your "squeeze the font a little" -- smaller text needs less
+          // horizontal room, which is what bought back margin on the right
+          // without shrinking the usable page any further.)
+          // Re-verified via headroom probe against the same worst-case
+          // long-product/long-address/long-note combination as before --
+          // still holds double-digit headroom across every note-length step
+          // (see noteSizeThresholds below) even at the larger 32px shift.
           // noteSizeThresholds (Sep): a single fixed noteSize (was 13px)
           // can't work for arbitrary-length notes -- "a few sentences" of
           // good wishes can run anywhere from one short line to several
@@ -1187,7 +1190,7 @@
           // (20.4% even at 1000 chars, still 16.3% at 1200) -- small and
           // hard to read at that point, but a genuinely enormous note
           // degrading to small text beats it overflowing past the label.
-          return { labelDim: '4in', heightDim: '3in', padding: '18px', fontSize: '20px', headerSize: '16px', productSize: '18px', addressSize: '15px', countSize: '16px', qrSize: '80px', qrRightOffset: '16px', noteSizeThresholds: [{ maxLen: 80, size: 16 }, { maxLen: 150, size: 15 }, { maxLen: 250, size: 13 }, { maxLen: 350, size: 11 }, { maxLen: 450, size: 10 }, { maxLen: 550, size: 9 }, { maxLen: 700, size: 8 }, { maxLen: 1000, size: 7 }, { maxLen: Infinity, size: 6 }], printLeftShiftPx: 24, wordLeftShiftPx: 20 };
+          return { labelDim: '4in', heightDim: '3in', padding: '18px', fontSize: '20px', headerSize: '16px', productSize: '18px', addressSize: '15px', countSize: '16px', qrSize: '80px', qrRightOffset: '16px', noteSizeThresholds: [{ maxLen: 80, size: 16 }, { maxLen: 150, size: 15 }, { maxLen: 250, size: 13 }, { maxLen: 350, size: 11 }, { maxLen: 450, size: 10 }, { maxLen: 550, size: 9 }, { maxLen: 700, size: 8 }, { maxLen: 1000, size: 7 }, { maxLen: Infinity, size: 6 }], printLeftShiftPx: 32, wordLeftShiftPx: 24 };
         } else if (size === '3x2') {
           return { labelDim: '3in', heightDim: '2in', padding: '10px', fontSize: '14px', headerSize: '9px', productSize: '13px', addressSize: '11px', countSize: '14px', qrSize: '60px', noteSize: '10px' };
         } else if (size === '2x1') {
