@@ -68,6 +68,143 @@
   <div class="container" id="app"></div>
 
   <script>
+    // ---------------------------------------------------------------------
+    // Export Day PDF categorization (Sep): the dashboard's old "Product
+    // Totals" box was one flat list sorted purely by quantity descending --
+    // fine for a slow day, unreadable on a busy one when you need to see at
+    // a glance "how many 12in platters, how many Caesar salads" without
+    // hunting through an unsorted wall of numbers. These tables define the
+    // exact display order the categorized Export Day PDF uses within each
+    // section (e.g. fruit platters ordered Sectional, 8x14, 12in... as
+    // requested, not alphabetically) -- each entry is an exact SKU-name
+    // PREFIX matched against item.product. A bare SKU with no size/variant
+    // suffix (e.g. "Sectional") matches itself exactly; a SKU family with
+    // variants (e.g. "Caesar Salad - Small - Rosebowl") matches on
+    // "<prefix> - " so every size/format variant of that prefix groups
+    // together, sub-sorted by exportSizeRank/exportTrailingNum below.
+    var EXPORT_FRUIT_PLATTERS = [
+      'Sectional',
+      '8x14',
+      '12" sliced platter',
+      '14" sliced platter',
+      '14x14',
+      '14x21',
+      '16" sliced platter',
+      '16x16',
+      '18x18',
+      'Decorative Cubed Platter',
+      'Exotic Fruit Platter',
+      'Acai Minis',
+      'Acai Trays',
+      'Cubed Fruit',
+      'Lucite Fruit Tray',
+      'Shechaynu Platter',
+      'Shehechyanu Fruit Board',
+      'Fruit Cake (Available Monday-Wednesday only)',
+      "Tu B'shvat - Fresh Fruit Board",
+      "Tu B'shvat - Mini Fresh Fruit Board",
+      "Tu B'shvat - Flower Board Dried Fruit",
+      "Tu B'shvat - Lined Board Dried Fruit",
+      "Tu B'shvat - Mini Dried Fruit Board"
+    ];
+    var EXPORT_FRUIT_OZ_CUPS = ['2 oz Fruit Cups', '3 oz covered cups'];
+    var EXPORT_FRUIT_GLASS_CUPS = ['2 oz glass cups', '8 oz glass cups'];
+    var EXPORT_SALAD_TYPES = [
+      'Barbeque Corn Nut Salad',
+      'Broccoli Cabbage Salad',
+      'Broccoli Salad',
+      'Caesar Salad',
+      'Cauliflower Salad',
+      'Citrus Salad',
+      'Exotic Mango Salad',
+      'Feta Cheese Greek Salad (Dairy)',
+      'Feta Mushroom Salad (Dairy)',
+      'Greek (Parve) Salad',
+      'Hearts of Palm Salad',
+      'Mango Pomegranate Salad',
+      'Mushroom Medley Salad',
+      'Nish Nosh Salad',
+      'Onion Caesar Salad',
+      'Portabella Mushroom Salad',
+      'Purple Cabbage Salad',
+      'Quinoa (Lettuce) Salad',
+      'Ramen Sesame Salad',
+      'Simanim Salad',
+      'Sushi Salad',
+      'Sweet Potato Salad',
+      "Tu B'shvat - Tu B'shvat Salad"
+    ];
+    var EXPORT_SALAD_CUPS = ['Glass Salad Cups', 'salad cups'];
+    var EXPORT_SALAD_DRESSING = ['Salad Dressing'];
+    var EXPORT_SMOOTHIES = ['Smoothies', 'Smoothies in Glass cups'];
+
+    // Category+section order the Export Day PDF renders in. "Fruit" and
+    // "Salad" both span multiple sections (per the user's explicit request:
+    // fruit platters / oz cups / glass cups as separate groups under Fruit;
+    // salads as their own category); "Other" is not listed here -- it's
+    // whatever matches none of these, appended last so nothing silently
+    // disappears from the export even if the product catalog grows.
+    var EXPORT_CATEGORY_SECTIONS = [
+      { category: 'Fruit', section: 'Platters & Trays', items: EXPORT_FRUIT_PLATTERS },
+      { category: 'Fruit', section: 'Oz Fruit Cups', items: EXPORT_FRUIT_OZ_CUPS },
+      { category: 'Fruit', section: 'Glass Fruit Cups', items: EXPORT_FRUIT_GLASS_CUPS },
+      { category: 'Salad', section: 'Salads', items: EXPORT_SALAD_TYPES },
+      { category: 'Salad', section: 'Salad Cups', items: EXPORT_SALAD_CUPS },
+      { category: 'Salad', section: 'Salad Dressing', items: EXPORT_SALAD_DRESSING },
+      { category: 'Smoothies', section: 'Smoothies', items: EXPORT_SMOOTHIES }
+    ];
+    var EXPORT_CATEGORY_ORDER = ['Fruit', 'Salad', 'Smoothies'];
+
+    // Secondary sort key within one matched prefix group: Small/Standard
+    // rank lowest, Large/Grand highest -- Standard/Plus/Grand are the
+    // platter-family tier names (14x21/16x16/18x18/16in platter) and are
+    // treated as the same size progression as Small/Medium/Large so both
+    // naming schemes sort consistently.
+    function exportSizeRank(suffix) {
+      var s = (suffix || '').toLowerCase();
+      if (/\bextra large\b/.test(s)) return 4;
+      if (/\blarge\b|\bgrand\b/.test(s)) return 3;
+      if (/\bmedium\b|\bplus\b/.test(s)) return 2;
+      if (/\bsmall\b|\bstandard\b/.test(s)) return 1;
+      return 0;
+    }
+    // Tertiary sort key: the last number in the suffix, so cup/smoothie
+    // counts (12/24/36/48) and Cubed Fruit's "2 lb container" vs "9x13 pan"
+    // sort smallest-format-first instead of alphabetically.
+    function exportTrailingNum(suffix) {
+      var m = /(\d+)(?!.*\d)/.exec(suffix || '');
+      return m ? parseInt(m[1], 10) : -1;
+    }
+    // Matches a raw item.product string (e.g. "Caesar Salad - Small -
+    // Rosebowl") against EXPORT_CATEGORY_SECTIONS and returns everything
+    // needed to place and sort it in the Export Day PDF. Falls back to a
+    // single "Other" bucket (sorted alphabetically, see buildDayExportPdf)
+    // for anything that matches no known prefix -- a hand-typed product
+    // name, or a catalog SKU added later that hasn't been slotted into a
+    // section yet -- so nothing from the day's orders is ever silently
+    // dropped from the export.
+    function matchExportGroup(product) {
+      product = product || '';
+      for (var s = 0; s < EXPORT_CATEGORY_SECTIONS.length; s++) {
+        var sect = EXPORT_CATEGORY_SECTIONS[s];
+        for (var i = 0; i < sect.items.length; i++) {
+          var prefix = sect.items[i];
+          if (product === prefix || product.indexOf(prefix + ' - ') === 0) {
+            var suffix = product === prefix ? '' : product.slice(prefix.length).replace(/^\s*-\s*/, '');
+            return {
+              category: sect.category,
+              section: sect.section,
+              groupIndex: i,
+              sizeRank: exportSizeRank(suffix),
+              num: exportTrailingNum(suffix),
+              suffix: suffix
+            };
+          }
+        }
+      }
+      return { category: 'Other', section: 'Other', groupIndex: 0, sizeRank: 0, num: -1, suffix: product };
+    }
+
     var app = {
       orders: [],
       products: [],
@@ -285,6 +422,57 @@
           }
         });
         return totals;
+      },
+
+      // Same grouping/quantity logic as getProductTotals above, but bucketed
+      // into the categories/sections the Export Day PDF renders (see
+      // EXPORT_CATEGORY_SECTIONS) instead of one flat sort-by-quantity list.
+      // Returns an ordered array of { category, sections: [{ section, rows:
+      // [{ label, qty }] }] } -- categories/sections with zero rows for this
+      // date are omitted, and an "Other" category (alphabetical, not
+      // subdivided) is appended last only if something on this date matched
+      // none of the known prefixes.
+      getCategorizedProductTotals: function(date) {
+        var dayOrders = app.getOrdersForDate(date);
+        var rows = {}; // "category|section|label" -> row
+        dayOrders.forEach(function(order) {
+          if (!order.items) return;
+          order.items.forEach(function(item) {
+            var label = item.product;
+            if (item.quantityIndividual) label = item.quantityIndividual + ' ' + item.product;
+            if (item.specialInstructions) label += ' (' + item.specialInstructions + ')';
+            var meta = matchExportGroup(item.product);
+            var key = meta.category + '|' + meta.section + '|' + label;
+            if (!rows[key]) {
+              rows[key] = { label: label, qty: 0, category: meta.category, section: meta.section, groupIndex: meta.groupIndex, sizeRank: meta.sizeRank, num: meta.num, suffix: meta.suffix };
+            }
+            rows[key].qty += item.quantity;
+          });
+        });
+
+        var rowList = Object.keys(rows).map(function(k) { return rows[k]; });
+        function bySectionOrder(a, b) {
+          if (a.groupIndex !== b.groupIndex) return a.groupIndex - b.groupIndex;
+          if (a.sizeRank !== b.sizeRank) return a.sizeRank - b.sizeRank;
+          if (a.num !== b.num) return a.num - b.num;
+          if (a.suffix !== b.suffix) return a.suffix < b.suffix ? -1 : 1;
+          return a.label < b.label ? -1 : (a.label > b.label ? 1 : 0);
+        }
+
+        var result = [];
+        EXPORT_CATEGORY_ORDER.forEach(function(catName) {
+          var sections = [];
+          EXPORT_CATEGORY_SECTIONS.filter(function(s) { return s.category === catName; }).forEach(function(sectDef) {
+            var sectRows = rowList.filter(function(r) { return r.category === catName && r.section === sectDef.section; }).sort(bySectionOrder);
+            if (sectRows.length > 0) sections.push({ section: sectDef.section, rows: sectRows });
+          });
+          if (sections.length > 0) result.push({ category: catName, sections: sections });
+        });
+
+        var otherRows = rowList.filter(function(r) { return r.category === 'Other'; }).sort(function(a, b) { return a.label < b.label ? -1 : (a.label > b.label ? 1 : 0); });
+        if (otherRows.length > 0) result.push({ category: 'Other', sections: [{ section: 'Other', rows: otherRows }] });
+
+        return result;
       },
 
       // Sums the Total field across every order for a date, for the daily
@@ -1162,6 +1350,123 @@
         app.buildLabelsPdf([order]).save('BasketsByBlimi_' + app.selectedDate + '_' + cleanName + '.pdf');
       },
 
+      // Categorized "Export Day" PDF (Sep): a Letter-page, easy-to-scan
+      // table of one day's product totals grouped into Fruit (Platters &
+      // Trays / Oz Fruit Cups / Glass Fruit Cups) / Salad (Salads / Salad
+      // Cups / Salad Dressing) / Smoothies, each ordered per
+      // EXPORT_CATEGORY_SECTIONS -- built to replace counting through the
+      // dashboard's flat, quantity-sorted Product Totals box by hand.
+      // Shares the mm/pt unit helpers and embedded Hebrew font with
+      // buildLabelsPdf above (a product name is Latin in practice, but a
+      // special-instructions suffix folded into the label could be Hebrew,
+      // same as on the printed labels) -- this is a different document
+      // shape entirely (one multi-page Letter table, not one page per
+      // label), so it's a separate builder rather than a buildLabelsPdf
+      // branch.
+      buildDayExportPdf: function(date) {
+        var doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'letter', orientation: 'p' });
+        app.registerHebrewFont(doc);
+
+        var pageWmm = doc.internal.pageSize.getWidth();
+        var pageHmm = doc.internal.pageSize.getHeight();
+        var marginX = 15;
+        var topMargin = 15;
+        var bottomMargin = 15;
+        var y = topMargin;
+        var rowH = 6.2;
+
+        function setText(size, style, color) {
+          doc.setFont('FreeSansHebrew', style || 'normal');
+          doc.setFontSize(size);
+          doc.setTextColor(color || 0);
+        }
+        function drawText(text, x, yPos, opts) {
+          var o = opts || {};
+          if (app.HEBREW_RE.test(text)) o.isInputRtl = true;
+          doc.text(String(text), x, yPos, o);
+        }
+        function ensureSpace(neededMm) {
+          if (y + neededMm > pageHmm - bottomMargin) {
+            doc.addPage('letter', 'p');
+            y = topMargin;
+          }
+        }
+
+        var dayOrders = app.getOrdersForDate(date);
+        var dayRevenue = app.getDayRevenue(date);
+
+        // Title block, page 1 only.
+        setText(18, 'bold');
+        drawText('Baskets by Blimi', marginX, y + 2);
+        y += 8;
+        setText(13, 'normal', 90);
+        drawText('Day Export -- ' + app.formatDateDisplay(date), marginX, y + 2);
+        y += 6.5;
+        setText(10.5, 'normal', 110);
+        var summaryLine = dayOrders.length + (dayOrders.length === 1 ? ' order' : ' orders');
+        if (dayRevenue > 0) summaryLine += '  •  $' + dayRevenue.toFixed(2) + ' total';
+        drawText(summaryLine, marginX, y + 2);
+        y += 10;
+
+        var categories = app.getCategorizedProductTotals(date);
+
+        if (categories.length === 0) {
+          setText(11, 'italic', 130);
+          drawText('No orders for this date.', marginX, y + 4);
+          return doc;
+        }
+
+        categories.forEach(function(cat, catIdx) {
+          ensureSpace(14);
+          if (catIdx > 0) y += 4;
+          // Category heading with a colored rule underneath.
+          setText(14.5, 'bold');
+          drawText(cat.category, marginX, y + 3);
+          doc.setDrawColor(124, 58, 237); // matches the app's purple accent
+          doc.setLineWidth(0.6);
+          doc.line(marginX, y + 5.5, pageWmm - marginX, y + 5.5);
+          y += 10;
+
+          var catTotal = 0;
+
+          cat.sections.forEach(function(sect) {
+            ensureSpace(11);
+            setText(11, 'bold', 70);
+            drawText(sect.section, marginX, y + 2);
+            y += 6.5;
+
+            sect.rows.forEach(function(row, rowIdx) {
+              ensureSpace(rowH);
+              if (rowIdx % 2 === 1) {
+                doc.setFillColor(246, 246, 249);
+                doc.rect(marginX, y - rowH + 2.4, pageWmm - 2 * marginX, rowH, 'F');
+              }
+              setText(10, 'normal', 20);
+              drawText(row.label, marginX + 2, y);
+              setText(10, 'bold', 20);
+              drawText(String(row.qty), pageWmm - marginX - 2, y, { align: 'right' });
+              catTotal += row.qty;
+              y += rowH;
+            });
+            y += 2;
+          });
+
+          ensureSpace(8);
+          setText(10.5, 'bold', 90);
+          drawText('Total ' + cat.category + ': ' + catTotal, pageWmm - marginX, y + 1, { align: 'right' });
+          y += 7;
+        });
+
+        return doc;
+      },
+
+      downloadDayExportPdf: function() {
+        var dayOrders = app.getOrdersForDate(app.selectedDate);
+        if (dayOrders.length === 0) { alert('No orders to export'); return; }
+        if (!window.jspdf) { alert('PDF library failed to load -- check your internet connection and try again.'); return; }
+        app.buildDayExportPdf(app.selectedDate).save('BasketsByBlimi_' + app.selectedDate + '_DayExport.pdf');
+      },
+
       // Switches which label size print/download use, and remembers the
       // choice on this device so it's still selected next visit.
       setLabelSize: function(size) {
@@ -1749,6 +2054,7 @@
         var html = '<div class="date-nav"><button onclick="app.previousDate()" ' + (currentIdx === 0 ? 'disabled' : '') + '>←</button><div class="date-display"><h2>' + app.formatDateDisplay(app.selectedDate) + '</h2><p>' + dayOrders.length + ' orders</p>' + (dayRevenue > 0 ? '<p style="color:#16a34a;font-weight:bold;font-size:15px;margin-top:2px">$' + dayRevenue.toFixed(2) + ' total</p>' : '') + '</div><button onclick="app.nextDate()" ' + (currentIdx === dates.length - 1 ? 'disabled' : '') + '>→</button></div>';
 
         if (Object.keys(totals).length > 0) {
+          html += '<div class="action-buttons" style="margin-bottom:10px"><button class="print-btn" onclick="app.downloadDayExportPdf()" title="Categorized, easy-to-scan PDF of this day\'s totals -- fruit platters by size, oz/glass fruit cups, salads by type & size, smoothies" style="background:#7c3aed">📊 Export Day (PDF)</button></div>';
           html += '<div class="totals-box"><h3>Product Totals</h3><div class="totals-grid">';
           Object.entries(totals).sort(function(a, b) { return b[1] - a[1]; }).forEach(function(entry) {
             html += '<div class="total-item"><div class="total-number">' + entry[1] + '</div><div class="total-label">' + entry[0] + '</div></div>';
