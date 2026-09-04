@@ -87,6 +87,27 @@
 
   <script>
     // ---------------------------------------------------------------------
+    // TEMPORARY diagnostic for the reported "no buttons work on Android"
+    // bug (buttons show tap feedback but nothing happens after, both in
+    // the installed app and a normal Chrome tab -- works fine on desktop).
+    // A static read-through ruled out modern-syntax incompatibilities
+    // (?., ??, .flat(), etc.), so the next-best move is to surface the
+    // actual error the very next time it happens instead of guessing
+    // again. Every onclick="app.___()" handler runs as a normal DOM event
+    // handler, and an uncaught exception thrown inside one of those does
+    // reach window.onerror -- which is exactly the "tap flashes, nothing
+    // happens" signature (the click registers, the handler throws before
+    // doing anything visible, nothing is logged anywhere the user can
+    // see). If this fires, please screenshot the alert and send it back --
+    // that'll say exactly what to fix instead of another guess. Safe to
+    // remove once the real bug is found and fixed.
+    window.addEventListener('error', function(e) {
+      alert('App error -- please screenshot this and send it back:\n\n' + e.message + '\n' + (e.filename || '') + ':' + (e.lineno || '') + ':' + (e.colno || '') + '\n\n' + (e.error && e.error.stack ? e.error.stack : ''));
+    });
+    window.addEventListener('unhandledrejection', function(e) {
+      alert('App error (async) -- please screenshot this and send it back:\n\n' + (e.reason && e.reason.stack ? e.reason.stack : e.reason));
+    });
+    // ---------------------------------------------------------------------
     // Export Day PDF categorization (Sep): the dashboard's old "Product
     // Totals" box was one flat list sorted purely by quantity descending --
     // fine for a slow day, unreadable on a busy one when you need to see at
@@ -1068,6 +1089,14 @@
         }).join('');
 
         var html = '<div class="auth-box" style="max-width:600px">';
+        // Standalone/installed-app mode (see manifest.json) has no browser
+        // chrome, so there's no OS-level back button once this form is
+        // open -- the only way out used to be scrolling all the way down
+        // to the Cancel button, which on a phone reads as "only an X to
+        // close the whole app". This top-of-form Back button is reachable
+        // without scrolling and goes back to the dashboard the same way
+        // Cancel does.
+        html += '<button type="button" onclick="app.closeAddOrder()" style="background:#6b7280;color:white;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:13px;margin-bottom:10px">&larr; Back to Orders</button>';
         html += '<h2>' + (app.isEditingOrder ? 'Edit Order' : 'Add Order') + '</h2>';
         html += '<p style="color:#6b7280;margin-bottom:15px;font-size:13px">Pick products from the suggestions as you type so they match your store\'s SKUs exactly — free-typing something that doesn\'t match will keep it out of your product totals.</p>';
         if (app.addOrderError) html += '<div class="error">' + app.addOrderError + '</div>';
@@ -1274,9 +1303,30 @@
       // The form posts into a hidden iframe so the visible app page never
       // navigates away or loses its state.
       triggerFileDownload: function(filename, content, mimeType) {
+        // Used to tear this iframe/form down on a fixed 5-second timer.
+        // Real-world Android report: re-downloading a file with the same
+        // name pops Chrome's own "Download file again?" confirmation --
+        // that's a BROWSER-level dialog the user has to tap through, and
+        // it can easily take longer than 5 seconds to notice and answer.
+        // Once they do, the download resumes against whatever iframe/form
+        // is still in the DOM -- if our timer had already ripped them out,
+        // the resumed request has nothing to land in and the download
+        // just silently dies, landing the user back on the app with
+        // nothing downloaded. Switched to lazy cleanup instead: each call
+        // first removes any leftover iframe/form from the PREVIOUS call
+        // (tagged with js-download-helper below), then leaves this call's
+        // elements in the DOM indefinitely -- so a slow-to-answer Android
+        // dialog always has something to resume into, no matter how long
+        // the user takes, and nothing accumulates beyond one extra
+        // leftover pair between clicks.
+        Array.prototype.slice.call(document.querySelectorAll('.js-download-helper')).forEach(function(el) {
+          if (el.parentNode) el.parentNode.removeChild(el);
+        });
+
         var iframeName = 'downloadFrame_' + Date.now();
         var iframe = document.createElement('iframe');
         iframe.name = iframeName;
+        iframe.className = 'js-download-helper';
         iframe.style.display = 'none';
         document.body.appendChild(iframe);
 
@@ -1284,6 +1334,7 @@
         form.method = 'POST';
         form.action = '/api/download-doc';
         form.target = iframeName;
+        form.className = 'js-download-helper';
         form.style.display = 'none';
 
         function addField(name, value) {
@@ -1299,14 +1350,6 @@
 
         document.body.appendChild(form);
         form.submit();
-
-        // Clean up once the download has had time to start. Left in the
-        // DOM a beat longer than the click, since the actual file transfer
-        // happens after this returns.
-        setTimeout(function() {
-          if (form.parentNode) document.body.removeChild(form);
-          if (iframe.parentNode) document.body.removeChild(iframe);
-        }, 5000);
       },
 
       downloadLabels: function() {
@@ -1534,7 +1577,17 @@
               // (see app.pickNoteFontPx) instead of one flat size for the
               // whole batch, so a long note doesn't overflow just because an
               // earlier note in the same download was short.
-              addWrapped('Note: ' + order.customerNote, app.pickNoteFontPx(cfg, order.customerNote), 'bold');
+              // No literal "Note: " label anymore (removed per request) --
+              // as a side effect this also fixes a real bug: gluing the
+              // Latin word "Note: " directly onto a Hebrew-starting note
+              // was what made the FIRST wrapped line garbled (see HEBREW_RE
+              // comment above) -- isInputRtl was applied to the whole line
+              // including that Latin prefix, confusing jsPDF's bidi
+              // reordering right at the script boundary. Every other
+              // addWrapped call (name/product/address) never had an
+              // artificial prefix glued on like this, which is why only
+              // the note's first line was ever reported garbled.
+              addWrapped(order.customerNote, app.pickNoteFontPx(cfg, order.customerNote), 'bold');
             }
 
             // QR + count, top-right -- same corner reservation as print.
@@ -2114,7 +2167,7 @@
                 '<div class="product">' + productDisplay + '</div>' +
                 (item.specialInstructions ? '<div class="item-note">' + item.specialInstructions + '</div>' : '') +
                 '<div class="address">' + addressHtml + '</div>' +
-                (order.customerNote ? '<div class="note" style="font-size:' + app.pickNoteFontPx(cfg, order.customerNote) + '"><strong>Note:</strong> ' + order.customerNote + '</div>' : '');
+                (order.customerNote ? '<div class="note" style="font-size:' + app.pickNoteFontPx(cfg, order.customerNote) + '">' + order.customerNote + '</div>' : '');
               if (forWord) {
                 // Word's HTML import kept breaking the QR image no matter
                 // how it was laid out: position:absolute first squeezed all
