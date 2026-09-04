@@ -148,10 +148,17 @@
       { category: 'Fruit', section: 'Platters & Trays', items: EXPORT_FRUIT_PLATTERS },
       { category: 'Fruit', section: 'Oz Fruit Cups', items: EXPORT_FRUIT_OZ_CUPS },
       { category: 'Fruit', section: 'Glass Fruit Cups', items: EXPORT_FRUIT_GLASS_CUPS },
+      // Catch-all Fruit section (items: [] -- nothing prefix-matches into it
+      // directly; only reached via the keyword fallback in matchExportGroup
+      // below) for a product not yet slotted into one of the three sections
+      // above but whose name is clearly fruit-related.
+      { category: 'Fruit', section: 'Other Fruit Items', items: [] },
       { category: 'Salad', section: 'Salads', items: EXPORT_SALAD_TYPES },
       { category: 'Salad', section: 'Salad Cups', items: EXPORT_SALAD_CUPS },
       { category: 'Salad', section: 'Salad Dressing', items: EXPORT_SALAD_DRESSING },
-      { category: 'Smoothies', section: 'Smoothies', items: EXPORT_SMOOTHIES }
+      { category: 'Smoothies', section: 'Smoothies', items: EXPORT_SMOOTHIES },
+      // Same idea as Other Fruit Items, for smoothie-named products.
+      { category: 'Smoothies', section: 'Other Smoothie Items', items: [] }
     ];
     var EXPORT_CATEGORY_ORDER = ['Fruit', 'Salad', 'Smoothies'];
 
@@ -201,6 +208,21 @@
             };
           }
         }
+      }
+      // Keyword fallback (Sept 2026): a product matching none of the exact
+      // SKU prefixes above -- a newly-added catalog item that hasn't been
+      // slotted into a section yet, or a hand-typed product name -- still
+      // lands under Fruit or Smoothies (instead of the generic Other
+      // bucket) when its own name obviously says so, so e.g. a brand-new
+      // "Layered Fruit Cup" shows up under Fruit without a code change.
+      // Checked in this order (Smoothies before Fruit/Exotic/Layered) so
+      // something named "Fruit Smoothie" lands under Smoothies, not Fruit.
+      var lower = product.toLowerCase();
+      if (lower.indexOf('smoothie') !== -1) {
+        return { category: 'Smoothies', section: 'Other Smoothie Items', groupIndex: 999, sizeRank: exportSizeRank(product), num: exportTrailingNum(product), suffix: product };
+      }
+      if (/\bfruit\b/.test(lower) || /\bexotic\b/.test(lower) || /\blayered\b/.test(lower)) {
+        return { category: 'Fruit', section: 'Other Fruit Items', groupIndex: 999, sizeRank: exportSizeRank(product), num: exportTrailingNum(product), suffix: product };
       }
       return { category: 'Other', section: 'Other', groupIndex: 0, sizeRank: 0, num: -1, suffix: product };
     }
