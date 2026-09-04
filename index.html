@@ -1289,6 +1289,32 @@
         app.render();
       },
 
+      // Root cause of a real Android report (press Download twice for the
+      // same order -> Chrome's own "Download file again?" prompt appears
+      // -> tapping it does nothing, for BOTH the Word and PDF download
+      // buttons): Chrome's download manager recognizes a "repeat"
+      // download purely by matching FILENAME, and when you tap through
+      // that prompt it does NOT replay the original request/data -- for
+      // the Word path (a real POST to /api/download-doc, see
+      // triggerFileDownload below) it just re-issues a plain GET to the
+      // same URL, which that endpoint never handles (POST-only, see
+      // api/index.js) and silently produces nothing; for the PDF path
+      // (a client-side jsPDF blob, no server round-trip at all) there's
+      // no original request to even replay a second time. Fixed at the
+      // root for both: make every download's filename unique (a short
+      // time-of-day suffix before the extension) so Chrome never has a
+      // prior download with the same name to match against, and this
+      // whole broken retry path never triggers in the first place.
+      uniqueFilename: function(filename) {
+        var now = new Date();
+        var pad = function(n) { return (n < 10 ? '0' : '') + n; };
+        var suffix = pad(now.getHours()) + pad(now.getMinutes()) + pad(now.getSeconds());
+        var dotIdx = filename.lastIndexOf('.');
+        return dotIdx === -1
+          ? (filename + '_' + suffix)
+          : (filename.slice(0, dotIdx) + '_' + suffix + filename.slice(dotIdx));
+      },
+
       // Triggers a real file download via a hidden form POST to
       // /api/download-doc, instead of the Blob + <a download> trick this
       // used to use. That trick relies on the browser/WebView both
@@ -1303,6 +1329,8 @@
       // The form posts into a hidden iframe so the visible app page never
       // navigates away or loses its state.
       triggerFileDownload: function(filename, content, mimeType) {
+        filename = app.uniqueFilename(filename);
+
         // Used to tear this iframe/form down on a fixed 5-second timer.
         // Real-world Android report: re-downloading a file with the same
         // name pops Chrome's own "Download file again?" confirmation --
@@ -1606,7 +1634,7 @@
         var dayOrders = app.getOrdersForDate(app.selectedDate);
         if (dayOrders.length === 0) { alert('No orders to download'); return; }
         if (!window.jspdf) { alert('PDF library failed to load -- check your internet connection and try again.'); return; }
-        app.buildLabelsPdf(dayOrders).save('BasketsByBlimi_' + app.selectedDate + '_Labels.pdf');
+        app.buildLabelsPdf(dayOrders).save(app.uniqueFilename('BasketsByBlimi_' + app.selectedDate + '_Labels.pdf'));
       },
 
       downloadOrderPdf: function(orderIdx) {
@@ -1616,7 +1644,7 @@
         if (!order.items) { alert('No items in this order'); return; }
         if (!window.jspdf) { alert('PDF library failed to load -- check your internet connection and try again.'); return; }
         var cleanName = app.cleanLastName(order.lastName);
-        app.buildLabelsPdf([order]).save('BasketsByBlimi_' + app.selectedDate + '_' + cleanName + '.pdf');
+        app.buildLabelsPdf([order]).save(app.uniqueFilename('BasketsByBlimi_' + app.selectedDate + '_' + cleanName + '.pdf'));
       },
 
       // Categorized "Export Day" PDF (Sep): a Letter-page, easy-to-scan
@@ -1734,7 +1762,7 @@
         var dayOrders = app.getOrdersForDate(app.selectedDate);
         if (dayOrders.length === 0) { alert('No orders to export'); return; }
         if (!window.jspdf) { alert('PDF library failed to load -- check your internet connection and try again.'); return; }
-        app.buildDayExportPdf(app.selectedDate).save('BasketsByBlimi_' + app.selectedDate + '_DayExport.pdf');
+        app.buildDayExportPdf(app.selectedDate).save(app.uniqueFilename('BasketsByBlimi_' + app.selectedDate + '_DayExport.pdf'));
       },
 
       // Switches which label size print/download use, and remembers the
@@ -2276,7 +2304,7 @@
         var selected = app.getSelectedOrders();
         if (selected.length === 0) { alert('No orders selected'); return; }
         if (!window.jspdf) { alert('PDF library failed to load -- check your internet connection and try again.'); return; }
-        app.buildLabelsPdf(selected).save('BasketsByBlimi_' + app.selectedDate + '_Selected_Labels.pdf');
+        app.buildLabelsPdf(selected).save(app.uniqueFilename('BasketsByBlimi_' + app.selectedDate + '_Selected_Labels.pdf'));
       },
 
       render: function() {
