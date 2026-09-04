@@ -1591,9 +1591,11 @@
         }
 
         var dayOrders = app.getOrdersForDate(date);
-        var dayRevenue = app.getDayRevenue(date);
 
-        // Title block, page 1 only.
+        // Title block, page 1 only. No dollar total here (unlike the
+        // dashboard's date-nav header, which still shows it) -- this PDF
+        // is what gets handed to/printed for prep workers, who don't need
+        // to see the day's revenue.
         setText(18, 'bold');
         drawText('Baskets by Blimi', marginX, y + 2);
         y += 8;
@@ -1602,7 +1604,6 @@
         y += 6.5;
         setText(10.5, 'normal', 110);
         var summaryLine = dayOrders.length + (dayOrders.length === 1 ? ' order' : ' orders');
-        if (dayRevenue > 0) summaryLine += '  •  $' + dayRevenue.toFixed(2) + ' total';
         drawText(summaryLine, marginX, y + 2);
         y += 10;
 
@@ -2330,7 +2331,14 @@
               var totalDisplay = /^\$/.test(order.total) ? order.total : ('$' + order.total);
               html += '<div style="font-size:14px;color:#16a34a;font-weight:bold;margin-top:5px">Total: ' + totalDisplay + '</div>';
             }
-            html += '</div></div><div style="display:flex;gap:5px"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#6b7280;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">✏️ Edit</button><button onclick="app.printOrder(' + orderIdx + ')" title="Print this order\'s label(s) straight to your label printer" style="background:#7c3aed;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">🖨️ Print</button><button onclick="app.downloadOrder(' + orderIdx + ')" style="background:#2563eb;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📥 Word</button><button onclick="app.downloadOrderPdf(' + orderIdx + ')" title="Correctly label-sized PDF, for printing from your phone" style="background:#0f766e;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📄 PDF</button></div></div>';
+            // flex-wrap:wrap (Sept 2026): this row never wrapped, so on a
+            // narrow phone screen the 4th button (PDF, teal-green) got
+            // pushed past the edge of the screen instead of dropping to a
+            // second line -- present in the markup but effectively
+            // unreachable/invisible on some orders. justify-content:
+            // flex-end keeps them right-aligned like before when they do
+            // fit on one line.
+            html += '</div></div><div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#6b7280;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">✏️ Edit</button><button onclick="app.printOrder(' + orderIdx + ')" title="Print this order\'s label(s) straight to your label printer" style="background:#7c3aed;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">🖨️ Print</button><button onclick="app.downloadOrder(' + orderIdx + ')" style="background:#2563eb;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📥 Word</button><button onclick="app.downloadOrderPdf(' + orderIdx + ')" title="Correctly label-sized PDF, for printing from your phone" style="background:#0f766e;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📄 PDF</button></div></div>';
             html += '<div class="order-items">';
             if (order.items) {
               order.items.forEach(function(item, idx) {
