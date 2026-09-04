@@ -207,19 +207,27 @@
     }
     function matchExportGroup(product) {
       product = product || '';
+      // Matched case-insensitively (a sheet/Add Order entry typed as
+      // "caesar salad" instead of "Caesar Salad" was previously falling
+      // all the way through to Other, matching nothing) -- the ORIGINAL
+      // casing of product is still what gets sliced for the suffix, so
+      // sort keys are computed from real text, not the lowercased copy.
+      var productLower = product.toLowerCase();
       for (var s = 0; s < EXPORT_CATEGORY_SECTIONS.length; s++) {
         var sect = EXPORT_CATEGORY_SECTIONS[s];
         for (var i = 0; i < sect.items.length; i++) {
           var prefix = sect.items[i];
+          var prefixLower = prefix.toLowerCase();
           // Whitespace-tolerant around the dash (matches "prefix - x",
           // "prefix -x", "prefix- x") -- real catalog SKUs always use
           // " - ", but a hand-typed sheet entry doesn't always get the
           // spacing exactly right (e.g. "2 oz glass cups -24 exotic"),
           // and it should still land in the right section rather than
-          // Other just because a space is missing.
-          var dashMatch = new RegExp('^' + escapeRegExp(prefix) + '\\s*-\\s*').exec(product);
-          if (product === prefix || dashMatch) {
-            var suffix = product === prefix ? '' : product.slice(dashMatch[0].length);
+          // Other just because a space (or the exact casing) is off.
+          var dashMatch = new RegExp('^' + escapeRegExp(prefixLower) + '\\s*-\\s*').exec(productLower);
+          if (productLower === prefixLower || dashMatch) {
+            var matchLen = productLower === prefixLower ? product.length : dashMatch[0].length;
+            var suffix = product.slice(matchLen);
             return {
               category: sect.category,
               section: sect.section,
@@ -248,6 +256,13 @@
       // unlisted "Exotic ___ Salad" isn't claimed by Fruit first.
       if (/\bexotic\b/.test(lower) && /\bsalad\b/.test(lower)) {
         return { category: 'Salad', section: 'Other Salad Items', groupIndex: 999, sizeRank: exportSizeRank(product), num: exportTrailingNum(product), suffix: product };
+      }
+      // "Layered" + "glass" together means a layered glass fruit cup --
+      // groups with the actual Glass Fruit Cups section instead of the
+      // generic Other Fruit Items catch-all. Plain "layered" (no "glass")
+      // still falls through to Other Fruit Items below.
+      if (/\blayered\b/.test(lower) && /\bglass\b/.test(lower)) {
+        return { category: 'Fruit', section: 'Glass Fruit Cups', groupIndex: 999, sizeRank: exportSizeRank(product), num: exportTrailingNum(product), suffix: product };
       }
       if (/\bfruit\b/.test(lower) || /\bexotic\b/.test(lower) || /\blayered\b/.test(lower)) {
         return { category: 'Fruit', section: 'Other Fruit Items', groupIndex: 999, sizeRank: exportSizeRank(product), num: exportTrailingNum(product), suffix: product };
@@ -301,6 +316,20 @@
       error: '',
       loading: false,
       showSetup: false,
+      // App-level password gate (Sept 2026): the Google service-account
+      // setup above only ever protected the SERVER's connection to the
+      // Sheet, not the page itself -- once SERVICE_ACCOUNT was set as a
+      // Vercel env var, the site showed real customer data to anyone with
+      // the link, no login at all. passwordGate blocks the page (see
+      // render()) until /api/check-password confirms the password; once
+      // confirmed it's saved to localStorage (checkAppPassword below) so
+      // this device doesn't have to re-enter it every visit. If the server
+      // has no APP_PASSWORD env var set yet, check-password reports
+      // configured:false and this whole gate is skipped -- same
+      // no-env-var-yet fallback as the service account flow.
+      passwordGate: false,
+      passwordError: '',
+      appPassword: '',
       showAddOrder: false,
       newOrder: null,
       isEditingOrder: false, // true when the Add Order form is actually editing an existing order
@@ -324,6 +353,61 @@
       selectedOrderIndices: {},
       selectedOrdersDate: null,
       selectedOrdersCount: -1,
+
+      // Runs BEFORE checkSetup (see the bootstrap call at the bottom of
+      // this file) -- gates the whole page behind /api/check-password, not
+      // just the Google Sheet connection checkSetup handles. A previously
+      // saved password (this device only) is tried automatically so
+      // returning here doesn't mean re-typing it every visit.
+      checkAppPassword: async function() {
+        try {
+          var saved = localStorage.getItem('appPassword') || '';
+          var response = await fetch('/api/check-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: saved })
+          });
+          var data = await response.json();
+          if (!data.configured || data.ok) {
+            // Either no APP_PASSWORD is set on the server yet (nothing to
+            // gate against), or this device's saved password is correct.
+            app.appPassword = data.configured ? saved : '';
+            app.checkSetup();
+          } else {
+            app.passwordGate = true;
+            app.render();
+          }
+        } catch (e) {
+          // Can't reach the server to even check -- don't lock someone out
+          // over a network blip; fall through to the normal flow, which
+          // will surface its own "Cannot reach server" error if it's real.
+          app.checkSetup();
+        }
+      },
+
+      submitPassword: async function(pw) {
+        try {
+          app.passwordError = '';
+          var response = await fetch('/api/check-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: pw })
+          });
+          var data = await response.json();
+          if (data.ok) {
+            localStorage.setItem('appPassword', pw);
+            app.appPassword = pw;
+            app.passwordGate = false;
+            app.checkSetup();
+          } else {
+            app.passwordError = 'Incorrect password.';
+            app.render();
+          }
+        } catch (e) {
+          app.passwordError = 'Cannot reach server.';
+          app.render();
+        }
+      },
 
       checkSetup: async function() {
         try {
@@ -399,7 +483,7 @@
           
           // Get saved key from localStorage if available
           var savedKey = localStorage.getItem('serviceAccount');
-          var body = {};
+          var body = { password: app.appPassword };
           if (savedKey) {
             try {
               body.serviceAccount = JSON.parse(savedKey);
@@ -793,6 +877,7 @@
         try {
           var savedKey = localStorage.getItem('serviceAccount');
           var body = {
+            password: app.appPassword,
             deliveryDate: formattedDate,
             lastName: o.lastName.trim(),
             deliveryName: o.deliveryName.trim(),
@@ -2124,7 +2209,12 @@
 
       render: function() {
         var appDiv = document.getElementById('app');
-        
+
+        if (app.passwordGate) {
+          appDiv.innerHTML = '<div class="auth-box"><h2>Password Required</h2><p style="color:#6b7280;margin-bottom:15px">This app is password-protected.</p>' + (app.passwordError ? '<div class="error">' + app.passwordError + '</div>' : '') + '<input type="password" id="appPasswordInput" autocomplete="current-password" placeholder="Password" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:10px;box-sizing:border-box" onkeydown="if(event.key===\'Enter\')app.submitPassword(document.getElementById(\'appPasswordInput\').value)"><button onclick="app.submitPassword(document.getElementById(\'appPasswordInput\').value)">Unlock</button></div>';
+          return;
+        }
+
         if (app.showSetup) {
           appDiv.innerHTML = '<div class="auth-box"><h2>Setup</h2><p style="color:#6b7280;margin-bottom:15px">Paste your Google Service Account JSON key once. You won\'t need to paste it again.</p>' + (app.error ? '<div class="error">' + app.error + '</div>' : '') + '<textarea id="keyInput" placeholder="Paste your JSON key..."></textarea><button onclick="app.setupKey(document.getElementById(\'keyInput\').value)">Save Key</button></div>';
           return;
@@ -2159,20 +2249,35 @@
           app.selectedOrdersCount = dayOrders.length;
         }
         var selectedCount = Object.keys(app.selectedOrderIndices).length;
-        var totals = app.getProductTotals(app.selectedDate);
+        var categorizedTotals = app.getCategorizedProductTotals(app.selectedDate);
         var dates = app.getAllDates();
         var currentIdx = dates.indexOf(app.selectedDate);
 
         var dayRevenue = app.getDayRevenue(app.selectedDate);
         var html = '<div class="date-nav"><button onclick="app.previousDate()" ' + (currentIdx === 0 ? 'disabled' : '') + '>←</button><div class="date-display"><h2>' + app.formatDateDisplay(app.selectedDate) + '</h2><p>' + dayOrders.length + ' orders</p>' + (dayRevenue > 0 ? '<p style="color:#16a34a;font-weight:bold;font-size:15px;margin-top:2px">$' + dayRevenue.toFixed(2) + ' total</p>' : '') + '</div><button onclick="app.nextDate()" ' + (currentIdx === dates.length - 1 ? 'disabled' : '') + '>→</button></div>';
 
-        if (Object.keys(totals).length > 0) {
-          html += '<div class="action-buttons" style="margin-bottom:10px"><button class="print-btn" onclick="app.downloadDayExportPdf()" title="Categorized, easy-to-scan PDF of this day\'s totals -- fruit platters by size, oz/glass fruit cups, salads by type & size, smoothies" style="background:#7c3aed">📊 Export Day (PDF)</button></div>';
-          html += '<div class="totals-box"><h3>Product Totals</h3><div class="totals-grid">';
-          Object.entries(totals).sort(function(a, b) { return b[1] - a[1]; }).forEach(function(entry) {
-            html += '<div class="total-item"><div class="total-number">' + entry[1] + '</div><div class="total-label">' + entry[0] + '</div></div>';
+        // Product Totals box now groups by the same Fruit/Salad/Smoothies
+        // categories (and their sections) as the Export Day PDF, instead of
+        // one flat quantity-sorted list -- so fruit platters sit near each
+        // other, salads near each other, etc. right on the dashboard too,
+        // not just in the exported PDF.
+        if (categorizedTotals.length > 0) {
+          html += '<div class="totals-box"><h3>Product Totals</h3>';
+          categorizedTotals.forEach(function(cat) {
+            html += '<div style="margin-top:14px"><h4 style="font-size:13px;color:#7c3aed;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 8px;border-bottom:2px solid #ede9fe;padding-bottom:4px">' + cat.category + '</h4>';
+            cat.sections.forEach(function(sect) {
+              if (cat.sections.length > 1) {
+                html += '<div style="font-size:12px;color:#6b7280;font-weight:bold;margin:8px 0 4px">' + sect.section + '</div>';
+              }
+              html += '<div class="totals-grid">';
+              sect.rows.forEach(function(row) {
+                html += '<div class="total-item"><div class="total-number">' + row.qty + '</div><div class="total-label">' + row.label + '</div></div>';
+              });
+              html += '</div>';
+            });
+            html += '</div>';
           });
-          html += '</div></div>';
+          html += '</div>';
         }
 
         // Picks which getLabelStyleConfig preset print/download use. Only
@@ -2200,6 +2305,15 @@
           '<button onclick="app.clearOrderSelection()" ' + (selectedCount === 0 ? 'disabled' : '') + ' style="background:#6b7280;color:white;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px">Clear</button>' +
           '</div>';
         html += '<div class="action-buttons"><button class="print-btn" onclick="app.printSelected()" ' + (selectedCount === 0 ? 'disabled' : '') + ' style="background:#7c3aed">🖨️ Print Selected (' + selectedCount + ')</button><button class="print-btn" onclick="app.downloadSelected()" ' + (selectedCount === 0 ? 'disabled' : '') + ' style="background:#2563eb">📥 Word Selected (' + selectedCount + ')</button><button class="print-btn" onclick="app.downloadSelectedPdf()" ' + (selectedCount === 0 ? 'disabled' : '') + ' title="Correctly label-sized PDF, for printing from your phone (e.g. FlashLabel Pro)" style="background:#0f766e">📄 PDF Selected (' + selectedCount + ')</button></div>';
+
+        // Export Day moved below the other action buttons (was the very
+        // first button on the page, right under the date nav) -- reported
+        // as not showing up / rendering too far left on some phone screens
+        // up there; grouped down here with the other buttons that were
+        // already confirmed working.
+        if (categorizedTotals.length > 0) {
+          html += '<div class="action-buttons"><button class="print-btn" onclick="app.downloadDayExportPdf()" title="Categorized, easy-to-scan PDF of this day\'s totals -- fruit platters by size, fruit cups, salads by type & size, smoothies" style="background:#7c3aed">📊 Export Day (PDF)</button></div>';
+        }
 
         if (dayOrders.length === 0) {
           html += '<div class="empty-state">No orders for this date</div>';
@@ -2240,7 +2354,7 @@
       }
     };
 
-    app.checkSetup();
+    app.checkAppPassword();
 
     // Fires once the Google Maps script finishes loading. If the Add Order
     // form happens to already be open at that point, attach autocomplete to
