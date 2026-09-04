@@ -199,14 +199,27 @@
     // name, or a catalog SKU added later that hasn't been slotted into a
     // section yet -- so nothing from the day's orders is ever silently
     // dropped from the export.
+    // Escapes a literal string for use inside a RegExp -- several catalog
+    // prefixes contain regex-special characters ("12\" sliced platter",
+    // "Feta Cheese Greek Salad (Dairy)") that need to match literally.
+    function escapeRegExp(s) {
+      return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
     function matchExportGroup(product) {
       product = product || '';
       for (var s = 0; s < EXPORT_CATEGORY_SECTIONS.length; s++) {
         var sect = EXPORT_CATEGORY_SECTIONS[s];
         for (var i = 0; i < sect.items.length; i++) {
           var prefix = sect.items[i];
-          if (product === prefix || product.indexOf(prefix + ' - ') === 0) {
-            var suffix = product === prefix ? '' : product.slice(prefix.length).replace(/^\s*-\s*/, '');
+          // Whitespace-tolerant around the dash (matches "prefix - x",
+          // "prefix -x", "prefix- x") -- real catalog SKUs always use
+          // " - ", but a hand-typed sheet entry doesn't always get the
+          // spacing exactly right (e.g. "2 oz glass cups -24 exotic"),
+          // and it should still land in the right section rather than
+          // Other just because a space is missing.
+          var dashMatch = new RegExp('^' + escapeRegExp(prefix) + '\\s*-\\s*').exec(product);
+          if (product === prefix || dashMatch) {
+            var suffix = product === prefix ? '' : product.slice(dashMatch[0].length);
             return {
               category: sect.category,
               section: sect.section,
@@ -253,11 +266,30 @@
     // own submission, which round-trips through the sheet and back through
     // loadOrders) rather than needing to be repeated at each entry point.
     var PRODUCT_ALIASES = {
-      'fruit cups': '2 oz Fruit Cups - Assorted Melons and Pineapple'
+      'fruit cups': '2 oz Fruit Cups - Assorted Melons and Pineapple',
+      // Only the bare, no-flavor-specified phrase -- "mango glass
+      // smoothies" or similar won't exact-match this key, so a typed
+      // flavor is left alone rather than getting silently overwritten.
+      'glass smoothies': 'Smoothies in Glass cups - Assorted'
     };
     function resolveProductAlias(product) {
-      var key = (product || '').trim().toLowerCase();
-      return PRODUCT_ALIASES.hasOwnProperty(key) ? PRODUCT_ALIASES[key] : product;
+      var raw = (product || '').trim();
+      var key = raw.toLowerCase();
+      if (PRODUCT_ALIASES.hasOwnProperty(key)) return PRODUCT_ALIASES[key];
+
+      // A count typed straight into the product text as one string (e.g.
+      // "24 fruit cups", no separate Quantity of Individual column value)
+      // was matching nothing -- the plain lookup above only caught bare
+      // "fruit cups". Strip a leading number and re-check the remainder
+      // against the alias list; if it matches, re-append the count as a
+      // " - <N>" suffix (the same convention the real catalog already uses
+      // for counted cup variants, e.g. "...Pineapple - 24") so the count
+      // isn't silently dropped.
+      var m = /^(\d+)\s+(.+)$/.exec(raw);
+      if (m && PRODUCT_ALIASES.hasOwnProperty(m[2].trim().toLowerCase())) {
+        return PRODUCT_ALIASES[m[2].trim().toLowerCase()] + ' - ' + m[1];
+      }
+      return product;
     }
 
     var app = {
