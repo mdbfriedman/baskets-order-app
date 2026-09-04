@@ -156,6 +156,10 @@
       { category: 'Salad', section: 'Salads', items: EXPORT_SALAD_TYPES },
       { category: 'Salad', section: 'Salad Cups', items: EXPORT_SALAD_CUPS },
       { category: 'Salad', section: 'Salad Dressing', items: EXPORT_SALAD_DRESSING },
+      // Catch-all for an unlisted "Exotic ___ Salad" -- "exotic" alone
+      // means Fruit (see matchExportGroup), but "exotic" + "salad" together
+      // means Salad instead.
+      { category: 'Salad', section: 'Other Salad Items', items: [] },
       { category: 'Smoothies', section: 'Smoothies', items: EXPORT_SMOOTHIES },
       // Same idea as Other Fruit Items, for smoothie-named products.
       { category: 'Smoothies', section: 'Other Smoothie Items', items: [] }
@@ -220,6 +224,12 @@
       var lower = product.toLowerCase();
       if (lower.indexOf('smoothie') !== -1) {
         return { category: 'Smoothies', section: 'Other Smoothie Items', groupIndex: 999, sizeRank: exportSizeRank(product), num: exportTrailingNum(product), suffix: product };
+      }
+      // "Exotic" alone means Fruit, but "Exotic ___ Salad" means Salad --
+      // checked before the plain fruit/exotic/layered check below so an
+      // unlisted "Exotic ___ Salad" isn't claimed by Fruit first.
+      if (/\bexotic\b/.test(lower) && /\bsalad\b/.test(lower)) {
+        return { category: 'Salad', section: 'Other Salad Items', groupIndex: 999, sizeRank: exportSizeRank(product), num: exportTrailingNum(product), suffix: product };
       }
       if (/\bfruit\b/.test(lower) || /\bexotic\b/.test(lower) || /\blayered\b/.test(lower)) {
         return { category: 'Fruit', section: 'Other Fruit Items', groupIndex: 999, sizeRank: exportSizeRank(product), num: exportTrailingNum(product), suffix: product };
