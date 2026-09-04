@@ -88,24 +88,38 @@
   <script>
     // ---------------------------------------------------------------------
     // TEMPORARY diagnostic for the reported "no buttons work on Android"
-    // bug (buttons show tap feedback but nothing happens after, both in
-    // the installed app and a normal Chrome tab -- works fine on desktop).
-    // A static read-through ruled out modern-syntax incompatibilities
-    // (?., ??, .flat(), etc.), so the next-best move is to surface the
-    // actual error the very next time it happens instead of guessing
-    // again. Every onclick="app.___()" handler runs as a normal DOM event
-    // handler, and an uncaught exception thrown inside one of those does
-    // reach window.onerror -- which is exactly the "tap flashes, nothing
-    // happens" signature (the click registers, the handler throws before
-    // doing anything visible, nothing is logged anywhere the user can
-    // see). If this fires, please screenshot the alert and send it back --
-    // that'll say exactly what to fix instead of another guess. Safe to
-    // remove once the real bug is found and fixed.
+    // bug. A previous version of this used alert() to surface the error --
+    // REMOVED after a report of "buttons don't work at all" following that
+    // change: alert() is a blocking, modal, native dialog, and it fires on
+    // ANY uncaught error or promise rejection anywhere on the page, for
+    // the rest of that page's life once triggered even once. If Android
+    // (especially inside the installed/standalone PWA) doesn't render
+    // that dialog reliably, JS execution still blocks waiting for a
+    // dismiss that has nothing to land on -- turning one narrow failure
+    // into the entire app looking frozen, which matches "buttons don't
+    // work at all" far better than the original narrower bug report does.
+    // This version instead writes into a small fixed banner at the
+    // bottom of the screen -- purely a DOM update, never blocks anything,
+    // multiple errors just stack so nothing is lost. If it fires, please
+    // screenshot the red banner and send it back. Safe to remove once the
+    // real bug is found and fixed.
+    function showDiagnosticError(text) {
+      try {
+        var el = document.getElementById('diagErrorBanner');
+        if (!el) {
+          el = document.createElement('div');
+          el.id = 'diagErrorBanner';
+          el.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#dc2626;color:#fff;padding:10px;font-size:11px;font-family:monospace;white-space:pre-wrap;max-height:45vh;overflow:auto;z-index:999999;box-shadow:0 -2px 8px rgba(0,0,0,0.3)';
+          document.body.appendChild(el);
+        }
+        el.textContent = (el.textContent ? el.textContent + '\n\n---\n\n' : '') + text;
+      } catch (e2) { /* never let the diagnostic itself break anything */ }
+    }
     window.addEventListener('error', function(e) {
-      alert('App error -- please screenshot this and send it back:\n\n' + e.message + '\n' + (e.filename || '') + ':' + (e.lineno || '') + ':' + (e.colno || '') + '\n\n' + (e.error && e.error.stack ? e.error.stack : ''));
+      showDiagnosticError('App error: ' + e.message + '\n' + (e.filename || '') + ':' + (e.lineno || '') + ':' + (e.colno || '') + '\n' + (e.error && e.error.stack ? e.error.stack : ''));
     });
     window.addEventListener('unhandledrejection', function(e) {
-      alert('App error (async) -- please screenshot this and send it back:\n\n' + (e.reason && e.reason.stack ? e.reason.stack : e.reason));
+      showDiagnosticError('App error (async): ' + (e.reason && e.reason.stack ? e.reason.stack : e.reason));
     });
     // ---------------------------------------------------------------------
     // Export Day PDF categorization (Sep): the dashboard's old "Product
