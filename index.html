@@ -4,6 +4,24 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Baskets by Blimi</title>
+  <!-- "Add to Home Screen" / install support (Sept 2026): without a
+       manifest, Chrome's shortcut used a generic browser icon and label,
+       and opening it still showed Chrome's own address bar -- looked like
+       a bookmark, not an app. manifest.json (short_name: "Baskets") plus
+       these icons gives it a real icon and label on the home screen; the
+       apple-* tags do the same for Safari's "Add to Home Screen", which
+       ignores the manifest entirely and needs its own tags. display:
+       standalone in the manifest is what actually drops the address bar
+       once launched from the home screen icon -- opening the same URL in
+       an ordinary browser tab is unaffected either way. -->
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta name="theme-color" content="#7c3aed">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="BBB">
   <!-- Generates real, correctly-sized-to-the-label PDFs client-side (see
        app.buildLabelsPdf below) so a phone can download a label file whose
        page dimensions ARE the label -- not a full 8.5x11 sheet with the
