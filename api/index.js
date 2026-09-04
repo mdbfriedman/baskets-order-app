@@ -887,6 +887,25 @@ async function getAccessToken(serviceAccount) {
 
 let storedServiceAccount = null;
 
+// App-level password gate (Sept 2026): the Google service-account setup
+// above only ever protected the SERVER's own connection to the Sheet, not
+// the site itself -- once SERVICE_ACCOUNT was set as a Vercel env var,
+// /api/is-setup returned true for every visitor and the dashboard loaded
+// straight to real customer names/addresses with no login at all. This is
+// a second, independent gate: set an APP_PASSWORD env var in Vercel and
+// every request to a customer-data endpoint (load/add/update-order) must
+// include it. Left OFF (fail-open, same as before this existed) until
+// APP_PASSWORD is actually set, so nothing breaks for anyone still on the
+// old, unprotected setup.
+function checkAppPassword(req, res) {
+  const required = process.env.APP_PASSWORD;
+  if (!required) return true;
+  const provided = req.body && req.body.password;
+  if (provided === required) return true;
+  res.status(401).json({ error: 'Incorrect or missing app password.' });
+  return false;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -957,6 +976,21 @@ export default async function handler(req, res) {
     return;
   }
 
+  // Checked by index.html before anything else loads (see app.checkAppPassword).
+  // `configured: false` when no APP_PASSWORD env var is set yet -- the client
+  // treats that as "nothing to gate against" and skips the prompt entirely,
+  // same fallback the service-account setup already uses.
+  if (req.method === 'POST' && req.url === '/api/check-password') {
+    const required = process.env.APP_PASSWORD;
+    if (!required) {
+      res.status(200).json({ ok: true, configured: false });
+      return;
+    }
+    const provided = req.body && req.body.password;
+    res.status(200).json({ ok: provided === required, configured: true });
+    return;
+  }
+
   // Hands the Google Maps API key to the page at request time instead of it
   // being hardcoded in index.html — keeps it out of the committed source
   // (and out of GitHub's secret scanner) while still being usable client-side,
@@ -968,6 +1002,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST' && req.url === '/api/load-orders') {
+    if (!checkAppPassword(req, res)) return;
     try {
       let serviceAccount;
 
@@ -1015,6 +1050,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST' && req.url === '/api/add-order') {
+    if (!checkAppPassword(req, res)) return;
     try {
       let serviceAccount;
 
@@ -1069,6 +1105,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST' && req.url === '/api/update-order') {
+    if (!checkAppPassword(req, res)) return;
     try {
       let serviceAccount;
 
