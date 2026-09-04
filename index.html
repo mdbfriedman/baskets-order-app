@@ -1306,13 +1306,27 @@
       // prior download with the same name to match against, and this
       // whole broken retry path never triggers in the first place.
       uniqueFilename: function(filename) {
+        // Also sanitizes the filename, not just de-duplicates it. Found
+        // while testing the de-dup fix: app.selectedDate is stored as
+        // "2026/09/04" (slashes), and every PDF filename below builds
+        // from it directly -- e.g. "BasketsByBlimi_2026/09/04_Friedman.pdf"
+        // -- with NO cleanup, unlike the Word/.doc path, which already
+        // gets its filename sanitized server-side (see api/index.js's
+        // safeFilename). A literal "/" in a filename handed to the
+        // browser's download machinery is exactly the kind of thing that
+        // can silently fail, especially on Android. Applying the same
+        // safe-character allowlist here client-side (letters, digits,
+        // space, . _ ( ) -) closes that gap for the PDF path too, and is
+        // a harmless no-op for the Word path since the server would have
+        // done the same replacement anyway.
+        var safe = filename.replace(/[\r\n"]/g, '').replace(/[^a-zA-Z0-9 ._()-]/g, '_');
         var now = new Date();
         var pad = function(n) { return (n < 10 ? '0' : '') + n; };
         var suffix = pad(now.getHours()) + pad(now.getMinutes()) + pad(now.getSeconds());
-        var dotIdx = filename.lastIndexOf('.');
+        var dotIdx = safe.lastIndexOf('.');
         return dotIdx === -1
-          ? (filename + '_' + suffix)
-          : (filename.slice(0, dotIdx) + '_' + suffix + filename.slice(dotIdx));
+          ? (safe + '_' + suffix)
+          : (safe.slice(0, dotIdx) + '_' + suffix + safe.slice(dotIdx));
       },
 
       // Triggers a real file download via a hidden form POST to
