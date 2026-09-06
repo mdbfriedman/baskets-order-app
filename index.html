@@ -1082,7 +1082,17 @@
             'onblur="setTimeout(function(){ var b=document.getElementById(\'noItemSuggestions_' + idx + '\'); if(b) b.innerHTML=\'\'; }, 300)" ' +
             'style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #d1d5db;border-radius:6px">' +
             '</div>' +
+            // onwheel="this.blur()": a real, hard-to-pin-down bug report --
+            // "quantity 1 sometimes forces a large number, doesn't affect
+            // price" -- matches Chrome's well-known type="number" quirk
+            // exactly: scrolling the mouse wheel/trackpad while this field
+            // still has focus (e.g. right after typing into it, before
+            // clicking elsewhere) gets silently treated as repeated
+            // spinner clicks, incrementing the value per scroll tick with
+            // no visible cause. Blurring on wheel makes a scroll just
+            // scroll the page again, like every other input on the form.
             '<input type="number" min="1" id="noItemQty_' + idx + '" value="' + (item.quantity || 1) + '" ' +
+            'onwheel="this.blur()" ' +
             'oninput="if (app.newOrder && app.newOrder.items[' + idx + ']) { app.newOrder.items[' + idx + '].quantity = parseInt(this.value, 10) || 1; app.recalcProductCost(); }" ' +
             'style="flex:0 1 70px;min-width:60px;padding:8px;border:1px solid #d1d5db;border-radius:6px">' +
             (o.items.length > 1 ? '<button type="button" onclick="app.removeOrderItemRow(' + idx + ')" style="background:#ef4444;width:36px;padding:8px 0;margin:0">✕</button>' : '<span style="width:36px"></span>') +
@@ -1139,13 +1149,13 @@
         html += '<button type="button" onclick="app.addOrderItemRow()" style="background:#6b7280;margin-bottom:15px">+ Add another product</button>';
 
         html += '<label style="font-size:12px;color:#374151">Product Cost</label><span style="font-size:11px;color:#9ca3af"> (auto-fills from known prices — edit freely)</span>';
-        html += '<input type="number" step="0.01" min="0" inputmode="decimal" id="noProductCost" oninput="if (app.newOrder) app.newOrder.productCostAutoValue = null; app.recalcOrderTotal();" value="' + o.productCost.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
+        html += '<input type="number" step="0.01" min="0" inputmode="decimal" id="noProductCost" onwheel="this.blur()" oninput="if (app.newOrder) app.newOrder.productCostAutoValue = null; app.recalcOrderTotal();" value="' + o.productCost.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
 
         html += '<label style="font-size:12px;color:#374151">Delivery Cost</label>';
-        html += '<input type="number" step="0.01" min="0" inputmode="decimal" id="noDeliveryCost" oninput="app.recalcOrderTotal();" value="' + o.deliveryCost.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
+        html += '<input type="number" step="0.01" min="0" inputmode="decimal" id="noDeliveryCost" onwheel="this.blur()" oninput="app.recalcOrderTotal();" value="' + o.deliveryCost.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
 
         html += '<label style="font-size:12px;color:#374151">Total</label>';
-        html += '<input type="number" step="0.01" min="0" inputmode="decimal" id="noTotal" oninput="if (app.newOrder) app.newOrder.totalAutoValue = null;" value="' + o.total.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
+        html += '<input type="number" step="0.01" min="0" inputmode="decimal" id="noTotal" onwheel="this.blur()" oninput="if (app.newOrder) app.newOrder.totalAutoValue = null;" value="' + o.total.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
 
         html += '<label style="font-size:12px;color:#374151">Payment Method</label>';
         html += '<input type="text" id="noPayment" value="' + o.paymentMethod.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
