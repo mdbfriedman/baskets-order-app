@@ -812,12 +812,28 @@ function validateAndBuildOrderRow(body, orderNumber) {
     return { error: 'At least one item with a product is required' };
   }
 
+  // Root cause of a real, hard-to-pin-down bug report: "entering quantity
+  // 1 sometimes forces a large number, doesn't affect price." This append
+  // uses valueInputOption=USER_ENTERED (needed so deliveryDate gets
+  // recognized as a real date), which means Sheets runs its OWN
+  // auto-detection on every string in the row -- including these
+  // comma-joined multi-item cells. A single-item order writes a plain "1"
+  // (safe), but a multi-item order writes something like "1, 1" or
+  // "1, 1, 1" into one cell -- and depending on the exact digit pattern,
+  // Sheets can occasionally decide that looks like a number (comma as a
+  // thousands separator) and silently reinterpret/reformat it, which is
+  // exactly why this only ever happened "sometimes" and only on
+  // multi-item orders, never on a single flat "1". A leading apostrophe
+  // is Sheets' standard "force plain text" marker for USER_ENTERED input
+  // -- it does NOT become part of the stored/returned cell value (nothing
+  // downstream needs to strip it), it just stops Sheets from ever trying
+  // to parse these cells as anything other than literal text.
   const row = [
     deliveryDate,
     orderNumber,
     String(lastName).trim(),
-    productNames.join(', '),
-    quantities.join(', '),
+    "'" + productNames.join(', '),
+    "'" + quantities.join(', '),
     '', // Quantity of Individual — left blank; the product's SKU already encodes pack size
     (deliveryName || '').trim(),
     pickupOrDelivery || 'delivery',
@@ -827,7 +843,7 @@ function validateAndBuildOrderRow(body, orderNumber) {
     (customerNote || '').trim(),
     (productCost || '').toString().trim(),
     (deliveryCost || '').toString().trim(),
-    itemNotes.join('|')
+    "'" + itemNotes.join('|')
   ];
 
   return { row };
