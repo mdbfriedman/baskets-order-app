@@ -407,6 +407,15 @@
       selectedOrdersDate: null,
       selectedOrdersCount: -1,
 
+      // Search by name or address (Sept 2026) -- on a busy day with lots of
+      // orders, finding one specific order to reprint its label meant
+      // paging through dates by eye. searchQuery drives a results dropdown
+      // across ALL orders (not just the selected day); picking a result
+      // jumps straight to that order's date and highlights it via
+      // highlightOrderNumber, cleared a few seconds after landing.
+      searchQuery: '',
+      highlightOrderNumber: null,
+
       // Runs BEFORE checkSetup (see the bootstrap call at the bottom of
       // this file) -- gates the whole page behind /api/check-password, not
       // just the Google Sheet connection checkSetup handles. A previously
@@ -614,7 +623,13 @@
       },
 
       formatDateDisplay: function(dateStr) {
-        var parts = dateStr.split('/');
+        // Accepts either "2026/09/10" or "2026-09-10" -- the exact
+        // separator the sheet hands back depends on the Delivery Date
+        // column's own display format in Google Sheets (which the user can
+        // change independently of this app), so this shouldn't silently
+        // stop working just because that format gets switched from
+        // slashes to dashes or back.
+        var parts = dateStr.split(/[\/\-]/);
         if (parts.length === 3) {
           var year = parseInt(parts[0]);
           var month = parseInt(parts[1]);
@@ -630,6 +645,82 @@
 
       getOrdersForDate: function(date) {
         return app.orders.filter(function(o) { return o.deliveryDate === date; });
+      },
+
+      // Deliberately does NOT call app.render() -- that replaces the whole
+      // #app subtree via innerHTML, which would destroy and recreate this
+      // very input element on every keystroke and throw away its focus and
+      // cursor position (you'd only be able to type one character at a
+      // time). Instead this only updates the results panel's own
+      // container, exactly like the existing product-suggestion filter box
+      // does for the same reason.
+      updateSearch: function(value) {
+        app.searchQuery = value;
+        var container = document.getElementById('searchResultsContainer');
+        if (container) container.innerHTML = app.buildSearchResultsHtml();
+        var clearBtn = document.getElementById('clearSearchBtn');
+        if (clearBtn) clearBtn.style.display = value ? '' : 'none';
+      },
+
+      clearSearch: function() {
+        app.searchQuery = '';
+        app.render();
+        var input = document.getElementById('orderSearchInput');
+        if (input) input.focus();
+      },
+
+      // Matches across ALL orders (every date, not just the selected day)
+      // by name, who it's being delivered to, or address -- so finding one
+      // specific order on a busy day doesn't mean paging through dates by
+      // eye. Capped at 20 results; a match this broad on a short query
+      // (e.g. a single common letter) isn't useful to show in full anyway.
+      getSearchResults: function() {
+        var q = app.searchQuery.trim().toLowerCase();
+        if (q.length < 2) return [];
+        var results = app.orders.filter(function(o) {
+          return (o.lastName && o.lastName.toLowerCase().indexOf(q) !== -1) ||
+                 (o.deliveredTo && o.deliveredTo.toLowerCase().indexOf(q) !== -1) ||
+                 (o.address && o.address.toLowerCase().indexOf(q) !== -1);
+        });
+        return results.slice(0, 20);
+      },
+
+      buildSearchResultsHtml: function() {
+        if (app.searchQuery.trim().length < 2) return '';
+        var results = app.getSearchResults();
+        if (results.length === 0) {
+          return '<div class="empty-state" style="margin-bottom:12px">No orders match "' + app.searchQuery + '"</div>';
+        }
+        var html = '<div class="orders-box" style="margin-bottom:12px">';
+        results.forEach(function(order) {
+          html += '<div onclick="app.jumpToOrder(\'' + app.escForJsAttr(order.orderNumber) + '\', \'' + app.escForJsAttr(order.deliveryDate) + '\')" style="padding:10px 12px;border-bottom:1px solid #f3f4f6;cursor:pointer">' +
+            '<div style="font-weight:bold">' + order.lastName + (order.deliveredTo ? ' <span style="font-weight:normal;color:#6b7280">(deliver to: ' + order.deliveredTo + ')</span>' : '') + '</div>' +
+            '<div style="font-size:12px;color:#6b7280">' + order.address + '</div>' +
+            '<div style="font-size:11px;color:#059669;margin-top:2px">' + app.formatDateDisplay(order.deliveryDate) + '</div>' +
+            '</div>';
+        });
+        html += '</div>';
+        return html;
+      },
+
+      // Jumps to the matched order's date and flags it to be highlighted
+      // and scrolled into view once the day view renders (see render()
+      // below, which reads highlightOrderNumber when building each order
+      // card). Cleared automatically a few seconds later so the highlight
+      // doesn't linger forever.
+      jumpToOrder: function(orderNumber, deliveryDate) {
+        app.searchQuery = '';
+        app.selectedDate = deliveryDate;
+        app.highlightOrderNumber = orderNumber;
+        app.render();
+        setTimeout(function() {
+          var el = document.querySelector('[data-order-number="' + orderNumber + '"]');
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 50);
+        setTimeout(function() {
+          app.highlightOrderNumber = null;
+          app.render();
+        }, 4000);
       },
 
       getProductTotals: function(date) {
@@ -2392,7 +2483,20 @@
         var currentIdx = dates.indexOf(app.selectedDate);
 
         var dayRevenue = app.getDayRevenue(app.selectedDate);
-        var html = '<div class="date-nav"><button onclick="app.previousDate()" ' + (currentIdx === 0 ? 'disabled' : '') + '>←</button><div class="date-display"><h2>' + app.formatDateDisplay(app.selectedDate) + '</h2><p>' + dayOrders.length + ' orders</p>' + (dayRevenue > 0 ? '<p style="color:#16a34a;font-weight:bold;font-size:15px;margin-top:2px">$' + dayRevenue.toFixed(2) + ' total</p>' : '') + '</div><button onclick="app.nextDate()" ' + (currentIdx === dates.length - 1 ? 'disabled' : '') + '>→</button></div>';
+
+        // Search by name or address (Sept 2026) -- always visible at the
+        // top of the dashboard, searches across every date at once. Typing
+        // updates only #searchResultsContainer (see updateSearch above),
+        // never this whole render(), so the input never loses focus mid-
+        // keystroke. Picking a result jumps to that order's date (see
+        // jumpToOrder).
+        var searchBoxValue = String(app.searchQuery).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+        var html = '<div style="position:relative;margin-bottom:12px"><input type="text" id="orderSearchInput" value="' + searchBoxValue + '" oninput="app.updateSearch(this.value)" placeholder="Search by name or address..." style="width:100%;padding:10px 34px 10px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;box-sizing:border-box">' +
+          '<button id="clearSearchBtn" onclick="app.clearSearch()" title="Clear search" style="display:' + (app.searchQuery ? '' : 'none') + ';position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;color:#9ca3af;font-size:18px;cursor:pointer;line-height:1;padding:4px">×</button>' +
+          '</div>';
+        html += '<div id="searchResultsContainer">' + app.buildSearchResultsHtml() + '</div>';
+
+        html += '<div class="date-nav"><button onclick="app.previousDate()" ' + (currentIdx === 0 ? 'disabled' : '') + '>←</button><div class="date-display"><h2>' + app.formatDateDisplay(app.selectedDate) + '</h2><p>' + dayOrders.length + ' orders</p>' + (dayRevenue > 0 ? '<p style="color:#16a34a;font-weight:bold;font-size:15px;margin-top:2px">$' + dayRevenue.toFixed(2) + ' total</p>' : '') + '</div><button onclick="app.nextDate()" ' + (currentIdx === dates.length - 1 ? 'disabled' : '') + '>→</button></div>';
 
         // Product Totals box now groups by the same Fruit/Salad/Smoothies
         // categories (and their sections) as the Export Day PDF, instead of
@@ -2459,7 +2563,12 @@
           html += '<div class="orders-box">';
           dayOrders.forEach(function(order, orderIdx) {
             var isSelected = !!app.selectedOrderIndices[orderIdx];
-            html += '<div class="order-item" style="' + (isSelected ? 'outline:2px solid #7c3aed;outline-offset:-2px;' : '') + '"><div style="display:flex;justify-content:space-between;align-items:start"><div style="display:flex;gap:8px;align-items:start"><input type="checkbox" onchange="app.toggleOrderSelection(' + orderIdx + ')" ' + (isSelected ? 'checked' : '') + ' title="Select for batch print/download" style="margin-top:4px;width:18px;height:18px;flex-shrink:0"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#059669;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
+            // isHighlighted: this order was just landed on via a search
+            // result click (see jumpToOrder) -- a bright, temporary outline
+            // so it's obvious which one you searched for, since a day can
+            // have many orders on it. Fades out automatically.
+            var isHighlighted = !!app.highlightOrderNumber && order.orderNumber === app.highlightOrderNumber;
+            html += '<div class="order-item" data-order-number="' + order.orderNumber + '" style="' + (isHighlighted ? 'outline:3px solid #f59e0b;outline-offset:-3px;background:#fffbeb;' : (isSelected ? 'outline:2px solid #7c3aed;outline-offset:-2px;' : '')) + '"><div style="display:flex;justify-content:space-between;align-items:start"><div style="display:flex;gap:8px;align-items:start"><input type="checkbox" onchange="app.toggleOrderSelection(' + orderIdx + ')" ' + (isSelected ? 'checked' : '') + ' title="Select for batch print/download" style="margin-top:4px;width:18px;height:18px;flex-shrink:0"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#059669;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
             if (order.deliveredTo) html += '<div class="order-address">Deliver to: ' + order.deliveredTo + '</div>';
             html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div>';
             if (order.total) {
