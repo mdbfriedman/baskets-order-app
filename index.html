@@ -1554,11 +1554,12 @@
       // treatment for a blob: URL, since it falls outside the installed
       // app's verified scope), and Share through that context behaved
       // inconsistently -- a share target only "worked" after an unrelated
-      // detour through Drive and back. Rather than keep fighting that
-      // context, this now reuses the exact mechanism already proven
-      // reliable for Word downloads (see openGeneratedDocument's
-      // 'attachment' branch): a real Android download via a hidden
-      // <a download> click on the PDF's own blob URL. Once it's an
+      // detour through Drive and back. Routes through openGeneratedDocument
+      // the same as Word now (see its 'attachment' branch and the showDoc
+      // short-circuit at the bottom of this script for how that tab
+      // actually triggers the download -- a plain top-level navigation to
+      // the blob: URL, not an <a download> click, which real-device
+      // testing showed does nothing in this tab's context). Once it's an
       // actual completed download, Android's own download notification
       // has a working Share button, and an app like FlashLabel Pro that
       // expects you to import a file (rather than receive one via Share)
@@ -2779,18 +2780,31 @@
         for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
         var blob = new Blob([bytes], { type: payload.mimeType });
         var blobUrl = URL.createObjectURL(blob);
+        // Used to try an <a download> click here for 'attachment'
+        // content (Word docs) -- real-device testing showed that does
+        // nothing in this tab's context, neither fired automatically nor
+        // tapped manually (confirmed via screenshot, and the user
+        // confirmed Word downloads have in fact never worked through
+        // this whole engagement). The one thing proven to actually work
+        // in this exact tab is a plain top-level navigation to the blob:
+        // URL -- that's how the PDF/inline path already renders the
+        // native viewer, and real (headful) browser testing confirms the
+        // SAME navigation also makes Chrome fall back to its normal
+        // "download this" behavior automatically for a type it can't
+        // render inline (like a .doc file), with no <a download>
+        // involved at all. So both cases now just navigate; the browser
+        // decides view-vs-download from the mime type on its own. A
+        // renderable type navigates this tab away entirely (so the
+        // fallback text below never has time to matter); a download
+        // doesn't navigate the tab away, so the fallback stays up to
+        // confirm what happened, with a plain (non-download-attribute)
+        // link to retry the same navigation manually if needed.
+        var safeFilename = payload.filename.replace(/</g, '&lt;');
         if (payload.disposition === 'attachment') {
-          var a = document.createElement('a');
-          a.href = blobUrl;
-          a.download = payload.filename;
-          document.body.appendChild(a);
-          a.click();
           var safeHrefAttr = blobUrl.replace(/"/g, '&quot;');
-          var safeFilenameAttr = payload.filename.replace(/"/g, '&quot;');
-          document.body.innerHTML = '<div style="font-family:sans-serif;padding:24px;text-align:center">Your download should start automatically.<br><br><a href="' + safeHrefAttr + '" download="' + safeFilenameAttr + '">Tap here if it doesn’t.</a></div>';
-        } else {
-          location.replace(blobUrl);
+          document.body.innerHTML = '<div style="font-family:sans-serif;padding:24px;text-align:center">Downloading ' + safeFilename + '&hellip;<br><br>If nothing happens, <a href="' + safeHrefAttr + '">tap here.</a></div>';
         }
+        location.replace(blobUrl);
       } catch (e) {
         document.body.innerHTML = '<div style="font-family:sans-serif;padding:24px;text-align:center">Something went wrong showing this document: ' + (e && e.message ? e.message.replace(/</g, '&lt;') : 'unknown error') + '</div>';
       }
