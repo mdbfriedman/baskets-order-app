@@ -979,6 +979,7 @@ export default async function handler(req, res) {
       const filename = (req.body && req.body.filename || 'download.doc').toString();
       const content = req.body && req.body.content;
       const mimeType = (req.body && req.body.mimeType) || 'application/msword';
+      const encoding = req.body && req.body.encoding;
       if (content === undefined || content === null) {
         res.status(400).send('Missing content');
         return;
@@ -986,9 +987,25 @@ export default async function handler(req, res) {
       // Strip anything that could break the Content-Disposition header or
       // act as a path segment; keep it simple and readable.
       const safeFilename = filename.replace(/[\r\n"]/g, '').replace(/[^a-zA-Z0-9 ._()-]/g, '_') || 'download.doc';
-      res.setHeader('Content-Type', mimeType + '; charset=utf-8');
       res.setHeader('Content-Disposition', 'attachment; filename="' + safeFilename + '"');
-      res.status(200).send(content);
+      if (encoding === 'base64') {
+        // PDFs (see app.downloadPdfDoc) are routed through here as base64
+        // instead of jsPDF's own doc.save(), which uses a blob + <a
+        // download> click that's unreliable specifically inside an
+        // installed/standalone PWA on Android -- same failure mode Word
+        // downloads used to have before being switched to this same
+        // POST-to-/api/download-doc mechanism. Binary content can't travel
+        // safely as a plain form field, so it crosses as base64 and gets
+        // decoded back to real bytes here. No charset on a binary
+        // Content-Type -- charset=utf-8 on binary PDF bytes is exactly the
+        // kind of mismatch that can corrupt or block the download.
+        const buffer = Buffer.from(content, 'base64');
+        res.setHeader('Content-Type', mimeType);
+        res.status(200).send(buffer);
+      } else {
+        res.setHeader('Content-Type', mimeType + '; charset=utf-8');
+        res.status(200).send(content);
+      }
     } catch (error) {
       res.status(500).send('Error: ' + error.message);
     }
