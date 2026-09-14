@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { put } = require('@vercel/blob');
 
 const KNOWN_PRODUCT_SKUS = [
   "12\" sliced platter",
@@ -1023,6 +1024,59 @@ export default async function handler(req, res) {
   // that never puts the document's content in a URL at all -- see
   // app.openGeneratedDocument and the showDoc short-circuit at the
   // bottom of index.html's script.
+  //
+  // That localStorage handoff's showDoc tab then tried forcing a
+  // download purely client-side (a Blob typed application/octet-stream,
+  // navigated to directly) since <a download> was confirmed dead in that
+  // tab. It technically worked -- a file did land in Downloads -- but
+  // with no real Content-Disposition header, Android had nothing to name
+  // or type the file from: it saved as a bare UUID with no extension,
+  // which no app (not even "Open" from the download notification, not
+  // FlashLabel Pro's own import picker) could then recognize as a PDF or
+  // Word doc. A client-side blob: URL fundamentally can't carry a
+  // filename or a real disposition; only an actual HTTP response can.
+  //
+  // This endpoint is that actual HTTP response. index.html's showDoc tab
+  // POSTs the generated content here (a plain background fetch from a
+  // tab that's already open -- not a form submission opening a NEW tab,
+  // so it isn't subject to the POST-body-dropping problem above, which
+  // was specifically about Android's handling of *opening* a tab via a
+  // POST). This uploads the bytes to Vercel Blob storage and hands back
+  // a real https:// URL with `?download=1`, which Vercel Blob serves
+  // with a genuine Content-Disposition: attachment header and the
+  // correct Content-Type built from the real filename -- something no
+  // client-side trick in this tab's restricted context can fake. The
+  // showDoc tab then does a plain location.replace() to that URL (a
+  // same-tab navigation, not a new popup, so it isn't subject to
+  // pop-up blocking either). Requires a Blob store to be connected to
+  // this Vercel project (Storage tab in the dashboard -- Vercel wires up
+  // the needed credentials automatically once one exists); if none is
+  // connected yet, this fails with a clear error rather than a silent
+  // one.
+  if (req.method === 'POST' && req.url === '/api/upload-doc') {
+    try {
+      const filename = (req.body && req.body.filename || 'download').toString();
+      const content = req.body && req.body.content;
+      const mimeType = (req.body && req.body.mimeType) || 'application/octet-stream';
+      if (!content) {
+        res.status(400).json({ error: 'Missing content' });
+        return;
+      }
+      const safeFilename = filename.replace(/[\r\n"\/\\]/g, '').replace(/[^a-zA-Z0-9 ._()-]/g, '_') || 'download';
+      const buffer = Buffer.from(content, 'base64');
+      const blob = await put(safeFilename, buffer, {
+        access: 'public',
+        contentType: mimeType,
+        addRandomSuffix: true,
+      });
+      res.status(200).json({ downloadUrl: blob.downloadUrl });
+    } catch (error) {
+      // Most likely cause: no Blob store connected to this Vercel
+      // project yet (Storage tab -> Create Database -> Blob).
+      res.status(500).json({ error: 'Upload failed: ' + error.message });
+    }
+    return;
+  }
 
   if (req.method === 'POST' && req.url === '/api/setup') {
     try {
