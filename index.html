@@ -1444,8 +1444,18 @@
           : (safe.slice(0, dotIdx) + '_' + suffix + safe.slice(dotIdx));
       },
 
-      // Triggers a file download/save. Three earlier attempts at this each
-      // failed on the actual Android device before this one:
+      // Converts a JS string that may contain non-Latin1 characters (e.g.
+      // Hebrew customer notes folded into a label's HTML) into base64 the
+      // way the server's Buffer.from(str, 'base64') expects to decode it
+      // back to the exact original UTF-8 bytes -- plain btoa() alone only
+      // handles Latin1 and would corrupt anything outside that range.
+      utf8ToBase64: function(str) {
+        return btoa(unescape(encodeURIComponent(str)));
+      },
+
+      // Opens a new tab to view or download a generated document. Five
+      // earlier attempts at this each failed on the actual Android device
+      // before this one:
       //   1) A blob + <a download> click INSIDE the app's own page -- the
       //      classic "installed app" download failure this whole chain of
       //      fixes started from.
@@ -1463,129 +1473,48 @@
       //      page. Android's hand-off of that new-tab navigation dropped
       //      the POST body, turning it into a bodyless GET request that
       //      /api/download-doc (POST-only) has no route for.
-      // Rather than guess at a fourth variation of "trigger a browser
-      // download," this now prefers the Web Share API (Level 2, with file
-      // support) when the device offers it. Sharing a File hands it
-      // straight to Android's native share sheet ("Save to Files", Drive,
-      // etc.) -- a completely different OS-level code path from the
-      // browser's own download manager, which is the one thing every
-      // attempt above still funneled through and which the device seems
-      // not to have working inside this installed app's shell at all.
-      // Nothing needs to escape into a second tab for this path, either.
-      // Falls back to opening a fresh top-level tab with a self-contained
-      // page (a real <a download> pointed at a data: URI, auto-clicked
-      // inside THAT tab's own context) wherever Web Share isn't available
-      // -- most desktop browsers, primarily -- or if it fails outright
-      // (not just cancelled by the user).
-      triggerFileDownload: function(filename, content, mimeType, encoding) {
-        filename = app.uniqueFilename(filename);
-
-        function openDataUriTab() {
-          var newTab = window.open('', '_blank');
-          if (!newTab) {
-            showDiagnosticError('Could not open a new tab for the download -- check whether pop-ups are blocked for this site.');
-            return;
-          }
-          var dataUri = encoding === 'base64'
-            ? ('data:' + mimeType + ';base64,' + content)
-            : ('data:' + mimeType + ';charset=utf-8,' + encodeURIComponent(content));
-          var safeFilenameAttr = filename.replace(/"/g, '&quot;');
-          var safeHrefAttr = dataUri.replace(/"/g, '&quot;');
-          try {
-            newTab.document.open();
-            newTab.document.write(
-              '<!doctype html><html><head><meta charset="utf-8"><title>Downloading…</title></head>' +
-              '<body style="font-family:sans-serif;padding:24px;text-align:center">' +
-              '<p>Preparing your download…</p>' +
-              '<p><a id="dl" href="' + safeHrefAttr + '" download="' + safeFilenameAttr + '">Tap here if the download doesn’t start automatically</a></p>' +
-              // Both tags below are split across string concatenations
-              // (and the closing one also backslash-escaped) so this file
-              // never contains the literal 6-character close-tag sequence
-              // in its own raw source -- writing that sequence anywhere in
-              // THIS script block's source, even inside a string or a
-              // comment, would prematurely end this actual inline script
-              // tag as far as the HTML parser is concerned, since it scans
-              // for that raw text regardless of JS syntax or string/comment
-              // context.
-              '<scr' + 'ipt>document.getElementById("dl").click();<' + '\/scr' + 'ipt>' +
-              '</body></html>'
-            );
-            newTab.document.close();
-          } catch (e) {
-            showDiagnosticError('Failed to prepare the download tab: ' + (e && e.message));
-          }
-        }
-
+      //   4) The Web Share API -- real device testing (screenshotted by
+      //      the user) showed navigator.share() gets denied permission
+      //      entirely inside this installed app's shell, and its own
+      //      fallback (window.open() for a fresh tab) is ALSO blocked as
+      //      a pop-up there.
+      //   5) A plain GET link to a server route (/api/serve-file) with the
+      //      whole document's base64 content stuffed into the query
+      //      string, so nothing depends on a POST body surviving the
+      //      hand-off -- this DID reach the new tab, but Vercel's own
+      //      edge network rejects any URL past a length limit far below
+      //      what a real label PDF needs (confirmed: "URI_TOO_LONG",
+      //      region iad1, on the very first real document tried).
+      // The one mechanism actually proven to escape into a new top-level
+      // tab on this device is a real <a> with target="_blank", clicked
+      // directly -- ordinary hyperlink navigation, not a script-driven
+      // popup, so neither the pop-up block nor the share permission
+      // denial applies to it. This keeps that, but stops trying to carry
+      // the document itself through the navigation at all (a POST body
+      // gets dropped, a URL gets rejected as too long) -- instead the
+      // content is stashed in localStorage (shared across same-origin
+      // tabs, no size limit anywhere near what a label document needs)
+      // under a short random id, and the new tab is just pointed at this
+      // same page with that id in a short query string. A short-circuit
+      // at the bottom of this very script (search "showDoc=") notices
+      // that id, pulls the real content back out of localStorage, and
+      // shows or downloads it -- entirely within that freshly opened
+      // tab's own context, which is the "normal browser tab" scenario
+      // the original bug report said already worked fine.
+      openGeneratedDocument: function(filename, content, mimeType, encoding, disposition) {
         try {
-          if (navigator.share && navigator.canShare) {
-            var blob;
-            if (encoding === 'base64') {
-              var binary = atob(content);
-              var bytes = new Uint8Array(binary.length);
-              for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-              blob = new Blob([bytes], { type: mimeType });
-            } else {
-              blob = new Blob([content], { type: mimeType });
-            }
-            var file = new File([blob], filename, { type: mimeType });
-            if (navigator.canShare({ files: [file] })) {
-              navigator.share({ files: [file], title: filename }).catch(function(err) {
-                // AbortError just means the user backed out of the share
-                // sheet themselves -- not a failure worth reporting or
-                // falling back on.
-                if (err && err.name !== 'AbortError') {
-                  showDiagnosticError('Share failed, trying a direct download instead: ' + (err && err.message));
-                  openDataUriTab();
-                }
-              });
-              return;
-            }
-          }
-        } catch (e) {
-          // Fall through to the tab-based approach below.
-        }
-
-        openDataUriTab();
-      },
-
-      // PDFs are shown, not downloaded -- the user wants to tap the
-      // button and see the label right away, no save step, no
-      // share-sheet detour through another app. Chrome's full, polished
-      // built-in PDF viewer only kicks in for a genuine top-level
-      // navigation to a real PDF resource -- not one embedded via
-      // <embed>/<iframe> (tried: came out as a cramped fallback preview),
-      // and not a data: URL (tried: Chrome BLOCKS a script-initiated
-      // top-level navigation to one outright -- confirmed by testing,
-      // not assumed -- so that tab just sat on about:blank). Getting
-      // there also turned out to need a specific escape route: real
-      // device testing (screenshotted by the user) showed window.open()
-      // itself is being blocked as a pop-up inside this installed app's
-      // shell, and navigator.share() is denied permission entirely. The
-      // one thing proven to actually work on this device is a real <a>
-      // (or <form>) with target="_blank", clicked/submitted directly --
-      // that's ordinary hyperlink navigation, not a script-driven popup,
-      // so it isn't subject to either restriction. An earlier attempt at
-      // that used a FORM POSTing the PDF bytes to the server, and it DID
-      // reach a new tab (confirmed: it rendered a real page) -- but
-      // Android's hand-off of that navigation drops POST bodies, which
-      // is why that attempt landed on an empty 404 instead of the file.
-      // So this builds a plain GET link instead: the PDF's base64 bytes
-      // travel IN the URL to /api/serve-file (see api/index.js), which
-      // has nothing to lose in transit the way a POST body did, and
-      // responds with disposition=inline so Chrome renders it directly
-      // rather than downloading it.
-      viewPdfInNewTab: function(doc, filename) {
-        try {
-          var dataUri = doc.output('datauristring');
-          var commaIdx = dataUri.indexOf(',');
-          var base64 = commaIdx === -1 ? dataUri : dataUri.slice(commaIdx + 1);
-          var url = '/api/serve-file'
-            + '?content=' + encodeURIComponent(base64)
-            + '&filename=' + encodeURIComponent(filename)
-            + '&mimeType=' + encodeURIComponent('application/pdf')
-            + '&disposition=inline';
+          filename = app.uniqueFilename(filename);
+          var base64 = encoding === 'base64' ? content : app.utf8ToBase64(content);
+          var fullMimeType = encoding === 'base64' ? mimeType : (mimeType + '; charset=utf-8');
+          var id = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2);
+          localStorage.setItem('doc_' + id, JSON.stringify({
+            content: base64,
+            mimeType: fullMimeType,
+            filename: filename,
+            disposition: disposition
+          }));
           var a = document.createElement('a');
-          a.href = url;
+          a.href = location.pathname + '?showDoc=' + encodeURIComponent(id);
           a.target = '_blank';
           a.rel = 'noopener';
           a.style.display = 'none';
@@ -1593,8 +1522,30 @@
           a.click();
           document.body.removeChild(a);
         } catch (e) {
-          showDiagnosticError('Failed to open the PDF preview tab: ' + (e && e.message));
+          showDiagnosticError('Failed to open the document: ' + (e && e.message));
         }
+      },
+
+      // Word/.doc downloads: opens a new tab that immediately triggers a
+      // real download (see openGeneratedDocument and the showDoc
+      // short-circuit at the bottom of this script for how that tab
+      // actually delivers the file).
+      triggerFileDownload: function(filename, content, mimeType, encoding) {
+        app.openGeneratedDocument(filename, content, mimeType, encoding, 'attachment');
+      },
+
+      // PDFs: opens a new tab that shows the PDF directly via Chrome's
+      // own built-in viewer rather than downloading it -- the user wants
+      // to tap the button and see the label right away, no save step, no
+      // share-sheet detour through another app (see openGeneratedDocument
+      // above for why this needs a whole new tab in the first place, and
+      // the showDoc short-circuit at the bottom of this script for how
+      // that tab renders the PDF once it has the bytes back).
+      viewPdfInNewTab: function(doc, filename) {
+        var dataUri = doc.output('datauristring');
+        var commaIdx = dataUri.indexOf(',');
+        var base64 = commaIdx === -1 ? dataUri : dataUri.slice(commaIdx + 1);
+        app.openGeneratedDocument(filename, base64, 'application/pdf', 'base64', 'inline');
       },
 
       downloadLabels: function() {
@@ -2751,27 +2702,78 @@
       }
     };
 
-    app.checkAppPassword();
-
-    // Fires once the Google Maps script finishes loading. If the Add Order
-    // form happens to already be open at that point, attach autocomplete to
-    // its address field now (initAddressAutocomplete() is a no-op until this
-    // has run, so opening the form earlier doesn't error).
-    function onGoogleMapsLoaded() {
-      if (app.showAddOrder) app.initAddressAutocomplete();
+    // The other half of app.openGeneratedDocument above: this page can
+    // also be opened fresh in a brand new tab with ?showDoc=<id> in the
+    // URL (that's what the PDF/Word buttons do now instead of trying to
+    // carry the document itself through the navigation). When that's how
+    // we got here, pull the real content back out of localStorage under
+    // that id, show or download it right here, and skip the entire rest
+    // of the normal app boot below (password gate, order loading, etc.)
+    // -- none of that is relevant to "just show me this one document."
+    // Returns true if it handled a showDoc request (whether or not the
+    // document was actually found), false for a completely normal load.
+    function showGeneratedDocumentIfRequested() {
+      var m = location.search.match(/[?&]showDoc=([^&]+)/);
+      if (!m) return false;
+      var id = decodeURIComponent(m[1]);
+      document.title = 'Baskets by Blimi';
+      var raw = null;
+      try {
+        raw = localStorage.getItem('doc_' + id);
+        localStorage.removeItem('doc_' + id);
+      } catch (e) { /* ignore, handled by raw still being null below */ }
+      if (!raw) {
+        document.body.innerHTML = '<div style="font-family:sans-serif;padding:24px;text-align:center">Could not find that document — it may have expired, or this tab opened in a way that can’t see the app’s storage. Please go back and try again.</div>';
+        return true;
+      }
+      try {
+        var payload = JSON.parse(raw);
+        var binary = atob(payload.content);
+        var bytes = new Uint8Array(binary.length);
+        for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        var blob = new Blob([bytes], { type: payload.mimeType });
+        var blobUrl = URL.createObjectURL(blob);
+        if (payload.disposition === 'attachment') {
+          var a = document.createElement('a');
+          a.href = blobUrl;
+          a.download = payload.filename;
+          document.body.appendChild(a);
+          a.click();
+          var safeHrefAttr = blobUrl.replace(/"/g, '&quot;');
+          var safeFilenameAttr = payload.filename.replace(/"/g, '&quot;');
+          document.body.innerHTML = '<div style="font-family:sans-serif;padding:24px;text-align:center">Your download should start automatically.<br><br><a href="' + safeHrefAttr + '" download="' + safeFilenameAttr + '">Tap here if it doesn’t.</a></div>';
+        } else {
+          location.replace(blobUrl);
+        }
+      } catch (e) {
+        document.body.innerHTML = '<div style="font-family:sans-serif;padding:24px;text-align:center">Something went wrong showing this document: ' + (e && e.message ? e.message.replace(/</g, '&lt;') : 'unknown error') + '</div>';
+      }
+      return true;
     }
 
-    // The Maps API key lives in a Vercel environment variable (GOOGLE_MAPS_API_KEY),
-    // not in this file, so it never sits in the committed source. Fetch it
-    // from the server and load the Maps script with it at runtime instead.
-    fetch('/api/maps-key').then(function(r) { return r.json(); }).then(function(data) {
-      if (!data.key) return; // not configured yet — app still works, just no address autocomplete
-      var s = document.createElement('script');
-      s.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(data.key) + '&libraries=places&loading=async&callback=onGoogleMapsLoaded';
-      s.async = true;
-      s.defer = true;
-      document.head.appendChild(s);
-    }).catch(function() { /* no autocomplete this session, form still usable */ });
+    if (!showGeneratedDocumentIfRequested()) {
+      app.checkAppPassword();
+
+      // Fires once the Google Maps script finishes loading. If the Add Order
+      // form happens to already be open at that point, attach autocomplete to
+      // its address field now (initAddressAutocomplete() is a no-op until this
+      // has run, so opening the form earlier doesn't error).
+      window.onGoogleMapsLoaded = function() {
+        if (app.showAddOrder) app.initAddressAutocomplete();
+      };
+
+      // The Maps API key lives in a Vercel environment variable (GOOGLE_MAPS_API_KEY),
+      // not in this file, so it never sits in the committed source. Fetch it
+      // from the server and load the Maps script with it at runtime instead.
+      fetch('/api/maps-key').then(function(r) { return r.json(); }).then(function(data) {
+        if (!data.key) return; // not configured yet — app still works, just no address autocomplete
+        var s = document.createElement('script');
+        s.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(data.key) + '&libraries=places&loading=async&callback=onGoogleMapsLoaded';
+        s.async = true;
+        s.defer = true;
+        document.head.appendChild(s);
+      }).catch(function() { /* no autocomplete this session, form still usable */ });
+    }
   </script>
 </body>
 </html>
