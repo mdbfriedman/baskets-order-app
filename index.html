@@ -1700,7 +1700,26 @@
           var addressParts = app.splitAddress(order.address);
           var addressLines = addressParts.city ? [addressParts.address, addressParts.city] : [addressParts.address];
 
-          order.items.forEach(function(item, idx) {
+          // One physical label per UNIT of quantity, not per distinct
+          // product line -- an item with quantity 2 needs two separate
+          // labels printed (and two baskets packed), not one label that
+          // just SAYS "qty: 2" on it. A real order got under-fulfilled
+          // this way (Sept 2026): only one label printed for a 2-basket
+          // item, so only one basket got made. totalUnits/unitCounter
+          // number every label in the order 1..N across ALL its items
+          // combined, not just within one item line, so "1 of 3" genuinely
+          // means "3 baskets to prepare for this whole order."
+          var totalUnits = order.items.reduce(function(sum, it) {
+            var q = parseInt(it.quantity, 10);
+            return sum + (isNaN(q) || q < 1 ? 1 : q);
+          }, 0);
+          var unitCounter = 0;
+
+          order.items.forEach(function(item) {
+            var qty = parseInt(item.quantity, 10);
+            if (isNaN(qty) || qty < 1) qty = 1;
+            for (var unit = 0; unit < qty; unit++) {
+          unitCounter++;
             if (!firstPage) doc.addPage([pageWmm, pageHmm], orientation);
             firstPage = false;
             y = padMm;
@@ -1752,7 +1771,8 @@
             doc.addImage(app.QR_CODE_DATA_URI, 'PNG', qrX, app.mmFromPx('2px'), qrMm, qrMm);
             doc.setFont('FreeSansHebrew', 'bold');
             doc.setFontSize(app.ptFromPx(cfg.countSize));
-            doc.text((idx + 1) + ' of ' + order.items.length, pageWmm - rightGapMm, app.mmFromPx('2px') + qrMm + app.mmFromPx(cfg.countSize) * 0.9, { align: 'right' });
+            doc.text(unitCounter + ' of ' + totalUnits, pageWmm - rightGapMm, app.mmFromPx('2px') + qrMm + app.mmFromPx(cfg.countSize) * 0.9, { align: 'right' });
+            }
           });
         });
 
@@ -2309,12 +2329,29 @@
             var deliveryNameDisplay = (order.deliveredTo && order.deliveredTo.trim()) ? order.deliveredTo.trim() : app.cleanLastName(order.lastName);
             var addressParts = app.splitAddress(order.address);
             var addressHtml = addressParts.city ? (addressParts.address + '<br>' + addressParts.city) : addressParts.address;
-            order.items.forEach(function(item, idx) {
+
+            // One physical label per UNIT of quantity, not per distinct
+            // product line -- see the matching comment in buildLabelsPdf
+            // above for why (a real order got under-fulfilled because a
+            // quantity-2 item only ever printed one label). totalUnits/
+            // unitCounter number every label 1..N across the WHOLE order's
+            // items combined, not just within one item line.
+            var totalUnits = order.items.reduce(function(sum, it) {
+              var q = parseInt(it.quantity, 10);
+              return sum + (isNaN(q) || q < 1 ? 1 : q);
+            }, 0);
+            var unitCounter = 0;
+
+            order.items.forEach(function(item) {
               // quantityIndividual (e.g. "3 Individual") prefixes the product
               // name when set -- carried over from the old Word-only download
               // HTML so consolidating onto this shared builder doesn't drop it,
               // and print now shows it too since it never had before.
               var productDisplay = item.quantityIndividual ? (item.quantityIndividual + ' ' + item.product) : item.product;
+              var qty = parseInt(item.quantity, 10);
+              if (isNaN(qty) || qty < 1) qty = 1;
+              for (var unit = 0; unit < qty; unit++) {
+              unitCounter++;
               if (labelCount > 0 && forWord) {
                 html += "<br clear=all style='mso-special-character:line-break;page-break-before:always'>";
               }
@@ -2344,15 +2381,16 @@
                 // is kept as plain right-aligned text since that's not an
                 // image and was never actually part of the problem.
                 html += '<div class="label">' +
-                  '<div class="countWord">' + (idx + 1) + ' of ' + order.items.length + '</div>' +
+                  '<div class="countWord">' + unitCounter + ' of ' + totalUnits + '</div>' +
                   textBlockHtml +
                   '</div>';
               } else {
                 html += '<div class="label">' +
                   '<img class="qr" src="' + app.QR_CODE_DATA_URI + '" alt="">' +
-                  '<div class="count">' + (idx + 1) + ' of ' + order.items.length + '</div>' +
+                  '<div class="count">' + unitCounter + ' of ' + totalUnits + '</div>' +
                   textBlockHtml +
                   '</div>';
+              }
               }
             });
           }
@@ -2592,7 +2630,15 @@
                 // as the product name (not a third bare sibling) so the row
                 // stays exactly two flex children -- product info on the
                 // left, qty/count on the right -- same as before.
-                html += '<div><span><strong>' + item.product + '</strong>' + (item.specialInstructions ? ' <span style="color:#dc2626;font-weight:normal;font-size:12px">(' + item.specialInstructions + ')</span>' : '') + '</span> <span>qty: ' + item.quantity + ' • <strong>' + (idx + 1) + ' of ' + order.items.length + '</strong></span></div>';
+                // Quantity is now bold (red + annotated when >1) so it
+                // can't be glossed over the way it was in a real incident
+                // (Sept 2026): a quantity-2 item only ever printed one
+                // label, and the plain-text "qty: 2" next to it wasn't
+                // enough to catch that only one basket got made. Printing
+                // now genuinely produces one separate label per unit (see
+                // buildLabelsPdf/buildLabelsHtml), so this annotation just
+                // tells you what to expect when you print.
+                html += '<div><span><strong>' + item.product + '</strong>' + (item.specialInstructions ? ' <span style="color:#dc2626;font-weight:normal;font-size:12px">(' + item.specialInstructions + ')</span>' : '') + '</span> <span>qty: <strong' + (item.quantity > 1 ? ' style="color:#dc2626"' : '') + '>' + item.quantity + '</strong>' + (item.quantity > 1 ? ' <span style="color:#dc2626;font-size:11px">(' + item.quantity + ' separate labels)</span>' : '') + ' • <strong>' + (idx + 1) + ' of ' + order.items.length + '</strong></span></div>';
               });
             }
             html += '</div>';
