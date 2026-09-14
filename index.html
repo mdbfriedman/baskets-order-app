@@ -1444,7 +1444,7 @@
           : (safe.slice(0, dotIdx) + '_' + suffix + safe.slice(dotIdx));
       },
 
-      // Triggers a real file download via a hidden form POST to
+      // Triggers a real file download via a form POST to
       // /api/download-doc, instead of the Blob + <a download> trick this
       // used to use. That trick relies on the browser/WebView both
       // supporting blob: object URLs and honoring a synthetic click on an
@@ -1454,44 +1454,29 @@
       // does nothing, or looks like it's starting a download that never
       // actually lands anywhere. A genuine HTTP response carrying
       // Content-Disposition: attachment is handled by the OS/browser's own
-      // download machinery instead of JS, which works far more broadly.
-      // The form posts into a hidden iframe so the visible app page never
-      // navigates away or loses its state.
+      // download machinery instead of JS, which works far more broadly --
+      // EXCEPT a first attempt at this posted into a hidden iframe, kept
+      // inside the same "standalone" PWA shell as the rest of the app, and
+      // real Android testing showed that STILL does nothing for either PDF
+      // or Word downloads. That points at the standalone/installed shell
+      // itself having no working download handling at all, regardless of
+      // how the request is made, matching the WebView/TWA caveat above.
+      // Posting with target="_blank" instead hands the whole request off
+      // to a genuine top-level browser tab (on Android, a real Chrome
+      // Custom Tab layered on top of the installed app) -- a separate,
+      // fully-featured browsing context with its own working download
+      // manager, escaping whatever is broken in the constrained shell. The
+      // trade-off is a new tab/window briefly opens for this; for a real
+      // attachment response the browser intercepts it before rendering
+      // anything, so in the success case that tab closes itself or stays
+      // blank rather than showing content.
       triggerFileDownload: function(filename, content, mimeType, encoding) {
         filename = app.uniqueFilename(filename);
-
-        // Used to tear this iframe/form down on a fixed 5-second timer.
-        // Real-world Android report: re-downloading a file with the same
-        // name pops Chrome's own "Download file again?" confirmation --
-        // that's a BROWSER-level dialog the user has to tap through, and
-        // it can easily take longer than 5 seconds to notice and answer.
-        // Once they do, the download resumes against whatever iframe/form
-        // is still in the DOM -- if our timer had already ripped them out,
-        // the resumed request has nothing to land in and the download
-        // just silently dies, landing the user back on the app with
-        // nothing downloaded. Switched to lazy cleanup instead: each call
-        // first removes any leftover iframe/form from the PREVIOUS call
-        // (tagged with js-download-helper below), then leaves this call's
-        // elements in the DOM indefinitely -- so a slow-to-answer Android
-        // dialog always has something to resume into, no matter how long
-        // the user takes, and nothing accumulates beyond one extra
-        // leftover pair between clicks.
-        Array.prototype.slice.call(document.querySelectorAll('.js-download-helper')).forEach(function(el) {
-          if (el.parentNode) el.parentNode.removeChild(el);
-        });
-
-        var iframeName = 'downloadFrame_' + Date.now();
-        var iframe = document.createElement('iframe');
-        iframe.name = iframeName;
-        iframe.className = 'js-download-helper';
-        iframe.style.display = 'none';
-        document.body.appendChild(iframe);
 
         var form = document.createElement('form');
         form.method = 'POST';
         form.action = '/api/download-doc';
-        form.target = iframeName;
-        form.className = 'js-download-helper';
+        form.target = '_blank';
         form.style.display = 'none';
 
         function addField(name, value) {
@@ -1508,6 +1493,10 @@
 
         document.body.appendChild(form);
         form.submit();
+        // Safe to remove right away -- target="_blank" hands the request
+        // off to its own independent browsing context, which doesn't
+        // depend on this form/element still being present in the DOM.
+        document.body.removeChild(form);
       },
 
       // PDF downloads (jsPDF's own .save()) use the SAME blob + <a
