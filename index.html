@@ -2625,20 +2625,29 @@
             html += '</div></div><div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#6b7280;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">✏️ Edit</button><button onclick="app.printOrder(' + orderIdx + ')" title="Print this order\'s label(s) straight to your label printer" style="background:#7c3aed;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">🖨️ Print</button><button onclick="app.downloadOrder(' + orderIdx + ')" style="background:#2563eb;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📥 Word</button><button onclick="app.downloadOrderPdf(' + orderIdx + ')" title="Correctly label-sized PDF, for printing from your phone" style="background:#0f766e;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📄 PDF</button></div></div>';
             html += '<div class="order-items">';
             if (order.items) {
-              order.items.forEach(function(item, idx) {
-                // Special instructions wrapped into the same left-hand <span>
-                // as the product name (not a third bare sibling) so the row
-                // stays exactly two flex children -- product info on the
-                // left, qty/count on the right -- same as before.
-                // Quantity is now bold (red + annotated when >1) so it
-                // can't be glossed over the way it was in a real incident
-                // (Sept 2026): a quantity-2 item only ever printed one
-                // label, and the plain-text "qty: 2" next to it wasn't
-                // enough to catch that only one basket got made. Printing
-                // now genuinely produces one separate label per unit (see
-                // buildLabelsPdf/buildLabelsHtml), so this annotation just
-                // tells you what to expect when you print.
-                html += '<div><span><strong>' + item.product + '</strong>' + (item.specialInstructions ? ' <span style="color:#dc2626;font-weight:normal;font-size:12px">(' + item.specialInstructions + ')</span>' : '') + '</span> <span>qty: <strong' + (item.quantity > 1 ? ' style="color:#dc2626"' : '') + '>' + item.quantity + '</strong>' + (item.quantity > 1 ? ' <span style="color:#dc2626;font-size:11px">(' + item.quantity + ' separate labels)</span>' : '') + ' • <strong>' + (idx + 1) + ' of ' + order.items.length + '</strong></span></div>';
+              // One row per physical UNIT, numbered against the order's
+              // TOTAL unit count -- exactly mirrors buildLabelsPdf/
+              // buildLabelsHtml now (see the fix above), and exactly
+              // mirrors how two genuinely separate products already showed
+              // as two separate rows ("1 of 2" / "2 of 2"). Previously a
+              // quantity-2 item stayed a single row reading "qty: 2 • 1 of
+              // 1", which read as ambiguous next to how distinct products
+              // display -- per explicit follow-up request, a repeated
+              // product now shows as multiple rows the same way distinct
+              // products do, so the dashboard always shows exactly as many
+              // rows as labels will print.
+              var dashTotalUnits = order.items.reduce(function(sum, it) {
+                var q = parseInt(it.quantity, 10);
+                return sum + (isNaN(q) || q < 1 ? 1 : q);
+              }, 0);
+              var dashUnitCounter = 0;
+              order.items.forEach(function(item) {
+                var qty = parseInt(item.quantity, 10);
+                if (isNaN(qty) || qty < 1) qty = 1;
+                for (var unit = 0; unit < qty; unit++) {
+                  dashUnitCounter++;
+                  html += '<div><span><strong>' + item.product + '</strong>' + (item.specialInstructions ? ' <span style="color:#dc2626;font-weight:normal;font-size:12px">(' + item.specialInstructions + ')</span>' : '') + '</span> <span><strong>' + dashUnitCounter + ' of ' + dashTotalUnits + '</strong></span></div>';
+                }
               });
             }
             html += '</div>';
