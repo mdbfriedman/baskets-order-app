@@ -901,6 +901,33 @@ async function getAccessToken(serviceAccount) {
   }
 }
 
+// The tab holding order data has already been renamed once this year
+// ("Sheet1" -> "Orders"), which broke every hardcoded 'Sheet1!A:O' range
+// until it was fixed here. Rather than hardcode a name that can go stale
+// again the next time someone renames a tab, this asks Sheets for the
+// real list of tabs in the file and picks whichever one matches a short
+// list of names this data is known to have lived under, falling back to
+// whichever tab is physically first in the file if none match. Cached
+// per warm serverless instance so this doesn't cost an extra API call on
+// every single request.
+let cachedOrdersTabName = null;
+async function resolveOrdersTabName(accessToken, sheetId) {
+  if (cachedOrdersTabName) return cachedOrdersTabName;
+  try {
+    const metaUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=sheets.properties.title`;
+    const metaResp = await fetch(metaUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!metaResp.ok) return 'Orders'; // last known-good name, if the lookup itself fails
+    const metaData = await metaResp.json();
+    const titles = (metaData.sheets || []).map(s => s.properties.title);
+    const candidates = ['Orders', 'Sheet1', 'orders', 'Website Orders', 'BBB Orders'];
+    const match = candidates.find(c => titles.includes(c));
+    cachedOrdersTabName = match || titles[0] || 'Orders';
+    return cachedOrdersTabName;
+  } catch (e) {
+    return 'Orders';
+  }
+}
+
 let storedServiceAccount = null;
 
 // App-level password gate (Sept 2026): the Google service-account setup
@@ -1038,11 +1065,12 @@ export default async function handler(req, res) {
       const accessToken = await getAccessToken(serviceAccount);
 
       const sheetId = '1hW5nnsCyPVxNBXGV1CywgBaE1f9wMQxZEWk-rHu71hM';
+      const tabName = await resolveOrdersTabName(accessToken, sheetId);
       // Was A:L, missing M/N (Product Cost/Delivery Cost -- they round-trip
       // on save but were silently never read back on load through this
       // range) and now O (the new per-item special instructions column).
       // Widened to cover all of them.
-      const range = 'Sheet1!A:O';
+      const range = `${tabName}!A:O`;
 
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}`;
       const response = await fetch(url, {
@@ -1096,8 +1124,22 @@ export default async function handler(req, res) {
       const accessToken = await getAccessToken(serviceAccount);
 
       const sheetId = '1hW5nnsCyPVxNBXGV1CywgBaE1f9wMQxZEWk-rHu71hM';
-      const range = 'Sheet1!A:O';
+      const tabName = await resolveOrdersTabName(accessToken, sheetId);
+      const range = `${tabName}!A:O`;
 
+      // NOTE: previously tried reading the sheet first and writing to an
+      // explicitly computed "next empty row" here, to work around a known
+      // Sheets :append quirk (it can insert after a gap instead of the
+      // true bottom of the data). Reverted -- that approach does a
+      // read-then-write as two separate calls, which is NOT atomic: if two
+      // orders get added within moments of each other (e.g. two people
+      // using the app at once), both could compute the same target row and
+      // the second write would silently overwrite the first order's data.
+      // That's a worse failure mode (real data loss) than the thing it was
+      // trying to fix (a row landing somewhere unexpected but still
+      // findable). :append is a single atomic call on Google's end and
+      // doesn't have that race, so it stays the safer default here even
+      // though it isn't perfect about placement.
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
       const response = await fetch(url, {
         method: 'POST',
@@ -1152,12 +1194,13 @@ export default async function handler(req, res) {
 
       const accessToken = await getAccessToken(serviceAccount);
       const sheetId = '1hW5nnsCyPVxNBXGV1CywgBaE1f9wMQxZEWk-rHu71hM';
+      const tabName = await resolveOrdersTabName(accessToken, sheetId);
 
       // Re-read the sheet fresh and locate the row by order number, rather
       // than trusting a row number the client loaded earlier — someone
       // could have added or removed a row in the sheet in the meantime,
       // and this way an edit can never land on the wrong row.
-      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent('Sheet1!A:O')}`;
+      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(tabName + '!A:O')}`;
       const readResp = await fetch(readUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
       if (!readResp.ok) {
         const errBody = await readResp.text();
@@ -1183,7 +1226,7 @@ export default async function handler(req, res) {
         return;
       }
 
-      const updateRange = `Sheet1!A${rowNumber}:O${rowNumber}`;
+      const updateRange = `${tabName}!A${rowNumber}:O${rowNumber}`;
       const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(updateRange)}?valueInputOption=USER_ENTERED`;
       const updateResp = await fetch(updateUrl, {
         method: 'PUT',
