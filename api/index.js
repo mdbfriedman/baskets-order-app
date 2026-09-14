@@ -1012,45 +1012,17 @@ export default async function handler(req, res) {
     return;
   }
 
-  // GET counterpart of /api/download-doc above, used for both viewing a
-  // PDF and downloading a Word doc from the installed Android app. Real
-  // device testing worked through several attempts to get a file to a
-  // genuinely new top-level tab (needed for Chrome's real PDF viewer, and
-  // for escaping whatever's broken in the installed app's own download
-  // handling): window.open() itself turned out to be blocked as a
-  // pop-up inside that shell, and a FORM POSTed with target="_blank" DID
-  // escape into a new tab (confirmed: it reached this very server) but
-  // Android's hand-off of that navigation dropped the POST body, landing
-  // here with nothing to serve. A GET request carries its data IN the
-  // URL instead of a body, which survives that same hand-off intact
-  // (proven separately: the URL path itself got through fine). All the
-  // content this ever serves is base64 -- simplest, most robust way to
-  // carry arbitrary bytes (including HTML with Hebrew customer notes) in
-  // a query string. `disposition=inline` (PDFs) renders directly via
-  // Chrome's own built-in viewer; `disposition=attachment` (Word docs)
-  // downloads instead.
-  if (req.method === 'GET' && req.url.split('?')[0] === '/api/serve-file') {
-    try {
-      const queryString = req.url.split('?')[1] || '';
-      const params = new URLSearchParams(queryString);
-      const content = params.get('content');
-      const filename = (params.get('filename') || 'download').toString();
-      const mimeType = params.get('mimeType') || 'application/octet-stream';
-      const disposition = params.get('disposition') === 'attachment' ? 'attachment' : 'inline';
-      if (!content) {
-        res.status(400).send('Missing content');
-        return;
-      }
-      const safeFilename = filename.replace(/[\r\n"]/g, '').replace(/[^a-zA-Z0-9 ._()-]/g, '_') || 'download';
-      res.setHeader('Content-Disposition', disposition + '; filename="' + safeFilename + '"');
-      res.setHeader('Content-Type', mimeType);
-      const buffer = Buffer.from(content, 'base64');
-      res.status(200).send(buffer);
-    } catch (error) {
-      res.status(500).send('Error: ' + error.message);
-    }
-    return;
-  }
+  // A GET /api/serve-file?content=<base64>&... route briefly lived here,
+  // carrying a whole generated document's bytes in the query string (a
+  // POST body was confirmed to get dropped by Android's new-tab hand-off
+  // -- see index.html's openGeneratedDocument comment -- so GET seemed
+  // like the fix). It reached the server fine, but Vercel's own edge
+  // network rejects any URL past a length limit far below what a real
+  // label PDF needs ("URI_TOO_LONG", confirmed on the very first real
+  // document tried). Removed in favor of a localStorage-based handoff
+  // that never puts the document's content in a URL at all -- see
+  // app.openGeneratedDocument and the showDoc short-circuit at the
+  // bottom of index.html's script.
 
   if (req.method === 'POST' && req.url === '/api/setup') {
     try {
