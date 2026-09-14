@@ -1543,15 +1543,31 @@
       },
 
       // Downloads (Word docs and the PDF "Download" button): uploads the
-      // document to Vercel Blob storage and triggers the download right
-      // here, in the main app tab -- not through the secondary showDoc
-      // tab used for viewing (see openGeneratedDocument above for why
-      // that tab can't reliably deliver a download on this device, even
-      // with a real Content-Disposition header). A small status banner
-      // at the bottom of the screen shows progress without disturbing
-      // whatever the user was looking at; since the response carries a
-      // real attachment disposition, clicking through to it triggers a
-      // download without actually navigating the page away.
+      // document to Vercel Blob storage, which gives back a real HTTP
+      // URL with a genuine Content-Disposition: attachment header.
+      //
+      // A script-triggered click on that URL -- confirmed dead on the
+      // real device even with that real header, both automatically and
+      // via a direct manual tap on a plain link, and in BOTH the
+      // secondary showDoc tab AND this main app tab -- pointed to
+      // something broader than any one tab or trigger mechanism: this
+      // whole app runs inside Android's "installed home-screen app"
+      // shell (a WebAPK/TWA wrapper around Chrome, with no visible
+      // address bar), and that shell appears to block real downloads
+      // outright, everywhere inside it, regardless of how they're
+      // triggered.
+      //
+      // The one thing that shell can't block is leaving it: an Android
+      // "intent://" link explicitly tells the OS to hand the URL off to
+      // the real, full Chrome app (package=com.android.chrome) --
+      // outside this installed app's wrapper entirely, in an ordinary
+      // browser tab, where downloading a file has never been a problem
+      // anywhere else in this whole saga. So instead of trying (and
+      // failing) to trigger the download silently in-place, this shows a
+      // single explicit "Tap to download" button built from that
+      // intent:// link once the upload finishes, plus a plain https://
+      // fallback link for if intent:// itself doesn't fire for some
+      // reason (e.g. a device without Chrome as the default browser).
       downloadViaBlob: function(filename, content, mimeType, encoding) {
         filename = app.uniqueFilename(filename);
         var base64 = encoding === 'base64' ? content : app.utf8ToBase64(content);
@@ -1576,14 +1592,15 @@
             throw new Error((result.data && result.data.error) || 'Upload failed');
           }
           var url = result.data.downloadUrl;
+          var intentUrl = url.indexOf('https://') === 0
+            ? 'intent://' + url.slice('https://'.length) + '#Intent;scheme=https;package=com.android.chrome;end'
+            : url;
+          var safeIntentAttr = intentUrl.replace(/"/g, '&quot;');
           var safeUrlAttr = url.replace(/"/g, '&quot;');
-          statusEl.innerHTML = 'Downloading ' + safeFilename + '&hellip; <a href="' + safeUrlAttr + '" style="color:#93c5fd">If nothing happens, tap here.</a> <button type="button" onclick="document.getElementById(\'blob-download-status\').remove()" style="margin-left:8px;background:#374151;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer">&times;</button>';
-          var a = document.createElement('a');
-          a.href = url;
-          a.style.display = 'none';
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
+          statusEl.innerHTML =
+            '<div style="margin-bottom:8px">' + safeFilename + ' is ready.</div>' +
+            '<a href="' + safeIntentAttr + '" style="display:inline-block;background:#0f766e;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:bold">⬇️ Tap to download</a>' +
+            '<div style="margin-top:8px;font-size:12px">Trouble downloading? <a href="' + safeUrlAttr + '" style="color:#93c5fd">Try this link instead.</a> <button type="button" onclick="document.getElementById(\'blob-download-status\').remove()" style="margin-left:8px;background:#374151;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer">&times;</button></div>';
         }).catch(function(e) {
           statusEl.innerHTML = 'Couldn’t prepare the download: ' + (e && e.message ? e.message.replace(/</g, '&lt;') : 'unknown error') + ' <button type="button" onclick="document.getElementById(\'blob-download-status\').remove()" style="margin-left:8px;background:#374151;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer">&times;</button>';
         });
