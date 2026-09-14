@@ -1557,13 +1557,15 @@
       // detour through Drive and back. Routes through openGeneratedDocument
       // the same as Word now (see its 'attachment' branch and the showDoc
       // short-circuit at the bottom of this script for how that tab
-      // actually triggers the download -- a plain top-level navigation to
-      // the blob: URL, not an <a download> click, which real-device
-      // testing showed does nothing in this tab's context). Once it's an
-      // actual completed download, Android's own download notification
-      // has a working Share button, and an app like FlashLabel Pro that
-      // expects you to import a file (rather than receive one via Share)
-      // can just browse to it in Downloads directly.
+      // actually triggers the download -- now via a real Vercel Blob HTTP
+      // response with a genuine Content-Disposition header, after an <a
+      // download> click and a client-side octet-stream blob: URL trick
+      // were both tried and confirmed broken in this tab's context). Once
+      // it's an actual completed download, Android's own download
+      // notification has a working Share button, and an app like
+      // FlashLabel Pro that expects you to import a file (rather than
+      // receive one via Share) can just browse to it in Downloads
+      // directly.
       sharePdf: function(doc, filename) {
         var dataUri = doc.output('datauristring');
         var commaIdx = dataUri.indexOf(',');
@@ -2775,53 +2777,64 @@
       }
       try {
         var payload = JSON.parse(raw);
-        var binary = atob(payload.content);
-        var bytes = new Uint8Array(binary.length);
-        for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        // Used to try an <a download> click here for 'attachment'
-        // content (Word docs) -- real-device testing showed that does
-        // nothing in this tab's context, neither fired automatically nor
-        // tapped manually (confirmed via screenshot, and the user
-        // confirmed Word downloads have in fact never worked through
-        // this whole engagement). The one thing proven to actually work
-        // in this exact tab is a plain top-level navigation to the blob:
-        // URL -- that's how the PDF/inline path already renders the
-        // native viewer, and real (headful) browser testing confirms the
-        // SAME navigation also makes Chrome fall back to its normal
-        // "download this" behavior automatically for a type it can't
-        // render inline (like a .doc file), with no <a download>
-        // involved at all. So both cases now just navigate; the browser
-        // decides view-vs-download purely from the blob's declared mime
-        // type. That's exactly the trap for a PDF "download": PDF is
-        // ALWAYS one of Chrome's renderable types, so navigating to a
-        // blob: URL still typed application/pdf just opens the viewer
-        // again no matter what disposition we intended -- confirmed on
-        // the real device, both the PDF and Download buttons just opened
-        // the PDF, nothing ever reached Downloads. Fixed by declaring the
-        // Blob itself as application/octet-stream for 'attachment'
-        // content specifically (PDF or Word alike) -- Chrome can't render
-        // that inline no matter what the real bytes are, so it always
-        // falls back to a real download, the same way it already does
-        // for Word's actual (non-renderable) msword type. Trade-off: with
-        // no <a download> and no real Content-Disposition header to carry
-        // our nice filename, Chrome names the saved file itself (a
-        // generic/UUID-ish name), not payload.filename -- a real
-        // regression from before this whole saga, but a saved-with-an-
-        // ugly-name file beats a file that never saves at all.
-        var blobType = payload.disposition === 'attachment' ? 'application/octet-stream' : payload.mimeType;
-        var blob = new Blob([bytes], { type: blobType });
-        var blobUrl = URL.createObjectURL(blob);
-        // A renderable type (PDF, 'inline') navigates this tab away
-        // entirely, so the fallback text below never has time to matter;
-        // a forced download doesn't navigate the tab away, so it stays up
-        // to confirm what happened, with a plain (non-download-attribute)
-        // link to retry the same navigation manually if needed.
         var safeFilename = payload.filename.replace(/</g, '&lt;');
         if (payload.disposition === 'attachment') {
-          var safeHrefAttr = blobUrl.replace(/"/g, '&quot;');
-          document.body.innerHTML = '<div style="font-family:sans-serif;padding:24px;text-align:center">Downloading ' + safeFilename + '&hellip;<br><br>If nothing happens, <a href="' + safeHrefAttr + '">tap here.</a></div>';
+          // Tried, in order: an <a download> click (confirmed dead in
+          // this tab, neither automatic nor a manual tap did anything);
+          // then a client-side Blob typed application/octet-stream,
+          // navigated to directly, to force Chrome out of its "I can
+          // render this" viewer path. That last one DID land a real file
+          // in Downloads -- but a blob: URL can't carry an HTTP
+          // Content-Disposition header, so Android had nothing to name
+          // or type the file from and saved it as a bare UUID with no
+          // extension, which nothing (not even "Open" from the download
+          // notification, not FlashLabel Pro's own import picker) could
+          // then recognize as a PDF or Word doc.
+          //
+          // A real Content-Disposition header needs a real HTTP
+          // response, so this now uploads the bytes to Vercel Blob
+          // storage (POST /api/upload-doc -- a plain background fetch
+          // from THIS already-open tab, not a form submission opening a
+          // new one, so it isn't subject to the POST-body-dropping
+          // problem a couple of attempts ago in this saga) and gets back
+          // a real https:// URL that Vercel Blob serves with
+          // `?download=1` forcing a genuine attachment disposition and
+          // the correct type/filename, regardless of the file's actual
+          // content type -- see api/index.js's /api/upload-doc for the
+          // full explanation. Then just location.replace()s to it: a
+          // same-tab navigation, not a new popup, so it isn't subject to
+          // pop-up blocking even though it's happening after an awaited
+          // fetch (which can cost the "user activation" a freshly opened
+          // popup would need).
+          document.body.innerHTML = '<div style="font-family:sans-serif;padding:24px;text-align:center">Preparing ' + safeFilename + '&hellip;</div>';
+          fetch('/api/upload-doc', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: payload.content, filename: payload.filename, mimeType: payload.mimeType })
+          }).then(function(r) {
+            return r.json().then(function(data) { return { ok: r.ok, data: data }; });
+          }).then(function(result) {
+            if (!result.ok || !result.data || !result.data.downloadUrl) {
+              throw new Error((result.data && result.data.error) || 'Upload failed');
+            }
+            var safeUrlAttr = result.data.downloadUrl.replace(/"/g, '&quot;');
+            document.body.innerHTML = '<div style="font-family:sans-serif;padding:24px;text-align:center">Downloading ' + safeFilename + '&hellip;<br><br>If nothing happens, <a href="' + safeUrlAttr + '">tap here.</a></div>';
+            location.replace(result.data.downloadUrl);
+          }).catch(function(e) {
+            document.body.innerHTML = '<div style="font-family:sans-serif;padding:24px;text-align:center">Couldn’t prepare the download: ' + (e && e.message ? e.message.replace(/</g, '&lt;') : 'unknown error') + '<br><br>Please go back and try again.</div>';
+          });
+        } else {
+          // Inline (PDF view): unchanged from before -- a client-side
+          // blob: URL is exactly what's wanted here, and it's been
+          // confirmed reliable on the real device (renders in Chrome's
+          // own native viewer). No server round trip needed for this
+          // path at all.
+          var binary = atob(payload.content);
+          var bytes = new Uint8Array(binary.length);
+          for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+          var blob = new Blob([bytes], { type: payload.mimeType });
+          location.replace(URL.createObjectURL(blob));
         }
-        location.replace(blobUrl);
       } catch (e) {
         document.body.innerHTML = '<div style="font-family:sans-serif;padding:24px;text-align:center">Something went wrong showing this document: ' + (e && e.message ? e.message.replace(/</g, '&lt;') : 'unknown error') + '</div>';
       }
