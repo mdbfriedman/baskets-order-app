@@ -2778,8 +2778,6 @@
         var binary = atob(payload.content);
         var bytes = new Uint8Array(binary.length);
         for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        var blob = new Blob([bytes], { type: payload.mimeType });
-        var blobUrl = URL.createObjectURL(blob);
         // Used to try an <a download> click here for 'attachment'
         // content (Word docs) -- real-device testing showed that does
         // nothing in this tab's context, neither fired automatically nor
@@ -2793,11 +2791,30 @@
         // "download this" behavior automatically for a type it can't
         // render inline (like a .doc file), with no <a download>
         // involved at all. So both cases now just navigate; the browser
-        // decides view-vs-download from the mime type on its own. A
-        // renderable type navigates this tab away entirely (so the
-        // fallback text below never has time to matter); a download
-        // doesn't navigate the tab away, so the fallback stays up to
-        // confirm what happened, with a plain (non-download-attribute)
+        // decides view-vs-download purely from the blob's declared mime
+        // type. That's exactly the trap for a PDF "download": PDF is
+        // ALWAYS one of Chrome's renderable types, so navigating to a
+        // blob: URL still typed application/pdf just opens the viewer
+        // again no matter what disposition we intended -- confirmed on
+        // the real device, both the PDF and Download buttons just opened
+        // the PDF, nothing ever reached Downloads. Fixed by declaring the
+        // Blob itself as application/octet-stream for 'attachment'
+        // content specifically (PDF or Word alike) -- Chrome can't render
+        // that inline no matter what the real bytes are, so it always
+        // falls back to a real download, the same way it already does
+        // for Word's actual (non-renderable) msword type. Trade-off: with
+        // no <a download> and no real Content-Disposition header to carry
+        // our nice filename, Chrome names the saved file itself (a
+        // generic/UUID-ish name), not payload.filename -- a real
+        // regression from before this whole saga, but a saved-with-an-
+        // ugly-name file beats a file that never saves at all.
+        var blobType = payload.disposition === 'attachment' ? 'application/octet-stream' : payload.mimeType;
+        var blob = new Blob([bytes], { type: blobType });
+        var blobUrl = URL.createObjectURL(blob);
+        // A renderable type (PDF, 'inline') navigates this tab away
+        // entirely, so the fallback text below never has time to matter;
+        // a forced download doesn't navigate the tab away, so it stays up
+        // to confirm what happened, with a plain (non-download-attribute)
         // link to retry the same navigation manually if needed.
         var safeFilename = payload.filename.replace(/</g, '&lt;');
         if (payload.disposition === 'attachment') {
