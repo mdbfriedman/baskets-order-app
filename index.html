@@ -1498,10 +1498,27 @@
       // same page with that id in a short query string. A short-circuit
       // at the bottom of this very script (search "showDoc=") notices
       // that id, pulls the real content back out of localStorage, and
-      // shows or downloads it -- entirely within that freshly opened
-      // tab's own context, which is the "normal browser tab" scenario
-      // the original bug report said already worked fine.
-      openGeneratedDocument: function(filename, content, mimeType, encoding, disposition) {
+      // shows it -- entirely within that freshly opened tab's own
+      // context, which is the "normal browser tab" scenario the original
+      // bug report said already worked fine.
+      //
+      // Only used for VIEWING a PDF now (see downloadViaBlob below for
+      // downloads) -- that new tab gets demoted by Android to a stripped
+      // "mini browser" (Custom Tab) window since it falls outside the
+      // installed app's verified scope, and while that window can render
+      // a page just fine (confirmed reliable for viewing a PDF via a
+      // blob: URL), every download-triggering mechanism tried inside it
+      // came back dead on the real device: an <a download> click (neither
+      // automatic nor manual), a client-side octet-stream blob: URL, and
+      // even a real cross-origin HTTPS navigation to a Vercel Blob URL
+      // with a genuine Content-Disposition: attachment header (again
+      // neither automatic nor a manual tap on a plain link did anything).
+      // That's a strong signal Android/Chrome restricts downloads
+      // specifically in this demoted out-of-scope Custom Tab, regardless
+      // of mechanism -- so downloads are now triggered directly from the
+      // main, already-installed, in-scope app tab instead (see
+      // downloadViaBlob), never through this secondary tab at all.
+      openGeneratedDocument: function(filename, content, mimeType, encoding) {
         try {
           filename = app.uniqueFilename(filename);
           var base64 = encoding === 'base64' ? content : app.utf8ToBase64(content);
@@ -1510,8 +1527,7 @@
           localStorage.setItem('doc_' + id, JSON.stringify({
             content: base64,
             mimeType: fullMimeType,
-            filename: filename,
-            disposition: disposition
+            filename: filename
           }));
           var a = document.createElement('a');
           a.href = location.pathname + '?showDoc=' + encodeURIComponent(id);
@@ -1526,12 +1542,57 @@
         }
       },
 
-      // Word/.doc downloads: opens a new tab that immediately triggers a
-      // real download (see openGeneratedDocument and the showDoc
-      // short-circuit at the bottom of this script for how that tab
-      // actually delivers the file).
+      // Downloads (Word docs and the PDF "Download" button): uploads the
+      // document to Vercel Blob storage and triggers the download right
+      // here, in the main app tab -- not through the secondary showDoc
+      // tab used for viewing (see openGeneratedDocument above for why
+      // that tab can't reliably deliver a download on this device, even
+      // with a real Content-Disposition header). A small status banner
+      // at the bottom of the screen shows progress without disturbing
+      // whatever the user was looking at; since the response carries a
+      // real attachment disposition, clicking through to it triggers a
+      // download without actually navigating the page away.
+      downloadViaBlob: function(filename, content, mimeType, encoding) {
+        filename = app.uniqueFilename(filename);
+        var base64 = encoding === 'base64' ? content : app.utf8ToBase64(content);
+        var fullMimeType = encoding === 'base64' ? mimeType : (mimeType + '; charset=utf-8');
+        var safeFilename = filename.replace(/</g, '&lt;');
+        var statusEl = document.getElementById('blob-download-status');
+        if (!statusEl) {
+          statusEl = document.createElement('div');
+          statusEl.id = 'blob-download-status';
+          statusEl.style.cssText = 'position:fixed;left:0;right:0;bottom:0;background:#111827;color:#fff;padding:12px 16px;font-family:sans-serif;font-size:14px;text-align:center;z-index:99999;box-shadow:0 -2px 8px rgba(0,0,0,0.2)';
+          document.body.appendChild(statusEl);
+        }
+        statusEl.innerHTML = 'Preparing ' + safeFilename + '&hellip;';
+        fetch('/api/upload-doc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: base64, filename: filename, mimeType: fullMimeType })
+        }).then(function(r) {
+          return r.json().then(function(data) { return { ok: r.ok, data: data }; });
+        }).then(function(result) {
+          if (!result.ok || !result.data || !result.data.downloadUrl) {
+            throw new Error((result.data && result.data.error) || 'Upload failed');
+          }
+          var url = result.data.downloadUrl;
+          var safeUrlAttr = url.replace(/"/g, '&quot;');
+          statusEl.innerHTML = 'Downloading ' + safeFilename + '&hellip; <a href="' + safeUrlAttr + '" style="color:#93c5fd">If nothing happens, tap here.</a> <button type="button" onclick="document.getElementById(\'blob-download-status\').remove()" style="margin-left:8px;background:#374151;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer">&times;</button>';
+          var a = document.createElement('a');
+          a.href = url;
+          a.style.display = 'none';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        }).catch(function(e) {
+          statusEl.innerHTML = 'Couldn’t prepare the download: ' + (e && e.message ? e.message.replace(/</g, '&lt;') : 'unknown error') + ' <button type="button" onclick="document.getElementById(\'blob-download-status\').remove()" style="margin-left:8px;background:#374151;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer">&times;</button>';
+        });
+      },
+
+      // Word/.doc downloads: see downloadViaBlob above for how this
+      // actually delivers the file.
       triggerFileDownload: function(filename, content, mimeType, encoding) {
-        app.openGeneratedDocument(filename, content, mimeType, encoding, 'attachment');
+        app.downloadViaBlob(filename, content, mimeType, encoding);
       },
 
       // PDFs: opens a new tab that shows the PDF directly via Chrome's
@@ -1545,7 +1606,7 @@
         var dataUri = doc.output('datauristring');
         var commaIdx = dataUri.indexOf(',');
         var base64 = commaIdx === -1 ? dataUri : dataUri.slice(commaIdx + 1);
-        app.openGeneratedDocument(filename, base64, 'application/pdf', 'base64', 'inline');
+        app.openGeneratedDocument(filename, base64, 'application/pdf', 'base64');
       },
 
       // First version of this tried navigator.share() directly, but real
@@ -1554,23 +1615,19 @@
       // treatment for a blob: URL, since it falls outside the installed
       // app's verified scope), and Share through that context behaved
       // inconsistently -- a share target only "worked" after an unrelated
-      // detour through Drive and back. Routes through openGeneratedDocument
-      // the same as Word now (see its 'attachment' branch and the showDoc
-      // short-circuit at the bottom of this script for how that tab
-      // actually triggers the download -- now via a real Vercel Blob HTTP
-      // response with a genuine Content-Disposition header, after an <a
-      // download> click and a client-side octet-stream blob: URL trick
-      // were both tried and confirmed broken in this tab's context). Once
-      // it's an actual completed download, Android's own download
-      // notification has a working Share button, and an app like
-      // FlashLabel Pro that expects you to import a file (rather than
-      // receive one via Share) can just browse to it in Downloads
+      // detour through Drive and back. Routes through downloadViaBlob now
+      // (see its comment above for the full history of what was tried and
+      // ruled out in that secondary tab before moving downloads to the
+      // main app tab). Once it's an actual completed download, Android's
+      // own download notification has a working Share button, and an app
+      // like FlashLabel Pro that expects you to import a file (rather
+      // than receive one via Share) can just browse to it in Downloads
       // directly.
       sharePdf: function(doc, filename) {
         var dataUri = doc.output('datauristring');
         var commaIdx = dataUri.indexOf(',');
         var base64 = commaIdx === -1 ? dataUri : dataUri.slice(commaIdx + 1);
-        app.openGeneratedDocument(filename, base64, 'application/pdf', 'base64', 'attachment');
+        app.downloadViaBlob(filename, base64, 'application/pdf', 'base64');
       },
 
       downloadLabels: function() {
@@ -2753,12 +2810,20 @@
 
     // The other half of app.openGeneratedDocument above: this page can
     // also be opened fresh in a brand new tab with ?showDoc=<id> in the
-    // URL (that's what the PDF/Word buttons do now instead of trying to
-    // carry the document itself through the navigation). When that's how
-    // we got here, pull the real content back out of localStorage under
-    // that id, show or download it right here, and skip the entire rest
-    // of the normal app boot below (password gate, order loading, etc.)
-    // -- none of that is relevant to "just show me this one document."
+    // URL (that's what the PDF "View" button does, to show the label in
+    // Chrome's own native viewer). When that's how we got here, pull the
+    // real content back out of localStorage under that id, render it
+    // right here, and skip the entire rest of the normal app boot below
+    // (password gate, order loading, etc.) -- none of that is relevant
+    // to "just show me this one document."
+    //
+    // Downloads no longer go through this tab at all -- see
+    // app.downloadViaBlob for why (this tab's demoted "mini browser"
+    // Custom Tab context turned out to block every download mechanism
+    // tried, including a real Vercel Blob response with a genuine
+    // Content-Disposition: attachment header, even though it renders a
+    // page just fine, which is all viewing a PDF needs).
+    //
     // Returns true if it handled a showDoc request (whether or not the
     // document was actually found), false for a completely normal load.
     function showGeneratedDocumentIfRequested() {
@@ -2777,64 +2842,14 @@
       }
       try {
         var payload = JSON.parse(raw);
-        var safeFilename = payload.filename.replace(/</g, '&lt;');
-        if (payload.disposition === 'attachment') {
-          // Tried, in order: an <a download> click (confirmed dead in
-          // this tab, neither automatic nor a manual tap did anything);
-          // then a client-side Blob typed application/octet-stream,
-          // navigated to directly, to force Chrome out of its "I can
-          // render this" viewer path. That last one DID land a real file
-          // in Downloads -- but a blob: URL can't carry an HTTP
-          // Content-Disposition header, so Android had nothing to name
-          // or type the file from and saved it as a bare UUID with no
-          // extension, which nothing (not even "Open" from the download
-          // notification, not FlashLabel Pro's own import picker) could
-          // then recognize as a PDF or Word doc.
-          //
-          // A real Content-Disposition header needs a real HTTP
-          // response, so this now uploads the bytes to Vercel Blob
-          // storage (POST /api/upload-doc -- a plain background fetch
-          // from THIS already-open tab, not a form submission opening a
-          // new one, so it isn't subject to the POST-body-dropping
-          // problem a couple of attempts ago in this saga) and gets back
-          // a real https:// URL that Vercel Blob serves with
-          // `?download=1` forcing a genuine attachment disposition and
-          // the correct type/filename, regardless of the file's actual
-          // content type -- see api/index.js's /api/upload-doc for the
-          // full explanation. Then just location.replace()s to it: a
-          // same-tab navigation, not a new popup, so it isn't subject to
-          // pop-up blocking even though it's happening after an awaited
-          // fetch (which can cost the "user activation" a freshly opened
-          // popup would need).
-          document.body.innerHTML = '<div style="font-family:sans-serif;padding:24px;text-align:center">Preparing ' + safeFilename + '&hellip;</div>';
-          fetch('/api/upload-doc', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: payload.content, filename: payload.filename, mimeType: payload.mimeType })
-          }).then(function(r) {
-            return r.json().then(function(data) { return { ok: r.ok, data: data }; });
-          }).then(function(result) {
-            if (!result.ok || !result.data || !result.data.downloadUrl) {
-              throw new Error((result.data && result.data.error) || 'Upload failed');
-            }
-            var safeUrlAttr = result.data.downloadUrl.replace(/"/g, '&quot;');
-            document.body.innerHTML = '<div style="font-family:sans-serif;padding:24px;text-align:center">Downloading ' + safeFilename + '&hellip;<br><br>If nothing happens, <a href="' + safeUrlAttr + '">tap here.</a></div>';
-            location.replace(result.data.downloadUrl);
-          }).catch(function(e) {
-            document.body.innerHTML = '<div style="font-family:sans-serif;padding:24px;text-align:center">Couldn’t prepare the download: ' + (e && e.message ? e.message.replace(/</g, '&lt;') : 'unknown error') + '<br><br>Please go back and try again.</div>';
-          });
-        } else {
-          // Inline (PDF view): unchanged from before -- a client-side
-          // blob: URL is exactly what's wanted here, and it's been
-          // confirmed reliable on the real device (renders in Chrome's
-          // own native viewer). No server round trip needed for this
-          // path at all.
-          var binary = atob(payload.content);
-          var bytes = new Uint8Array(binary.length);
-          for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-          var blob = new Blob([bytes], { type: payload.mimeType });
-          location.replace(URL.createObjectURL(blob));
-        }
+        // A client-side blob: URL is exactly what's wanted for viewing --
+        // confirmed reliable on the real device (renders in Chrome's own
+        // native viewer). No server round trip needed for this path.
+        var binary = atob(payload.content);
+        var bytes = new Uint8Array(binary.length);
+        for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        var blob = new Blob([bytes], { type: payload.mimeType });
+        location.replace(URL.createObjectURL(blob));
       } catch (e) {
         document.body.innerHTML = '<div style="font-family:sans-serif;padding:24px;text-align:center">Something went wrong showing this document: ' + (e && e.message ? e.message.replace(/</g, '&lt;') : 'unknown error') + '</div>';
       }
