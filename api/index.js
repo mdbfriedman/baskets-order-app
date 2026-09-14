@@ -1036,23 +1036,30 @@ export default async function handler(req, res) {
   // Word doc. A client-side blob: URL fundamentally can't carry a
   // filename or a real disposition; only an actual HTTP response can.
   //
-  // This endpoint is that actual HTTP response. index.html's showDoc tab
-  // POSTs the generated content here (a plain background fetch from a
-  // tab that's already open -- not a form submission opening a NEW tab,
-  // so it isn't subject to the POST-body-dropping problem above, which
-  // was specifically about Android's handling of *opening* a tab via a
-  // POST). This uploads the bytes to Vercel Blob storage and hands back
-  // a real https:// URL with `?download=1`, which Vercel Blob serves
-  // with a genuine Content-Disposition: attachment header and the
-  // correct Content-Type built from the real filename -- something no
-  // client-side trick in this tab's restricted context can fake. The
-  // showDoc tab then does a plain location.replace() to that URL (a
-  // same-tab navigation, not a new popup, so it isn't subject to
-  // pop-up blocking either). Requires a Blob store to be connected to
-  // this Vercel project (Storage tab in the dashboard -- Vercel wires up
-  // the needed credentials automatically once one exists); if none is
-  // connected yet, this fails with a clear error rather than a silent
-  // one.
+  // This endpoint is that actual HTTP response. It uploads the bytes to
+  // Vercel Blob storage and hands back a real https:// URL with
+  // `?download=1`, which Vercel Blob serves with a genuine
+  // Content-Disposition: attachment header and the correct Content-Type
+  // built from the real filename -- something no client-side trick can
+  // fake. Requires a Blob store to be connected to this Vercel project
+  // (Storage tab in the dashboard -- Vercel wires up the needed
+  // credentials automatically once one exists, but only takes effect on
+  // the *next* deployment after connecting it); if none is connected
+  // yet, this fails with a clear error rather than a silent one.
+  //
+  // First tried calling this from the showDoc tab (see
+  // app.openGeneratedDocument in index.html) and location.replace()-ing
+  // it there to the returned URL -- but on the real device that did
+  // nothing at all, automatic or a manual tap on a plain link, even with
+  // the real Content-Disposition header above. That showDoc tab is
+  // itself a secondary tab Android demotes to a stripped-down "mini
+  // browser" Custom Tab (it falls outside the installed app's verified
+  // scope), and it can render a page fine -- that's all viewing a PDF
+  // ever needed -- but appears to block downloads specifically,
+  // regardless of mechanism. So this is now called directly from the
+  // main, already-installed, in-scope app tab instead (see
+  // app.downloadViaBlob in index.html), with no secondary tab involved
+  // in downloads at all.
   if (req.method === 'POST' && req.url === '/api/upload-doc') {
     try {
       const filename = (req.body && req.body.filename || 'download').toString();
