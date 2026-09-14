@@ -1548,6 +1548,35 @@
         app.openGeneratedDocument(filename, base64, 'application/pdf', 'base64', 'inline');
       },
 
+      // Chrome's own PDF viewer doesn't expose a Share option for a
+      // blob: URL the way it does for a real hosted link (nothing
+      // external can resolve a blob: URL, so there's nothing for it to
+      // share) -- that's why Share "doesn't come up automatically" once
+      // the PDF is open. This is a separate, explicit action instead:
+      // hands the PDF straight to the device's native share sheet
+      // (WhatsApp, Mail, Drive, AirDrop, etc.) via the Web Share API.
+      // Must run synchronously from the button's click handler (jsPDF's
+      // blob output is synchronous) so the browser still counts it as
+      // directly tied to the user's tap -- navigator.share() requires
+      // that "user activation" or it refuses outright.
+      sharePdf: function(doc, filename) {
+        try {
+          filename = app.uniqueFilename(filename);
+          var blob = doc.output('blob');
+          var file = new File([blob], filename, { type: 'application/pdf' });
+          if (!navigator.share || !navigator.canShare || !navigator.canShare({ files: [file] })) {
+            showDiagnosticError('Sharing isn’t available in this browser -- use the PDF button to view it, then use Chrome’s own download/share option instead.');
+            return;
+          }
+          navigator.share({ files: [file], title: filename }).catch(function(e) {
+            if (e && e.name === 'AbortError') return; // user backed out of the share sheet, not a failure
+            showDiagnosticError('Share failed: ' + (e && e.message));
+          });
+        } catch (e) {
+          showDiagnosticError('Failed to share the document: ' + (e && e.message));
+        }
+      },
+
       downloadLabels: function() {
         var dayOrders = app.getOrdersForDate(app.selectedDate);
         if (dayOrders.length === 0) {
@@ -1835,6 +1864,16 @@
         app.viewPdfInNewTab(app.buildLabelsPdf([order]), 'BasketsByBlimi_' + app.selectedDate + '_' + cleanName + '.pdf');
       },
 
+      shareOrderPdf: function(orderIdx) {
+        var dayOrders = app.getOrdersForDate(app.selectedDate);
+        if (orderIdx < 0 || orderIdx >= dayOrders.length) { alert('Order not found'); return; }
+        var order = dayOrders[orderIdx];
+        if (!order.items) { alert('No items in this order'); return; }
+        if (!window.jspdf) { alert('PDF library failed to load -- check your internet connection and try again.'); return; }
+        var cleanName = app.cleanLastName(order.lastName);
+        app.sharePdf(app.buildLabelsPdf([order]), 'BasketsByBlimi_' + app.selectedDate + '_' + cleanName + '.pdf');
+      },
+
       // Categorized "Export Day" PDF (Sep): a Letter-page, easy-to-scan
       // table of one day's product totals grouped into Fruit (Platters &
       // Trays / Oz Fruit Cups / Glass Fruit Cups) / Salad (Salads / Salad
@@ -1951,6 +1990,13 @@
         if (dayOrders.length === 0) { alert('No orders to export'); return; }
         if (!window.jspdf) { alert('PDF library failed to load -- check your internet connection and try again.'); return; }
         app.viewPdfInNewTab(app.buildDayExportPdf(app.selectedDate), 'BasketsByBlimi_' + app.selectedDate + '_DayExport.pdf');
+      },
+
+      shareDayExportPdf: function() {
+        var dayOrders = app.getOrdersForDate(app.selectedDate);
+        if (dayOrders.length === 0) { alert('No orders to export'); return; }
+        if (!window.jspdf) { alert('PDF library failed to load -- check your internet connection and try again.'); return; }
+        app.sharePdf(app.buildDayExportPdf(app.selectedDate), 'BasketsByBlimi_' + app.selectedDate + '_DayExport.pdf');
       },
 
       // Switches which label size print/download use, and remembers the
@@ -2513,6 +2559,13 @@
         app.viewPdfInNewTab(app.buildLabelsPdf(selected), 'BasketsByBlimi_' + app.selectedDate + '_Selected_Labels.pdf');
       },
 
+      shareSelectedPdf: function() {
+        var selected = app.getSelectedOrders();
+        if (selected.length === 0) { alert('No orders selected'); return; }
+        if (!window.jspdf) { alert('PDF library failed to load -- check your internet connection and try again.'); return; }
+        app.sharePdf(app.buildLabelsPdf(selected), 'BasketsByBlimi_' + app.selectedDate + '_Selected_Labels.pdf');
+      },
+
       render: function() {
         var appDiv = document.getElementById('app');
 
@@ -2623,7 +2676,7 @@
           '<button onclick="app.selectAllOrders()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#6b7280;color:white;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px">Select All</button>' +
           '<button onclick="app.clearOrderSelection()" ' + (selectedCount === 0 ? 'disabled' : '') + ' style="background:#6b7280;color:white;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px">Clear</button>' +
           '</div>';
-        html += '<div class="action-buttons"><button class="print-btn" onclick="app.printSelected()" ' + (selectedCount === 0 ? 'disabled' : '') + ' style="background:#7c3aed">🖨️ Print Selected (' + selectedCount + ')</button><button class="print-btn" onclick="app.downloadSelected()" ' + (selectedCount === 0 ? 'disabled' : '') + ' style="background:#2563eb">📥 Word Selected (' + selectedCount + ')</button><button class="print-btn" onclick="app.downloadSelectedPdf()" ' + (selectedCount === 0 ? 'disabled' : '') + ' title="Correctly label-sized PDF, for printing from your phone (e.g. FlashLabel Pro)" style="background:#0f766e">📄 PDF Selected (' + selectedCount + ')</button></div>';
+        html += '<div class="action-buttons"><button class="print-btn" onclick="app.printSelected()" ' + (selectedCount === 0 ? 'disabled' : '') + ' style="background:#7c3aed">🖨️ Print Selected (' + selectedCount + ')</button><button class="print-btn" onclick="app.downloadSelected()" ' + (selectedCount === 0 ? 'disabled' : '') + ' style="background:#2563eb">📥 Word Selected (' + selectedCount + ')</button><button class="print-btn" onclick="app.downloadSelectedPdf()" ' + (selectedCount === 0 ? 'disabled' : '') + ' title="Correctly label-sized PDF, for printing from your phone (e.g. FlashLabel Pro)" style="background:#0f766e">📄 PDF Selected (' + selectedCount + ')</button><button class="print-btn" onclick="app.shareSelectedPdf()" ' + (selectedCount === 0 ? 'disabled' : '') + ' title="Share this PDF directly (WhatsApp, Mail, Drive, etc.)" style="background:#0f766e">📤 Share Selected (' + selectedCount + ')</button></div>';
 
         // Export Day moved below the other action buttons (was the very
         // first button on the page, right under the date nav) -- reported
@@ -2631,7 +2684,7 @@
         // up there; grouped down here with the other buttons that were
         // already confirmed working.
         if (categorizedTotals.length > 0) {
-          html += '<div class="action-buttons"><button class="print-btn" onclick="app.downloadDayExportPdf()" title="Categorized, easy-to-scan PDF of this day\'s totals -- fruit platters by size, fruit cups, salads by type & size, smoothies" style="background:#7c3aed">📊 Export Day (PDF)</button></div>';
+          html += '<div class="action-buttons"><button class="print-btn" onclick="app.downloadDayExportPdf()" title="Categorized, easy-to-scan PDF of this day\'s totals -- fruit platters by size, fruit cups, salads by type & size, smoothies" style="background:#7c3aed">📊 Export Day (PDF)</button><button class="print-btn" onclick="app.shareDayExportPdf()" title="Share this PDF directly (WhatsApp, Mail, Drive, etc.)" style="background:#0f766e">📤 Share Export</button></div>';
         }
 
         if (dayOrders.length === 0) {
@@ -2661,7 +2714,7 @@
             // unreachable/invisible on some orders. justify-content:
             // flex-end keeps them right-aligned like before when they do
             // fit on one line.
-            html += '</div></div><div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#6b7280;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">✏️ Edit</button><button onclick="app.printOrder(' + orderIdx + ')" title="Print this order\'s label(s) straight to your label printer" style="background:#7c3aed;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">🖨️ Print</button><button onclick="app.downloadOrder(' + orderIdx + ')" style="background:#2563eb;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📥 Word</button><button onclick="app.downloadOrderPdf(' + orderIdx + ')" title="Correctly label-sized PDF, for printing from your phone" style="background:#0f766e;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📄 PDF</button></div></div>';
+            html += '</div></div><div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#6b7280;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">✏️ Edit</button><button onclick="app.printOrder(' + orderIdx + ')" title="Print this order\'s label(s) straight to your label printer" style="background:#7c3aed;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">🖨️ Print</button><button onclick="app.downloadOrder(' + orderIdx + ')" style="background:#2563eb;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📥 Word</button><button onclick="app.downloadOrderPdf(' + orderIdx + ')" title="Correctly label-sized PDF, for printing from your phone" style="background:#0f766e;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📄 PDF</button><button onclick="app.shareOrderPdf(' + orderIdx + ')" title="Share this PDF directly (WhatsApp, Mail, Drive, etc.)" style="background:#0f766e;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📤 Share</button></div></div>';
             html += '<div class="order-items">';
             if (order.items) {
               // One row per physical UNIT, numbered against the order's
