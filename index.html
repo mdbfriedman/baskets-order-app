@@ -1548,38 +1548,50 @@
         openDataUriTab();
       },
 
-      // PDFs are shown, not downloaded. After chasing the download side of
-      // this (jsPDF's own .save(), then routing through the same
-      // mechanism as Word downloads, then Web Share) the user made clear
-      // what they actually want is simpler: tap the button, see the label
-      // right away, no save step and no share-sheet detour through
-      // another app. So instead of trying to get a FILE to land
-      // somewhere, this opens a new tab and embeds the PDF directly for
-      // viewing via Chrome's own built-in PDF viewer (the same one that
-      // renders any .pdf URL) -- from there the user can use that
-      // viewer's own print/download icons if they want a copy, but the
-      // default action is just seeing it. This sidesteps the download
-      // manager entirely, which is the piece that kept failing inside the
-      // installed app's shell no matter how the file was delivered to it.
+      // PDFs are shown, not downloaded -- the user wants to tap the
+      // button and see the label right away, no save step, no
+      // share-sheet detour through another app. Chrome's full, polished
+      // built-in PDF viewer only kicks in for a genuine top-level
+      // navigation to a real PDF resource -- not one embedded via
+      // <embed>/<iframe> (tried: came out as a cramped fallback preview),
+      // and not a data: URL (tried: Chrome BLOCKS a script-initiated
+      // top-level navigation to one outright -- confirmed by testing,
+      // not assumed -- so that tab just sat on about:blank). Getting
+      // there also turned out to need a specific escape route: real
+      // device testing (screenshotted by the user) showed window.open()
+      // itself is being blocked as a pop-up inside this installed app's
+      // shell, and navigator.share() is denied permission entirely. The
+      // one thing proven to actually work on this device is a real <a>
+      // (or <form>) with target="_blank", clicked/submitted directly --
+      // that's ordinary hyperlink navigation, not a script-driven popup,
+      // so it isn't subject to either restriction. An earlier attempt at
+      // that used a FORM POSTing the PDF bytes to the server, and it DID
+      // reach a new tab (confirmed: it rendered a real page) -- but
+      // Android's hand-off of that navigation drops POST bodies, which
+      // is why that attempt landed on an empty 404 instead of the file.
+      // So this builds a plain GET link instead: the PDF's base64 bytes
+      // travel IN the URL to /api/serve-file (see api/index.js), which
+      // has nothing to lose in transit the way a POST body did, and
+      // responds with disposition=inline so Chrome renders it directly
+      // rather than downloading it.
       viewPdfInNewTab: function(doc, filename) {
-        var dataUri = doc.output('datauristring');
-        var newTab = window.open('', '_blank');
-        if (!newTab) {
-          showDiagnosticError('Could not open a new tab to show the PDF -- check whether pop-ups are blocked for this site.');
-          return;
-        }
-        var safeSrcAttr = dataUri.replace(/"/g, '&quot;');
-        var safeTitleText = filename.replace(/</g, '&lt;').replace(/>/g, '&gt;');
         try {
-          newTab.document.open();
-          newTab.document.write(
-            '<!doctype html><html><head><meta charset="utf-8"><title>' + safeTitleText + '</title>' +
-            '<style>html,body{margin:0;padding:0;height:100%}embed{width:100%;height:100%;border:none}</style>' +
-            '</head><body>' +
-            '<embed src="' + safeSrcAttr + '" type="application/pdf" width="100%" height="100%">' +
-            '</body></html>'
-          );
-          newTab.document.close();
+          var dataUri = doc.output('datauristring');
+          var commaIdx = dataUri.indexOf(',');
+          var base64 = commaIdx === -1 ? dataUri : dataUri.slice(commaIdx + 1);
+          var url = '/api/serve-file'
+            + '?content=' + encodeURIComponent(base64)
+            + '&filename=' + encodeURIComponent(filename)
+            + '&mimeType=' + encodeURIComponent('application/pdf')
+            + '&disposition=inline';
+          var a = document.createElement('a');
+          a.href = url;
+          a.target = '_blank';
+          a.rel = 'noopener';
+          a.style.display = 'none';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
         } catch (e) {
           showDiagnosticError('Failed to open the PDF preview tab: ' + (e && e.message));
         }
