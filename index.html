@@ -1444,59 +1444,108 @@
           : (safe.slice(0, dotIdx) + '_' + suffix + safe.slice(dotIdx));
       },
 
-      // Triggers a real file download via a form POST to
-      // /api/download-doc, instead of the Blob + <a download> trick this
-      // used to use. That trick relies on the browser/WebView both
-      // supporting blob: object URLs and honoring a synthetic click on an
-      // <a download> element — Chrome desktop does, but on Android
-      // (WebViews without a registered download handler, some in-app
-      // browsers, some "installed as an app" PWA/TWA shells) it commonly
-      // does nothing, or looks like it's starting a download that never
-      // actually lands anywhere. A genuine HTTP response carrying
-      // Content-Disposition: attachment is handled by the OS/browser's own
-      // download machinery instead of JS, which works far more broadly --
-      // EXCEPT a first attempt at this posted into a hidden iframe, kept
-      // inside the same "standalone" PWA shell as the rest of the app, and
-      // real Android testing showed that STILL does nothing for either PDF
-      // or Word downloads. That points at the standalone/installed shell
-      // itself having no working download handling at all, regardless of
-      // how the request is made, matching the WebView/TWA caveat above.
-      // Posting with target="_blank" instead hands the whole request off
-      // to a genuine top-level browser tab (on Android, a real Chrome
-      // Custom Tab layered on top of the installed app) -- a separate,
-      // fully-featured browsing context with its own working download
-      // manager, escaping whatever is broken in the constrained shell. The
-      // trade-off is a new tab/window briefly opens for this; for a real
-      // attachment response the browser intercepts it before rendering
-      // anything, so in the success case that tab closes itself or stays
-      // blank rather than showing content.
+      // Triggers a file download/save. Three earlier attempts at this each
+      // failed on the actual Android device before this one:
+      //   1) A blob + <a download> click INSIDE the app's own page -- the
+      //      classic "installed app" download failure this whole chain of
+      //      fixes started from.
+      //   2) A same-page hidden iframe posting to /api/download-doc with a
+      //      real HTTP Content-Disposition: attachment response instead of
+      //      a blob -- confirmed on the device to ALSO do nothing, for
+      //      both the Word and PDF paths. That ruled out "blob vs real
+      //      response" as the variable and pointed at the installed app's
+      //      standalone shell itself having no working download handling
+      //      at all, no matter how the request is made.
+      //   3) Posting that same form with target="_blank" instead of into
+      //      the hidden iframe -- this DID escape into a new top-level
+      //      context (confirmed: it reached the server and rendered a
+      //      real page), but on the device it landed on the server's 404
+      //      page. Android's hand-off of that new-tab navigation dropped
+      //      the POST body, turning it into a bodyless GET request that
+      //      /api/download-doc (POST-only) has no route for.
+      // Rather than guess at a fourth variation of "trigger a browser
+      // download," this now prefers the Web Share API (Level 2, with file
+      // support) when the device offers it. Sharing a File hands it
+      // straight to Android's native share sheet ("Save to Files", Drive,
+      // etc.) -- a completely different OS-level code path from the
+      // browser's own download manager, which is the one thing every
+      // attempt above still funneled through and which the device seems
+      // not to have working inside this installed app's shell at all.
+      // Nothing needs to escape into a second tab for this path, either.
+      // Falls back to opening a fresh top-level tab with a self-contained
+      // page (a real <a download> pointed at a data: URI, auto-clicked
+      // inside THAT tab's own context) wherever Web Share isn't available
+      // -- most desktop browsers, primarily -- or if it fails outright
+      // (not just cancelled by the user).
       triggerFileDownload: function(filename, content, mimeType, encoding) {
         filename = app.uniqueFilename(filename);
 
-        var form = document.createElement('form');
-        form.method = 'POST';
-        form.action = '/api/download-doc';
-        form.target = '_blank';
-        form.style.display = 'none';
-
-        function addField(name, value) {
-          var input = document.createElement('input');
-          input.type = 'hidden';
-          input.name = name;
-          input.value = value;
-          form.appendChild(input);
+        function openDataUriTab() {
+          var newTab = window.open('', '_blank');
+          if (!newTab) {
+            showDiagnosticError('Could not open a new tab for the download -- check whether pop-ups are blocked for this site.');
+            return;
+          }
+          var dataUri = encoding === 'base64'
+            ? ('data:' + mimeType + ';base64,' + content)
+            : ('data:' + mimeType + ';charset=utf-8,' + encodeURIComponent(content));
+          var safeFilenameAttr = filename.replace(/"/g, '&quot;');
+          var safeHrefAttr = dataUri.replace(/"/g, '&quot;');
+          try {
+            newTab.document.open();
+            newTab.document.write(
+              '<!doctype html><html><head><meta charset="utf-8"><title>Downloading…</title></head>' +
+              '<body style="font-family:sans-serif;padding:24px;text-align:center">' +
+              '<p>Preparing your download…</p>' +
+              '<p><a id="dl" href="' + safeHrefAttr + '" download="' + safeFilenameAttr + '">Tap here if the download doesn’t start automatically</a></p>' +
+              // Both tags below are split across string concatenations
+              // (and the closing one also backslash-escaped) so this file
+              // never contains the literal 6-character close-tag sequence
+              // in its own raw source -- writing that sequence anywhere in
+              // THIS script block's source, even inside a string or a
+              // comment, would prematurely end this actual inline script
+              // tag as far as the HTML parser is concerned, since it scans
+              // for that raw text regardless of JS syntax or string/comment
+              // context.
+              '<scr' + 'ipt>document.getElementById("dl").click();<' + '\/scr' + 'ipt>' +
+              '</body></html>'
+            );
+            newTab.document.close();
+          } catch (e) {
+            showDiagnosticError('Failed to prepare the download tab: ' + (e && e.message));
+          }
         }
-        addField('filename', filename);
-        addField('content', content);
-        addField('mimeType', mimeType);
-        if (encoding) addField('encoding', encoding);
 
-        document.body.appendChild(form);
-        form.submit();
-        // Safe to remove right away -- target="_blank" hands the request
-        // off to its own independent browsing context, which doesn't
-        // depend on this form/element still being present in the DOM.
-        document.body.removeChild(form);
+        try {
+          if (navigator.share && navigator.canShare) {
+            var blob;
+            if (encoding === 'base64') {
+              var binary = atob(content);
+              var bytes = new Uint8Array(binary.length);
+              for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+              blob = new Blob([bytes], { type: mimeType });
+            } else {
+              blob = new Blob([content], { type: mimeType });
+            }
+            var file = new File([blob], filename, { type: mimeType });
+            if (navigator.canShare({ files: [file] })) {
+              navigator.share({ files: [file], title: filename }).catch(function(err) {
+                // AbortError just means the user backed out of the share
+                // sheet themselves -- not a failure worth reporting or
+                // falling back on.
+                if (err && err.name !== 'AbortError') {
+                  showDiagnosticError('Share failed, trying a direct download instead: ' + (err && err.message));
+                  openDataUriTab();
+                }
+              });
+              return;
+            }
+          }
+        } catch (e) {
+          // Fall through to the tab-based approach below.
+        }
+
+        openDataUriTab();
       },
 
       // PDF downloads (jsPDF's own .save()) use the SAME blob + <a
