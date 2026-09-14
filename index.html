@@ -1457,7 +1457,7 @@
       // download machinery instead of JS, which works far more broadly.
       // The form posts into a hidden iframe so the visible app page never
       // navigates away or loses its state.
-      triggerFileDownload: function(filename, content, mimeType) {
+      triggerFileDownload: function(filename, content, mimeType, encoding) {
         filename = app.uniqueFilename(filename);
 
         // Used to tear this iframe/form down on a fixed 5-second timer.
@@ -1504,9 +1504,29 @@
         addField('filename', filename);
         addField('content', content);
         addField('mimeType', mimeType);
+        if (encoding) addField('encoding', encoding);
 
         document.body.appendChild(form);
         form.submit();
+      },
+
+      // PDF downloads (jsPDF's own .save()) use the SAME blob + <a
+      // download> trick that Word downloads used to use before being
+      // switched to triggerFileDownload above -- and it has the exact same
+      // Android "app only" failure mode: it commonly does nothing, or
+      // looks like it started but nothing ever lands, specifically inside
+      // an installed/standalone PWA (works fine in a normal Chrome tab,
+      // which is why this was reported as "app only"). Routes PDFs through
+      // the same proven POST-to-/api/download-doc mechanism as Word
+      // instead of ever calling doc.save() directly. jsPDF's binary output
+      // has to go over that as base64 (a plain HTML form field can't carry
+      // raw binary safely) -- the server decodes it back before sending,
+      // see the encoding==='base64' branch in /api/download-doc.
+      downloadPdfDoc: function(doc, filename) {
+        var dataUri = doc.output('datauristring');
+        var commaIdx = dataUri.indexOf(',');
+        var base64 = commaIdx === -1 ? dataUri : dataUri.slice(commaIdx + 1);
+        app.triggerFileDownload(filename, base64, 'application/pdf', 'base64');
       },
 
       downloadLabels: function() {
@@ -1783,7 +1803,7 @@
         var dayOrders = app.getOrdersForDate(app.selectedDate);
         if (dayOrders.length === 0) { alert('No orders to download'); return; }
         if (!window.jspdf) { alert('PDF library failed to load -- check your internet connection and try again.'); return; }
-        app.buildLabelsPdf(dayOrders).save(app.uniqueFilename('BasketsByBlimi_' + app.selectedDate + '_Labels.pdf'));
+        app.downloadPdfDoc(app.buildLabelsPdf(dayOrders), 'BasketsByBlimi_' + app.selectedDate + '_Labels.pdf');
       },
 
       downloadOrderPdf: function(orderIdx) {
@@ -1793,7 +1813,7 @@
         if (!order.items) { alert('No items in this order'); return; }
         if (!window.jspdf) { alert('PDF library failed to load -- check your internet connection and try again.'); return; }
         var cleanName = app.cleanLastName(order.lastName);
-        app.buildLabelsPdf([order]).save(app.uniqueFilename('BasketsByBlimi_' + app.selectedDate + '_' + cleanName + '.pdf'));
+        app.downloadPdfDoc(app.buildLabelsPdf([order]), 'BasketsByBlimi_' + app.selectedDate + '_' + cleanName + '.pdf');
       },
 
       // Categorized "Export Day" PDF (Sep): a Letter-page, easy-to-scan
@@ -1911,7 +1931,7 @@
         var dayOrders = app.getOrdersForDate(app.selectedDate);
         if (dayOrders.length === 0) { alert('No orders to export'); return; }
         if (!window.jspdf) { alert('PDF library failed to load -- check your internet connection and try again.'); return; }
-        app.buildDayExportPdf(app.selectedDate).save(app.uniqueFilename('BasketsByBlimi_' + app.selectedDate + '_DayExport.pdf'));
+        app.downloadPdfDoc(app.buildDayExportPdf(app.selectedDate), 'BasketsByBlimi_' + app.selectedDate + '_DayExport.pdf');
       },
 
       // Switches which label size print/download use, and remembers the
@@ -2471,7 +2491,7 @@
         var selected = app.getSelectedOrders();
         if (selected.length === 0) { alert('No orders selected'); return; }
         if (!window.jspdf) { alert('PDF library failed to load -- check your internet connection and try again.'); return; }
-        app.buildLabelsPdf(selected).save(app.uniqueFilename('BasketsByBlimi_' + app.selectedDate + '_Selected_Labels.pdf'));
+        app.downloadPdfDoc(app.buildLabelsPdf(selected), 'BasketsByBlimi_' + app.selectedDate + '_Selected_Labels.pdf');
       },
 
       render: function() {
