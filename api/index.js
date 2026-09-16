@@ -694,6 +694,37 @@ async function fetchAllWooCommerceSkus(baseUrl, consumerKey, consumerSecret) {
   return Array.from(new Set(skus)).sort();
 }
 
+// Loose text match for the date/name/address fallback below: collapses
+// whitespace, trims, lowercases. Guards against a stray double space or
+// case difference (e.g. sheet has "19 Arosa Hill", something sends "19
+// arosa  hill") being treated as a non-match.
+function normalizeMatchText(s) {
+  return (s || '').toString().trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+// A date typed directly into the sheet by hand (rather than through the
+// app's own date picker) very often ends up in a different text format
+// than the app's own "YYYY/MM/DD" -- Google Sheets silently reformats a
+// typed date like "9/20" into its own locale style (e.g. "9/20/2026"),
+// and that's exactly the kind of row this fallback exists to match in the
+// first place (an order typed straight into the sheet, with no order
+// number either -- so almost by definition, its date was typed straight
+// in too, not picked through the app). A byte-for-byte string compare
+// would silently fail to match "2026/09/20" against "9/20/2026" even
+// though they're the same day. Parses either "YYYY/MM/DD"-ish or
+// "M/D/YYYY"-ish text into a canonical "Y-M-D" key (no leading zeros) so
+// both shapes compare equal; anything that doesn't look like a date at
+// all just falls back to a plain lowercased/trimmed compare instead of
+// matching everything (or nothing) by accident.
+function normalizeDateForMatch(s) {
+  var t = (s || '').toString().trim();
+  var m = t.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  if (m) return m[1] + '-' + parseInt(m[2], 10) + '-' + parseInt(m[3], 10);
+  m = t.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (m) return m[3] + '-' + parseInt(m[1], 10) + '-' + parseInt(m[2], 10);
+  return t.toLowerCase();
+}
+
 // Resolves the sheet's header row into column indexes by matching
 // keywords in the header text (see parseSheetData's original comment on
 // why -- this sheet's real headers don't always match the "obvious" name,
@@ -1397,17 +1428,17 @@ export default async function handler(req, res) {
           res.status(500).json({ error: 'Could not find this order by its order number, and the sheet is missing column(s) needed to match it another way.' });
           return;
         }
-        const matchDate = (req.body.matchDeliveryDate || req.body.deliveryDate || '').toString().trim();
-        const matchName = (req.body.matchLastName || req.body.lastName || '').toString().trim().toLowerCase();
-        const matchAddress = (req.body.matchDeliveryAddress || req.body.deliveryAddress || '').toString().trim().toLowerCase();
+        const matchDate = normalizeDateForMatch(req.body.matchDeliveryDate || req.body.deliveryDate || '');
+        const matchName = normalizeMatchText(req.body.matchLastName || req.body.lastName || '');
+        const matchAddress = normalizeMatchText(req.body.matchDeliveryAddress || req.body.deliveryAddress || '');
         const candidates = [];
         for (let i = 1; i < values.length; i++) {
           const row = values[i];
           if (!row) continue;
           if (((row[cols.orderNumIdx] || '').toString().trim()) !== '') continue;
-          if ((row[cols.dateIdx] || '').toString().trim() !== matchDate) continue;
-          if ((row[cols.nameIdx] || '').toString().trim().toLowerCase() !== matchName) continue;
-          if ((row[cols.addressIdx] || '').toString().trim().toLowerCase() !== matchAddress) continue;
+          if (normalizeDateForMatch(row[cols.dateIdx]) !== matchDate) continue;
+          if (normalizeMatchText(row[cols.nameIdx]) !== matchName) continue;
+          if (normalizeMatchText(row[cols.addressIdx]) !== matchAddress) continue;
           candidates.push(i + 1);
         }
         if (candidates.length === 1) {
@@ -1419,7 +1450,21 @@ export default async function handler(req, res) {
       }
 
       if (rowNumber === -1) {
-        res.status(404).json({ error: 'Order not found in the sheet — it may have been changed or removed since this page loaded. Refresh and try again.' });
+        // Include what was actually searched for -- when this fires for an
+        // order matched by date/name/address (no order number involved),
+        // it's almost always because the sheet's own text for one of those
+        // three doesn't look like what was searched for (a hand-typed date
+        // in an unexpected shape, a nickname vs. the sheet's exact name,
+        // etc.) rather than the row having actually vanished, so surfacing
+        // the exact search values here makes that mismatch visible instead
+        // of just "not found".
+        var detail = orderNumber
+          ? ('Looked for order number "' + orderNumber + '".')
+          : ('Looked for delivery date "' + (req.body.matchDeliveryDate || req.body.deliveryDate || '') +
+             '", name "' + (req.body.matchLastName || req.body.lastName || '') +
+             '", address "' + (req.body.matchDeliveryAddress || req.body.deliveryAddress || '') +
+             '" among rows with no order number yet -- none matched exactly.');
+        res.status(404).json({ error: 'Order not found in the sheet — it may have been changed or removed since this page loaded. ' + detail + ' Refresh and try again.' });
         return;
       }
 
