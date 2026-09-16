@@ -961,6 +961,16 @@
         if (!order) return;
         app.newOrder = {
           orderNumber: order.orderNumber || '',
+          // A snapshot of this order's date/name/address exactly as they
+          // are in the sheet right now, kept unchanged even if the visible
+          // fields below get edited. Only used server-side when this order
+          // has no order number to match on -- see /api/update-order --
+          // so a row can still be found by these even if the very same
+          // edit that adds the missing order number also fixes a typo in
+          // the name it would otherwise have needed to match against.
+          matchDeliveryDate: order.deliveryDate || '',
+          matchLastName: order.lastName === 'Unknown' ? '' : (order.lastName || ''),
+          matchDeliveryAddress: order.address || '',
           // order.deliveryDate is stored/displayed as "2026/08/31"; the date
           // input needs "2026-08-31".
           deliveryDate: (order.deliveryDate || '').split('/').join('-'),
@@ -1014,6 +1024,7 @@
           var el = document.getElementById(id);
           return el ? el.value : '';
         };
+        if (app.isEditingOrder) app.newOrder.orderNumber = g('noOrderNumber') || app.newOrder.orderNumber;
         app.newOrder.deliveryDate = g('noDeliveryDate') || app.newOrder.deliveryDate;
         app.newOrder.lastName = g('noLastName');
         app.newOrder.pickupOrDelivery = g('noPickupDelivery') || 'delivery';
@@ -1107,7 +1118,13 @@
           var endpoint = '/api/add-order';
           if (app.isEditingOrder) {
             endpoint = '/api/update-order';
-            body.orderNumber = o.orderNumber;
+            body.orderNumber = (o.orderNumber || '').trim();
+            // See the matchDeliveryDate/matchLastName/matchDeliveryAddress
+            // comment in openEditOrder -- only actually used server-side
+            // when this order has no order number to match on directly.
+            body.matchDeliveryDate = o.matchDeliveryDate || '';
+            body.matchLastName = o.matchLastName || '';
+            body.matchDeliveryAddress = o.matchDeliveryAddress || '';
           }
 
           var response = await fetch(endpoint, {
@@ -1351,6 +1368,20 @@
         html += '<h2>' + (app.isEditingOrder ? 'Edit Order' : 'Add Order') + '</h2>';
         html += '<p style="color:#6b7280;margin-bottom:15px;font-size:13px">Pick products from the suggestions as you type so they match your store\'s SKUs exactly — free-typing something that doesn\'t match will keep it out of your product totals. Need something not in your catalog? Choose "+ Miscellaneous / item not in list" from the suggestions to enter a name and price by hand.</p>';
         if (app.addOrderError) html += '<div class="error">' + app.addOrderError + '</div>';
+
+        // Order Number is only ever shown while editing -- a brand new
+        // order always gets one auto-assigned by the server. An order
+        // typed straight into the sheet sometimes ends up with this column
+        // left blank; that used to make it impossible to ever edit through
+        // the app. It no longer is: leaving this blank still saves fine
+        // (the sheet row gets found by date/name/address instead), typing
+        // a number in here is entirely optional, just handy for the sheet
+        // to have one going forward.
+        if (app.isEditingOrder) {
+          var hasOrderNumber = !!(o.orderNumber && o.orderNumber.trim());
+          html += '<label style="font-size:12px;color:' + (hasOrderNumber ? '#374151' : '#92400e') + '">' + (hasOrderNumber ? 'Order Number' : 'Order Number (missing on the sheet -- optional to fill in; saving works fine either way)') + '</label>';
+          html += '<input type="text" id="noOrderNumber" ' + (hasOrderNumber ? 'disabled' : '') + ' placeholder="e.g. 2036" value="' + (o.orderNumber || '').replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid ' + (hasOrderNumber ? '#e5e7eb' : '#fbbf24') + ';border-radius:6px;margin:4px 0 12px;background:' + (hasOrderNumber ? '#f9fafb' : '#fffbeb') + ';color:' + (hasOrderNumber ? '#6b7280' : '#111827') + '">';
+        }
 
         html += '<label style="font-size:12px;color:#374151">Delivery Date</label>';
         html += '<input type="date" id="noDeliveryDate" value="' + o.deliveryDate + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
