@@ -943,7 +943,7 @@
           total: '',
           productCostAutoValue: null, // last value we auto-filled, so we can tell a manual edit apart from our own fill
           totalAutoValue: null, // same idea for Total, which auto-derives from Product Cost + Delivery Cost
-          items: [{ product: '', quantity: 1, specialInstructions: '', isCustom: false, customPrice: '' }]
+          items: [{ product: '', quantity: 1, specialInstructions: '', isCustom: false, customPrice: '', addedDuringEdit: true }]
         };
         app.isEditingOrder = false;
         app.addOrderError = '';
@@ -983,8 +983,28 @@
           productCost: order.productCost || '',
           deliveryCost: order.deliveryCost || '',
           total: order.total || '',
-          productCostAutoValue: null,
-          totalAutoValue: null,
+          // Seeded to match what's actually shown in the fields below
+          // (instead of null) so recalcProductCost/recalcOrderTotal don't
+          // treat the sheet's own existing Product Cost/Total as if the
+          // user had already hand-typed something different -- that was
+          // exactly why adding a product to an existing order never moved
+          // the price: the field wasn't empty, so the "leave it alone once
+          // hand-typed" guard was backing off immediately, every time.
+          productCostAutoValue: order.productCost || '',
+          totalAutoValue: order.total || '',
+          // The sheet's existing Product Cost may include items with no
+          // known catalog price (discontinued products, one-off discounts,
+          // an old miscellaneous item with no price recorded) that can't be
+          // safely re-derived -- so editing never recomputes it from
+          // scratch. Instead this baseline is kept exactly as loaded, and
+          // recalcProductCost only ever ADDS the price of items added new
+          // during this edit (see items.map below and addOrderItemRow) on
+          // top of it. productCostEditBaselineSet distinguishes "the sheet
+          // really had 0" from "the sheet had nothing at all", so Product
+          // Cost can still clear back to blank if that's how it started and
+          // nothing priced gets added.
+          productCostEditBaseline: (function() { var n = parseFloat(order.productCost); return isNaN(n) ? 0 : n; })(),
+          productCostEditBaselineSet: !!(order.productCost && order.productCost.toString().trim() !== ''),
           items: (order.items && order.items.length)
             ? order.items.map(function(i) {
                 // A product that doesn't match anything in the known
@@ -995,11 +1015,13 @@
                 // it. There's no stored per-item price to recover, so the
                 // price box starts blank and needs to be filled in again to
                 // save (the order's overall Product Cost is untouched
-                // unless they edit it).
+                // unless they edit it) -- addedDuringEdit: false is what
+                // actually keeps that promise now that Product Cost auto-
+                // updates for NEW items: see recalcProductCost.
                 var isCustom = app.products.length > 0 && app.products.indexOf(i.product) === -1;
-                return { product: i.product, quantity: i.quantity || 1, specialInstructions: i.specialInstructions || '', isCustom: isCustom, customPrice: '' };
+                return { product: i.product, quantity: i.quantity || 1, specialInstructions: i.specialInstructions || '', isCustom: isCustom, customPrice: '', addedDuringEdit: false };
               })
-            : [{ product: '', quantity: 1, specialInstructions: '', isCustom: false, customPrice: '' }]
+            : [{ product: '', quantity: 1, specialInstructions: '', isCustom: false, customPrice: '', addedDuringEdit: false }]
         };
         app.isEditingOrder = true;
         app.addOrderError = '';
@@ -1046,7 +1068,10 @@
 
       addOrderItemRow: function() {
         app.syncNewOrderFromDom();
-        app.newOrder.items.push({ product: '', quantity: 1, specialInstructions: '', isCustom: false, customPrice: '' });
+        // addedDuringEdit: true -- see recalcProductCost. Matters only in
+        // edit mode (a brand new order has no "pre-existing" items to
+        // distinguish from), but set unconditionally for consistency.
+        app.newOrder.items.push({ product: '', quantity: 1, specialInstructions: '', isCustom: false, customPrice: '', addedDuringEdit: true });
         app.render();
       },
 
@@ -1054,7 +1079,7 @@
         app.syncNewOrderFromDom();
         app.newOrder.items.splice(idx, 1);
         if (app.newOrder.items.length === 0) {
-          app.newOrder.items.push({ product: '', quantity: 1, specialInstructions: '', isCustom: false, customPrice: '' });
+          app.newOrder.items.push({ product: '', quantity: 1, specialInstructions: '', isCustom: false, customPrice: '', addedDuringEdit: true });
         }
         app.render();
         // The removed item's price (if any) needs to come back out of
@@ -1244,13 +1269,29 @@
       // drop to zero (e.g. the only priced product was removed) this clears
       // Product Cost back to blank instead of leaving the old sum sitting
       // there — same story for Total, via recalcOrderTotal below.
+      //
+      // Editing an existing order is a special case: the loaded Product
+      // Cost can include dollar amounts that can't be safely reconstructed
+      // from today's catalog prices (a discontinued item, a one-off
+      // discount, an old miscellaneous item saved with no price). Recomputing
+      // the whole thing from scratch the way a brand-new order does would
+      // risk silently changing what a customer was actually charged just
+      // because they added one more product to their order. So in edit
+      // mode this only ADDS the price of items added new during this edit
+      // (addedDuringEdit: true -- see addOrderItemRow) on top of the
+      // sheet's original Product Cost, and never recomputes a pre-existing
+      // item's contribution at all -- same "untouched unless you edit it
+      // yourself" promise that already applied to Product Cost before this.
       recalcProductCost: function() {
         if (!app.newOrder) return;
         var el = document.getElementById('noProductCost');
         if (!el) return;
         if (el.value !== '' && el.value !== app.newOrder.productCostAutoValue) return;
-        var sum = 0, any = false;
+        var editing = app.isEditingOrder;
+        var sum = editing ? (app.newOrder.productCostEditBaseline || 0) : 0;
+        var any = editing ? !!app.newOrder.productCostEditBaselineSet : false;
         app.newOrder.items.forEach(function(item) {
+          if (editing && !item.addedDuringEdit) return; // pre-existing item -- its price is already baked into the baseline above, or was never known; either way, leave it alone
           var qty = parseInt(item.quantity, 10);
           if (isNaN(qty) || qty < 1) qty = 1;
           if (item.isCustom) {
