@@ -304,10 +304,14 @@
       if (lower.indexOf('smoothie') !== -1) {
         return { category: 'Smoothies', section: 'Other Smoothie Items', groupIndex: 999, sizeRank: exportSizeRank(product), num: exportTrailingNum(product), suffix: product };
       }
-      // "Exotic" alone means Fruit, but "Exotic ___ Salad" means Salad --
-      // checked before the plain fruit/exotic/layered check below so an
-      // unlisted "Exotic ___ Salad" isn't claimed by Fruit first.
-      if (/\bexotic\b/.test(lower) && /\bsalad\b/.test(lower)) {
+      // Any unmatched product whose name says "salad" lands under Salad
+      // instead of Other -- covers a miscellaneous/hand-typed item like
+      // "Quinoa Salad" or "Exotic Kale Salad" just as well as a brand-new
+      // catalog SKU that hasn't been slotted into a section yet. Checked
+      // before the plain fruit/exotic/layered check below so "Exotic ___
+      // Salad" isn't claimed by Fruit first (this subsumes what used to be
+      // a narrower "exotic" + "salad" combo check).
+      if (/\bsalad\b/.test(lower)) {
         return { category: 'Salad', section: 'Other Salad Items', groupIndex: 999, sizeRank: exportSizeRank(product), num: exportTrailingNum(product), suffix: product };
       }
       // "Layered" + "glass" together means a layered glass fruit cup --
@@ -369,6 +373,7 @@
       error: '',
       loading: false,
       showSetup: false,
+      keySetupDraft: '',
       // App-level password gate (Sept 2026): the Google service-account
       // setup above only ever protected the SERVER's connection to the
       // Sheet, not the page itself -- once SERVICE_ACCOUNT was set as a
@@ -503,14 +508,31 @@
       },
 
       setupKey: function(keyInput) {
+        // Keep whatever the user pasted/typed around so a failed attempt
+        // doesn't silently wipe the box (render() below rebuilds this whole
+        // screen's innerHTML from scratch on every call, textarea included
+        // -- previously that meant a failed Save Key left an EMPTY box with
+        // no sign of what was actually typed in it, which made a bad paste
+        // look like the click itself had done nothing).
+        app.keySetupDraft = keyInput;
         try {
-          var serviceAccount = JSON.parse(keyInput);
+          // Service account JSON is usually copied from somewhere else on
+          // the phone (Notes, email, a file preview) before being pasted
+          // here, and those apps commonly "smarten" straight quotes into
+          // curly ones -- which is invisible to the eye but breaks
+          // JSON.parse every time. Auto-straighten common smart-quote
+          // characters before parsing; harmless no-op if none are present.
+          var normalized = keyInput
+            .replace(/[‘’]/g, "'")
+            .replace(/[“”]/g, '"');
+          var serviceAccount = JSON.parse(normalized);
+          app.keySetupDraft = '';
           app.loading = true;
           app.render();
-          
+
           // Save to localStorage
           localStorage.setItem('serviceAccount', JSON.stringify(serviceAccount));
-          
+
           fetch('/api/setup', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -533,9 +555,35 @@
             app.render();
           });
         } catch (e) {
-          app.error = 'Invalid JSON key';
+          // Surface the actual parse error (e.g. "Unexpected token ... in
+          // JSON at position 812") instead of a generic message -- the
+          // position points straight at the character that broke it, which
+          // is the fastest way to tell "this got truncated" from "this has
+          // a stray character" from "this isn't the right file at all".
+          app.error = 'Invalid JSON key: ' + e.message;
           app.render();
         }
+      },
+
+      // Lets the user pick the .json key file directly from their phone's
+      // file picker (Downloads, Drive, an email attachment) instead of
+      // copy-pasting its text. Reads the file's exact original bytes, so it
+      // sidesteps every copy-paste corruption mode above entirely -- no
+      // smart quotes, no reformatted line breaks, no risk of a partial
+      // clipboard paste. Falls back gracefully: the paste box still works
+      // fine on its own for anyone who prefers it.
+      handleKeyFile: function(inputEl) {
+        var file = inputEl.files && inputEl.files[0];
+        if (!file) return;
+        var reader = new FileReader();
+        reader.onload = function(e) {
+          app.setupKey(String(e.target.result || ''));
+        };
+        reader.onerror = function() {
+          app.error = 'Could not read that file -- try pasting the key text instead.';
+          app.render();
+        };
+        reader.readAsText(file);
       },
 
       loadOrders: async function() {
@@ -895,7 +943,7 @@
           total: '',
           productCostAutoValue: null, // last value we auto-filled, so we can tell a manual edit apart from our own fill
           totalAutoValue: null, // same idea for Total, which auto-derives from Product Cost + Delivery Cost
-          items: [{ product: '', quantity: 1, specialInstructions: '' }]
+          items: [{ product: '', quantity: 1, specialInstructions: '', isCustom: false, customPrice: '' }]
         };
         app.isEditingOrder = false;
         app.addOrderError = '';
@@ -928,8 +976,20 @@
           productCostAutoValue: null,
           totalAutoValue: null,
           items: (order.items && order.items.length)
-            ? order.items.map(function(i) { return { product: i.product, quantity: i.quantity || 1, specialInstructions: i.specialInstructions || '' }; })
-            : [{ product: '', quantity: 1, specialInstructions: '' }]
+            ? order.items.map(function(i) {
+                // A product that doesn't match anything in the known
+                // catalog is treated as a miscellaneous item on open, same
+                // as one picked that way originally -- otherwise editing an
+                // order with an old/one-off item name would be blocked by
+                // the "must match the list" check below with no way to fix
+                // it. There's no stored per-item price to recover, so the
+                // price box starts blank and needs to be filled in again to
+                // save (the order's overall Product Cost is untouched
+                // unless they edit it).
+                var isCustom = app.products.length > 0 && app.products.indexOf(i.product) === -1;
+                return { product: i.product, quantity: i.quantity || 1, specialInstructions: i.specialInstructions || '', isCustom: isCustom, customPrice: '' };
+              })
+            : [{ product: '', quantity: 1, specialInstructions: '', isCustom: false, customPrice: '' }]
         };
         app.isEditingOrder = true;
         app.addOrderError = '';
@@ -969,12 +1029,13 @@
           var q = parseInt(g('noItemQty_' + idx), 10);
           item.quantity = isNaN(q) ? 1 : q;
           item.specialInstructions = g('noItemNotes_' + idx);
+          if (item.isCustom) item.customPrice = g('noItemPrice_' + idx);
         });
       },
 
       addOrderItemRow: function() {
         app.syncNewOrderFromDom();
-        app.newOrder.items.push({ product: '', quantity: 1, specialInstructions: '' });
+        app.newOrder.items.push({ product: '', quantity: 1, specialInstructions: '', isCustom: false, customPrice: '' });
         app.render();
       },
 
@@ -982,7 +1043,7 @@
         app.syncNewOrderFromDom();
         app.newOrder.items.splice(idx, 1);
         if (app.newOrder.items.length === 0) {
-          app.newOrder.items.push({ product: '', quantity: 1 });
+          app.newOrder.items.push({ product: '', quantity: 1, specialInstructions: '', isCustom: false, customPrice: '' });
         }
         app.render();
         // The removed item's price (if any) needs to come back out of
@@ -1006,8 +1067,13 @@
           app.render();
           return;
         }
-        if (app.products.length && validItems.some(function(i) { return app.products.indexOf(i.product.trim()) === -1; })) {
-          app.addOrderError = 'One of the products doesn\'t match anything in the list exactly — pick it from the suggestions instead of typing it fully by hand.';
+        if (app.products.length && validItems.some(function(i) { return !i.isCustom && app.products.indexOf(i.product.trim()) === -1; })) {
+          app.addOrderError = 'One of the products doesn\'t match anything in the list exactly — pick it from the suggestions instead of typing it fully by hand, or choose "Miscellaneous / item not in list" to enter it manually.';
+          app.render();
+          return;
+        }
+        if (validItems.some(function(i) { return i.isCustom && (i.customPrice === '' || i.customPrice == null || isNaN(parseFloat(i.customPrice)) || parseFloat(i.customPrice) < 0); })) {
+          app.addOrderError = 'Enter a price for each miscellaneous item.';
           app.render();
           return;
         }
@@ -1072,34 +1138,49 @@
 
       // Matches anywhere in the product text (not just the start), so typing
       // a flavor or size like "Mango" finds "2 oz Fruit Cups - Mango - 12".
+      // A pinned "Miscellaneous" option always sits at the top of this list
+      // -- even before anything's typed (onfocus calls this too) and even
+      // when there are real matches -- so a one-off item that will never be
+      // in the catalog (a rental, a custom gift add-on, a special request)
+      // is always one tap away instead of only surfacing after typing
+      // something that comes up empty.
       filterProductSuggestions: function(idx, query) {
         var box = document.getElementById('noItemSuggestions_' + idx);
         if (!box) return;
         if (app.newOrder && app.newOrder.items[idx]) app.newOrder.items[idx].product = query;
-        if (!query || !query.trim()) { box.innerHTML = ''; return; }
-        var q = query.toLowerCase();
-        var matches = app.products.filter(function(p) { return p.toLowerCase().indexOf(q) !== -1; }).slice(0, 8);
-        if (matches.length === 0) {
-          box.innerHTML = '<div style="padding:8px;color:#9ca3af;font-size:13px;background:white;border:1px solid #d1d5db;border-radius:0 0 6px 6px">No matching product</div>';
-          return;
+        var q = (query || '').trim().toLowerCase();
+        var matches = q ? app.products.filter(function(p) { return p.toLowerCase().indexOf(q) !== -1; }).slice(0, 8) : [];
+        var customCall = "app.pickCustomItem(" + idx + ")";
+        // Same touchstart/touchend dance as the real suggestions below --
+        // see the comment there for why a plain click/tap isn't enough.
+        var html = '<div onmousedown="' + customCall + '" ' +
+          'ontouchstart="this.dataset.ty = event.touches[0].clientY" ' +
+          'ontouchend="if (Math.abs(event.changedTouches[0].clientY - (this.dataset.ty || 0)) < 10) { event.preventDefault(); ' + customCall + '; }" ' +
+          'style="padding:10px 8px;cursor:pointer;font-size:14px;background:#f0fdf4;border:1px solid #d1d5db;border-radius:6px 6px 0 0;color:#166534;font-weight:bold" ' +
+          'onmouseover="this.style.background=\'#dcfce7\'" onmouseout="this.style.background=\'#f0fdf4\'">+ Miscellaneous / item not in list (enter manually)</div>';
+        if (q && matches.length === 0) {
+          html += '<div style="padding:8px;color:#9ca3af;font-size:13px;background:white;border:1px solid #d1d5db;border-top:none;border-radius:0 0 6px 6px">No matching product</div>';
+        } else if (matches.length) {
+          html += matches.map(function(p, i) {
+            var pickCall = "app.pickProductSuggestion(" + idx + ", '" + app.escForJsAttr(p) + "')";
+            var isLast = i === matches.length - 1;
+            // Touch devices fire blur (closing this box) before mousedown/click
+            // reaches it, so a plain tap can silently do nothing -- that's what
+            // onmousedown covers for desktop and touchend covers below for touch.
+            // Selecting on touchSTART (an earlier version of this) fixed that but
+            // broke scrolling the list, since it fired -- and blocked the native
+            // scroll gesture -- the instant a finger touched down anywhere in it.
+            // Instead: just record where the touch started, and on touchend only
+            // treat it as a tap (and pick) if the finger barely moved; a real
+            // scroll drag is left alone so the list scrolls normally.
+            return '<div onmousedown="' + pickCall + '" ' +
+              'ontouchstart="this.dataset.ty = event.touches[0].clientY" ' +
+              'ontouchend="if (Math.abs(event.changedTouches[0].clientY - (this.dataset.ty || 0)) < 10) { event.preventDefault(); ' + pickCall + '; }" ' +
+              'style="padding:10px 8px;cursor:pointer;font-size:14px;background:white;border:1px solid #d1d5db;border-top:none' + (isLast ? ';border-radius:0 0 6px 6px' : '') + '" ' +
+              'onmouseover="this.style.background=\'#f3f4f6\'" onmouseout="this.style.background=\'white\'">' + p + '</div>';
+          }).join('');
         }
-        box.innerHTML = matches.map(function(p) {
-          var pickCall = "app.pickProductSuggestion(" + idx + ", '" + app.escForJsAttr(p) + "')";
-          // Touch devices fire blur (closing this box) before mousedown/click
-          // reaches it, so a plain tap can silently do nothing — that's what
-          // onmousedown covers for desktop and touchend covers below for touch.
-          // Selecting on touchSTART (an earlier version of this) fixed that but
-          // broke scrolling the list, since it fired — and blocked the native
-          // scroll gesture — the instant a finger touched down anywhere in it.
-          // Instead: just record where the touch started, and on touchend only
-          // treat it as a tap (and pick) if the finger barely moved; a real
-          // scroll drag is left alone so the list scrolls normally.
-          return '<div onmousedown="' + pickCall + '" ' +
-            'ontouchstart="this.dataset.ty = event.touches[0].clientY" ' +
-            'ontouchend="if (Math.abs(event.changedTouches[0].clientY - (this.dataset.ty || 0)) < 10) { event.preventDefault(); ' + pickCall + '; }" ' +
-            'style="padding:10px 8px;cursor:pointer;font-size:14px;background:white;border:1px solid #d1d5db;border-top:none" ' +
-            'onmouseover="this.style.background=\'#f3f4f6\'" onmouseout="this.style.background=\'white\'">' + p + '</div>';
-        }).join('');
+        box.innerHTML = html;
       },
 
       pickProductSuggestion: function(idx, value) {
@@ -1108,6 +1189,31 @@
         if (app.newOrder && app.newOrder.items[idx]) app.newOrder.items[idx].product = value;
         var box = document.getElementById('noItemSuggestions_' + idx);
         if (box) box.innerHTML = '';
+        app.recalcProductCost();
+      },
+
+      // Switches one item row into manual entry -- whatever was already
+      // typed (if anything) is kept as a starting point for the item's
+      // name, and a Price field appears so its cost can feed into Product
+      // Cost / Total the same way a catalog price normally would.
+      pickCustomItem: function(idx) {
+        app.syncNewOrderFromDom();
+        if (app.newOrder && app.newOrder.items[idx]) {
+          app.newOrder.items[idx].isCustom = true;
+        }
+        app.render();
+        var input = document.getElementById('noItemProduct_' + idx);
+        if (input) { input.focus(); input.select(); }
+      },
+
+      // Switches a row back to the normal catalog-suggestions flow.
+      useProductListForItem: function(idx) {
+        app.syncNewOrderFromDom();
+        if (app.newOrder && app.newOrder.items[idx]) {
+          app.newOrder.items[idx].isCustom = false;
+          app.newOrder.items[idx].customPrice = '';
+        }
+        app.render();
         app.recalcProductCost();
       },
 
@@ -1128,10 +1234,17 @@
         if (el.value !== '' && el.value !== app.newOrder.productCostAutoValue) return;
         var sum = 0, any = false;
         app.newOrder.items.forEach(function(item) {
-          var price = app.productPrices[(item.product || '').trim()];
-          if (price == null) return;
           var qty = parseInt(item.quantity, 10);
           if (isNaN(qty) || qty < 1) qty = 1;
+          if (item.isCustom) {
+            var customPrice = parseFloat(item.customPrice);
+            if (isNaN(customPrice) || customPrice < 0) return;
+            sum += customPrice * qty;
+            any = true;
+            return;
+          }
+          var price = app.productPrices[(item.product || '').trim()];
+          if (price == null) return;
           sum += price * qty;
           any = true;
         });
@@ -1165,14 +1278,36 @@
         var o = app.newOrder;
 
         var itemsHtml = o.items.map(function(item, idx) {
+          var isCustom = !!item.isCustom;
+
+          var productFieldHtml = isCustom
+            ? ('<input type="text" autocomplete="off" id="noItemProduct_' + idx + '" placeholder="Describe the item" value="' + (item.product || '').replace(/"/g, '&quot;') + '" ' +
+                'oninput="if (app.newOrder && app.newOrder.items[' + idx + ']) { app.newOrder.items[' + idx + '].product = this.value; }" ' +
+                'style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #16a34a;border-radius:6px;background:#f0fdf4">' +
+                '<div style="font-size:11px;margin-top:2px"><a href="#" onclick="app.useProductListForItem(' + idx + '); return false;" style="color:#2563eb">&larr; pick from product list instead</a></div>')
+            : ('<input type="text" autocomplete="off" id="noItemProduct_' + idx + '" placeholder="Start typing a product..." value="' + (item.product || '').replace(/"/g, '&quot;') + '" ' +
+                'oninput="app.filterProductSuggestions(' + idx + ', this.value); app.recalcProductCost();" ' +
+                'onfocus="app.filterProductSuggestions(' + idx + ', this.value)" ' +
+                'onblur="setTimeout(function(){ var b=document.getElementById(\'noItemSuggestions_' + idx + '\'); if(b) b.innerHTML=\'\'; }, 300)" ' +
+                'style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #d1d5db;border-radius:6px">');
+
+          // Only a custom/miscellaneous item needs its own price -- a
+          // catalog product's price comes from app.productPrices instead
+          // (see recalcProductCost), so this field simply doesn't exist for
+          // those rows.
+          var priceFieldHtml = isCustom
+            ? ('<input type="number" step="0.01" min="0" inputmode="decimal" id="noItemPrice_' + idx + '" placeholder="Price each" value="' + (item.customPrice || '').toString().replace(/"/g, '&quot;') + '" ' +
+                'onwheel="this.blur()" ' +
+                'oninput="if (app.newOrder && app.newOrder.items[' + idx + ']) { app.newOrder.items[' + idx + '].customPrice = this.value; } app.recalcProductCost();" ' +
+                'style="flex:0 1 90px;min-width:80px;padding:8px;border:1px solid #16a34a;border-radius:6px">')
+            : '';
+
           return '<div style="margin-bottom:8px;position:relative;z-index:' + (100 - idx) + '">' +
             '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start">' +
             '<div style="position:relative;z-index:1;flex:1 1 160px;min-width:140px">' +
-            '<input type="text" autocomplete="off" id="noItemProduct_' + idx + '" placeholder="Start typing a product..." value="' + (item.product || '').replace(/"/g, '&quot;') + '" ' +
-            'oninput="app.filterProductSuggestions(' + idx + ', this.value); app.recalcProductCost();" ' +
-            'onblur="setTimeout(function(){ var b=document.getElementById(\'noItemSuggestions_' + idx + '\'); if(b) b.innerHTML=\'\'; }, 300)" ' +
-            'style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #d1d5db;border-radius:6px">' +
+            productFieldHtml +
             '</div>' +
+            priceFieldHtml +
             // onwheel="this.blur()": a real, hard-to-pin-down bug report --
             // "quantity 1 sometimes forces a large number, doesn't affect
             // price" -- matches Chrome's well-known type="number" quirk
@@ -1189,7 +1324,8 @@
             (o.items.length > 1 ? '<button type="button" onclick="app.removeOrderItemRow(' + idx + ')" style="background:#ef4444;width:36px;padding:8px 0;margin:0">✕</button>' : '<span style="width:36px"></span>') +
             // Positioned against the whole row (not just the narrower product
             // input) so it's wider and easier to tap on mobile, per request.
-            '<div id="noItemSuggestions_' + idx + '" style="position:absolute;top:100%;left:0;right:0;z-index:1000;max-height:200px;overflow-y:auto;background:white;box-shadow:0 4px 10px rgba(0,0,0,0.15);border-radius:0 0 6px 6px"></div>' +
+            // A custom row has no suggestions box at all (nothing to suggest).
+            (isCustom ? '' : '<div id="noItemSuggestions_' + idx + '" style="position:absolute;top:100%;left:0;right:0;z-index:1000;max-height:200px;overflow-y:auto;background:white;box-shadow:0 4px 10px rgba(0,0,0,0.15);border-radius:0 0 6px 6px"></div>') +
             '</div>' +
             // Per-item special instructions -- e.g. "no nuts" on just this
             // item, not the whole order (that's the separate Customer Note
@@ -1213,7 +1349,7 @@
         // Cancel does.
         html += '<button type="button" onclick="app.closeAddOrder()" style="background:#6b7280;color:white;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:13px;margin-bottom:10px">&larr; Back to Orders</button>';
         html += '<h2>' + (app.isEditingOrder ? 'Edit Order' : 'Add Order') + '</h2>';
-        html += '<p style="color:#6b7280;margin-bottom:15px;font-size:13px">Pick products from the suggestions as you type so they match your store\'s SKUs exactly — free-typing something that doesn\'t match will keep it out of your product totals.</p>';
+        html += '<p style="color:#6b7280;margin-bottom:15px;font-size:13px">Pick products from the suggestions as you type so they match your store\'s SKUs exactly — free-typing something that doesn\'t match will keep it out of your product totals. Need something not in your catalog? Choose "+ Miscellaneous / item not in list" from the suggestions to enter a name and price by hand.</p>';
         if (app.addOrderError) html += '<div class="error">' + app.addOrderError + '</div>';
 
         html += '<label style="font-size:12px;color:#374151">Delivery Date</label>';
@@ -1779,7 +1915,12 @@
       buildLabelsPdf: function(orders) {
         var cfg = app.getLabelStyleConfig(app.labelSize);
         var pageWmm = app.mmFromDim(cfg.labelDim);
-        var pageHmm = app.mmFromDim(cfg.heightDim);
+        // cfg.autoHeight presets (continuous-roll printers -- the label
+        // just gets as long as its content needs, not a fixed height) don't
+        // have a meaningful fixed pageHmm; this fallback value is only used
+        // as the throwaway measuring doc's page size below, never as any
+        // real label's actual height.
+        var pageHmm = app.mmFromDim(cfg.autoHeight ? (cfg.heightDim || '40mm') : cfg.heightDim);
         var padMm = app.mmFromPx(cfg.padding);
         var qrMm = app.mmFromPx(cfg.qrSize);
         var rightGapMm = app.mmFromPx('9px');
@@ -1804,33 +1945,122 @@
         // the now much-narrower edge since the text-wrap math was still
         // sized for the real 55mm width).
         var orientation = pageWmm > pageHmm ? 'l' : 'p';
-        var doc = new window.jspdf.jsPDF({ unit: 'mm', format: [pageWmm, pageHmm], orientation: orientation });
-        app.registerHebrewFont(doc);
-        var firstPage = true;
 
-        function addWrapped(text, sizePx, style, lineGapFactor) {
-          doc.setFont('FreeSansHebrew', style || 'normal');
-          doc.setFontSize(app.ptFromPx(sizePx));
-          // Wrap on the ORIGINAL logical text first -- splitTextToSize needs
-          // real reading order to find correct word boundaries -- then pass
-          // each already-wrapped line to jsPDF's own isInputRtl handling
-          // (see the HEBREW_RE comment above) if it contains Hebrew.
-          // Wrapping AFTER reordering (if this were done manually) would
-          // wrap at the wrong points, since reordered text's word/space
-          // positions no longer match the logical text's -- wrapping stays
-          // on logical text either way, only the drawing step changes.
-          var lines = doc.splitTextToSize(String(text), textWidthMm);
-          lines.forEach(function(line) {
-            y += app.mmFromPx(sizePx) * (lineGapFactor || 1.15);
-            if (app.HEBREW_RE.test(line)) {
-              doc.text(line, leftMm, y, { isInputRtl: true });
-            } else {
-              doc.text(line, leftMm, y);
-            }
-          });
+        // Draws ONE label's content onto targetDoc starting at y=padMm, and
+        // returns the mm height that content actually needs (bottom of the
+        // last thing drawn, plus bottom padding -- or the QR block's own
+        // bottom, whichever is taller, so a very short label still has room
+        // for the QR code). When measuring is true, every doc.rect/text/
+        // line/addImage call is skipped -- only the font-metric-driven
+        // splitTextToSize/y-cursor math runs -- so this same function can
+        // be called once (dry run, against a disposable measuring doc) to
+        // decide how tall an auto-height label's page needs to be, then
+        // again (for real) against the real doc once that page exists.
+        // Reusing one function for both passes means the measured height
+        // can never drift out of sync with what's actually drawn.
+        function renderUnit(targetDoc, measuring, item, order, deliveryNameDisplay, addressLines, unitCounter, totalUnits) {
+          var y = padMm;
+
+          function addWrapped(text, sizePx, style, lineGapFactor) {
+            targetDoc.setFont('FreeSansHebrew', style || 'normal');
+            targetDoc.setFontSize(app.ptFromPx(sizePx));
+            // Wrap on the ORIGINAL logical text first -- splitTextToSize
+            // needs real reading order to find correct word boundaries --
+            // then pass each already-wrapped line to jsPDF's own
+            // isInputRtl handling (see the HEBREW_RE comment above) if it
+            // contains Hebrew. Wrapping AFTER reordering (if this were done
+            // manually) would wrap at the wrong points, since reordered
+            // text's word/space positions no longer match the logical
+            // text's -- wrapping stays on logical text either way, only the
+            // drawing step changes.
+            var lines = targetDoc.splitTextToSize(String(text), textWidthMm);
+            lines.forEach(function(line) {
+              y += app.mmFromPx(sizePx) * (lineGapFactor || 1.15);
+              if (measuring) return;
+              if (app.HEBREW_RE.test(line)) {
+                targetDoc.text(line, leftMm, y, { isInputRtl: true });
+              } else {
+                targetDoc.text(line, leftMm, y);
+              }
+            });
+          }
+
+          // Header: bordered box, centered, bold -- matches .header.
+          var headerH = app.mmFromPx(cfg.headerSize) * 1.6;
+          if (!measuring) {
+            targetDoc.setLineWidth(0.12);
+            targetDoc.rect(leftMm, y, textWidthMm, headerH);
+          }
+          targetDoc.setFont('FreeSansHebrew', 'bold');
+          targetDoc.setFontSize(app.ptFromPx(cfg.headerSize));
+          if (!measuring) {
+            targetDoc.text('BASKETS BY BLIMI', leftMm + textWidthMm / 2, y + headerH / 2 + app.mmFromPx(cfg.headerSize) * 0.3, { align: 'center' });
+          }
+          y += headerH + app.mmFromPx('2px');
+
+          addWrapped(deliveryNameDisplay, cfg.fontSize, 'bold');
+          var productDisplay = item.quantityIndividual ? (item.quantityIndividual + ' ' + item.product) : item.product;
+          addWrapped(productDisplay, cfg.productSize, 'bold');
+          if (item.specialInstructions) addWrapped(item.specialInstructions, cfg.addressSize, 'bolditalic');
+
+          // Address: bold, ruled top and bottom -- matches .address.
+          y += app.mmFromPx('2px');
+          if (!measuring) { targetDoc.setLineWidth(0.1); targetDoc.line(leftMm, y, leftMm + textWidthMm, y); }
+          y += app.mmFromPx('2px');
+          addressLines.forEach(function(line) { addWrapped(line, cfg.addressSize, 'bold', 1.1); });
+          y += app.mmFromPx('2px');
+          if (!measuring) targetDoc.line(leftMm, y, leftMm + textWidthMm, y);
+
+          if (order.customerNote) {
+            y += app.mmFromPx('2px');
+            // Same per-note length-based sizing as the print/Word path
+            // (see app.pickNoteFontPx) instead of one flat size for the
+            // whole batch, so a long note doesn't overflow just because an
+            // earlier note in the same download was short.
+            // No literal "Note: " label anymore (removed per request) --
+            // as a side effect this also fixes a real bug: gluing the
+            // Latin word "Note: " directly onto a Hebrew-starting note
+            // was what made the FIRST wrapped line garbled (see HEBREW_RE
+            // comment above) -- isInputRtl was applied to the whole line
+            // including that Latin prefix, confusing jsPDF's bidi
+            // reordering right at the script boundary. Every other
+            // addWrapped call (name/product/address) never had an
+            // artificial prefix glued on like this, which is why only
+            // the note's first line was ever reported garbled.
+            addWrapped(order.customerNote, app.pickNoteFontPx(cfg, order.customerNote), 'bold');
+          }
+
+          // QR + count, top-right -- same corner reservation as print.
+          // qrBottomMm accounts for the QR block's own height when the
+          // text content above it is short enough that the QR would
+          // otherwise stick out past a tightly-fit auto-height label.
+          var qrBottomMm = app.mmFromPx('2px') + qrMm;
+          if (!measuring) {
+            var qrX = pageWmm - qrMm - rightGapMm;
+            targetDoc.addImage(app.QR_CODE_DATA_URI, 'PNG', qrX, app.mmFromPx('2px'), qrMm, qrMm);
+            targetDoc.setFont('FreeSansHebrew', 'bold');
+            targetDoc.setFontSize(app.ptFromPx(cfg.countSize));
+            targetDoc.text(unitCounter + ' of ' + totalUnits, pageWmm - rightGapMm, app.mmFromPx('2px') + qrMm + app.mmFromPx(cfg.countSize) * 0.9, { align: 'right' });
+          }
+
+          return Math.max(y, qrBottomMm) + padMm;
         }
 
-        var y; // current vertical cursor, reset per label below
+        // cfg.autoHeight presets measure each label's real content height
+        // first (against a disposable, never-returned doc used purely for
+        // its font metrics -- same registered font as the real doc, so
+        // splitTextToSize wraps identically in both) and size that one
+        // page to fit, clamped to sane min/max bounds. Non-autoHeight
+        // presets behave exactly as before: one fixed pageHmm for every
+        // label in the batch, decided once up front.
+        var measureDoc = null;
+        if (cfg.autoHeight) {
+          measureDoc = new window.jspdf.jsPDF({ unit: 'mm', format: [pageWmm, pageHmm], orientation: orientation });
+          app.registerHebrewFont(measureDoc);
+        }
+        var doc = cfg.autoHeight ? null : new window.jspdf.jsPDF({ unit: 'mm', format: [pageWmm, pageHmm], orientation: orientation });
+        if (doc) app.registerHebrewFont(doc);
+        var firstPage = true;
 
         orders.forEach(function(order) {
           if (!order.items) return;
@@ -1857,63 +2087,35 @@
             var qty = parseInt(item.quantity, 10);
             if (isNaN(qty) || qty < 1) qty = 1;
             for (var unit = 0; unit < qty; unit++) {
-          unitCounter++;
-            if (!firstPage) doc.addPage([pageWmm, pageHmm], orientation);
-            firstPage = false;
-            y = padMm;
-
-            // Header: bordered box, centered, bold -- matches .header.
-            var headerH = app.mmFromPx(cfg.headerSize) * 1.6;
-            doc.setLineWidth(0.12);
-            doc.rect(leftMm, y, textWidthMm, headerH);
-            doc.setFont('FreeSansHebrew', 'bold');
-            doc.setFontSize(app.ptFromPx(cfg.headerSize));
-            doc.text('BASKETS BY BLIMI', leftMm + textWidthMm / 2, y + headerH / 2 + app.mmFromPx(cfg.headerSize) * 0.3, { align: 'center' });
-            y += headerH + app.mmFromPx('2px');
-
-            addWrapped(deliveryNameDisplay, cfg.fontSize, 'bold');
-            var productDisplay = item.quantityIndividual ? (item.quantityIndividual + ' ' + item.product) : item.product;
-            addWrapped(productDisplay, cfg.productSize, 'bold');
-            if (item.specialInstructions) addWrapped(item.specialInstructions, cfg.addressSize, 'bolditalic');
-
-            // Address: bold, ruled top and bottom -- matches .address.
-            y += app.mmFromPx('2px');
-            doc.setLineWidth(0.1);
-            doc.line(leftMm, y, leftMm + textWidthMm, y);
-            y += app.mmFromPx('2px');
-            addressLines.forEach(function(line) { addWrapped(line, cfg.addressSize, 'bold', 1.1); });
-            y += app.mmFromPx('2px');
-            doc.line(leftMm, y, leftMm + textWidthMm, y);
-
-            if (order.customerNote) {
-              y += app.mmFromPx('2px');
-              // Same per-note length-based sizing as the print/Word path
-              // (see app.pickNoteFontPx) instead of one flat size for the
-              // whole batch, so a long note doesn't overflow just because an
-              // earlier note in the same download was short.
-              // No literal "Note: " label anymore (removed per request) --
-              // as a side effect this also fixes a real bug: gluing the
-              // Latin word "Note: " directly onto a Hebrew-starting note
-              // was what made the FIRST wrapped line garbled (see HEBREW_RE
-              // comment above) -- isInputRtl was applied to the whole line
-              // including that Latin prefix, confusing jsPDF's bidi
-              // reordering right at the script boundary. Every other
-              // addWrapped call (name/product/address) never had an
-              // artificial prefix glued on like this, which is why only
-              // the note's first line was ever reported garbled.
-              addWrapped(order.customerNote, app.pickNoteFontPx(cfg, order.customerNote), 'bold');
-            }
-
-            // QR + count, top-right -- same corner reservation as print.
-            var qrX = pageWmm - qrMm - rightGapMm;
-            doc.addImage(app.QR_CODE_DATA_URI, 'PNG', qrX, app.mmFromPx('2px'), qrMm, qrMm);
-            doc.setFont('FreeSansHebrew', 'bold');
-            doc.setFontSize(app.ptFromPx(cfg.countSize));
-            doc.text(unitCounter + ' of ' + totalUnits, pageWmm - rightGapMm, app.mmFromPx('2px') + qrMm + app.mmFromPx(cfg.countSize) * 0.9, { align: 'right' });
+              unitCounter++;
+              if (cfg.autoHeight) {
+                var measuredHmm = renderUnit(measureDoc, true, item, order, deliveryNameDisplay, addressLines, unitCounter, totalUnits);
+                var thisHmm = Math.min(Math.max(measuredHmm, cfg.minHeightMm || 0), cfg.maxHeightMm || measuredHmm);
+                if (!doc) {
+                  doc = new window.jspdf.jsPDF({ unit: 'mm', format: [pageWmm, thisHmm], orientation: orientation });
+                  app.registerHebrewFont(doc);
+                } else {
+                  doc.addPage([pageWmm, thisHmm], orientation);
+                }
+              } else {
+                if (!firstPage) doc.addPage([pageWmm, pageHmm], orientation);
+              }
+              firstPage = false;
+              renderUnit(doc, false, item, order, deliveryNameDisplay, addressLines, unitCounter, totalUnits);
             }
           });
         });
 
+        // Defensive fallback: every current caller already checks for
+        // empty orders/items before calling this, so doc should never
+        // actually be null here for an autoHeight preset -- but returning
+        // null instead of a usable (if empty) PDF would be a much more
+        // confusing failure than a blank page if that assumption is ever
+        // wrong.
+        if (!doc) {
+          doc = new window.jspdf.jsPDF({ unit: 'mm', format: [pageWmm, pageHmm], orientation: orientation });
+          app.registerHebrewFont(doc);
+        }
         return doc;
       },
 
@@ -2318,6 +2520,49 @@
           // getting notes" call -- so 7px is about the ceiling, not a
           // comfortable size; a longer note will likely still overflow.
           return { labelDim: '55mm', heightDim: '29mm', padding: '4px', fontSize: '10px', headerSize: '11px', productSize: '8px', addressSize: '12px', countSize: '11px', qrSize: '50px', printRightTrim: '18px', qrRightOffset: '20px', pdfLeftShiftMm: 5, noteSize: '7px' };
+        } else if (size === '2.4-continuous') {
+          // For a Brother continuous-length roll (their standard DK-2205/
+          // DK-22205 consumable, used across the whole QL line -- QL-800,
+          // QL-810W, QL-820NWB, QL-1100, etc.) -- 62mm/2.4in physical width,
+          // confirmed via Brother's own product listing. Unlike the two
+          // fixed-size presets above, a continuous roll doesn't have a
+          // label "height" at all -- the printer just cuts after however
+          // much content it printed -- so this is the one preset where
+          // cfg.autoHeight is true: buildLabelsPdf measures each label's
+          // own content first and sizes that one page to fit (see its
+          // autoHeight branch), instead of every label in a batch sharing
+          // one fixed page size the way 4x3/2.25x1.25/etc. do.
+          //
+          // Printable width: Brother's QL printer manuals document 696
+          // print-head pins usable out of the physical 62mm for this tape
+          // width (12 pins reserved as margin on each side, ~1mm apiece at
+          // the standard ~0.0848mm pin pitch), so the real printable window
+          // is closer to 59mm than the full 62mm. padding here (6px,
+          // ~1.6mm) is a first-pass guess at keeping content inside that
+          // printable window with a little breathing room -- unlike the
+          // 2.25x1.25 preset's printRightTrim/pdfLeftShiftMm (which
+          // correct a MEASURED real-world offset from actual print tests
+          // on that specific printer), there's no real-print data for this
+          // one yet, so no shift is applied. Expect this to need the same
+          // kind of real-print tuning every other preset here went through
+          // before it's dialed in.
+          //
+          // Font sizes are deliberately a bit more generous than the
+          // 2.25x1.25 preset despite the similar width, since that preset
+          // is fighting a hard 29mm height ceiling and this one isn't --
+          // the label can just grow taller instead of the text having to
+          // shrink to fit. noteSize is a flat size (not the 4x3 preset's
+          // length-based noteSizeThresholds table) for the same reason: a
+          // long note just makes a longer label here rather than needing
+          // to shrink to avoid overflowing a fixed box.
+          //
+          // minHeightMm keeps even a very short label (e.g. no note, short
+          // address) tall enough that the QR code and header box don't feel
+          // cramped; maxHeightMm is a generous sanity ceiling (not a real
+          // constraint -- continuous rolls can go much longer) mainly to
+          // stop a corrupted/pathological input from producing an absurdly
+          // long label.
+          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '6px', fontSize: '12px', headerSize: '10px', productSize: '11px', addressSize: '11px', countSize: '10px', qrSize: '46px', noteSize: '9px' };
         }
         // Unknown/unset labelSize -- fall back to the smallest, safest
         // preset rather than silently rendering with undefined CSS values.
@@ -2645,7 +2890,8 @@
         }
 
         if (app.showSetup) {
-          appDiv.innerHTML = '<div class="auth-box"><h2>Setup</h2><p style="color:#6b7280;margin-bottom:15px">Paste your Google Service Account JSON key once. You won\'t need to paste it again.</p>' + (app.error ? '<div class="error">' + app.error + '</div>' : '') + '<textarea id="keyInput" placeholder="Paste your JSON key..."></textarea><button onclick="app.setupKey(document.getElementById(\'keyInput\').value)">Save Key</button></div>';
+          var draftEscaped = String(app.keySetupDraft || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+          appDiv.innerHTML = '<div class="auth-box"><h2>Setup</h2><p style="color:#6b7280;margin-bottom:15px">Paste your Google Service Account JSON key once, or choose the .json file directly. You won\'t need to do this again.</p>' + (app.error ? '<div class="error">' + app.error + '</div>' : '') + '<textarea id="keyInput" placeholder="Paste your JSON key...">' + draftEscaped + '</textarea><button onclick="app.setupKey(document.getElementById(\'keyInput\').value)">Save Key</button><p style="color:#6b7280;font-size:13px;margin:4px 0 8px;text-align:center">-- or --</p><input type="file" accept=".json,application/json" id="keyFileInput" onchange="app.handleKeyFile(this)" style="width:100%;margin-bottom:10px"></div>';
           return;
         }
 
@@ -2729,6 +2975,7 @@
         html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px;color:#374151"><label for="labelSizeSelect">Label size:</label><select id="labelSizeSelect" onchange="app.setLabelSize(this.value)" style="padding:6px 8px;border:1px solid #d1d5db;border-radius:6px">' +
           '<option value="4x3"' + (app.labelSize === '4x3' ? ' selected' : '') + '>4in x 3in (large)</option>' +
           '<option value="2.25x1.25"' + (app.labelSize === '2.25x1.25' ? ' selected' : '') + '>2.25in x 1.25in (small)</option>' +
+          '<option value="2.4-continuous"' + (app.labelSize === '2.4-continuous' ? ' selected' : '') + '>2.4in continuous roll (Brother)</option>' +
           '</select></div>';
 
         html += '<div class="action-buttons"><button class="print-btn" onclick="app.openAddOrder()" style="background:#16a34a">+ Add Order</button></div>';
