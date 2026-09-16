@@ -272,7 +272,20 @@ const KNOWN_PRODUCT_SKUS = [
   "salad cups - 12 - Mango",
   "salad cups - 12 - Mushroom",
   "salad cups - 12 - Nish Nosh",
-  "salad cups - 12 - Quinoa"
+  "salad cups - 12 - Quinoa",
+  // "Plastic salad cups" (Sept 2026): same product/prices as "salad cups"
+  // above, added as its own separate, searchable entry per request so it
+  // shows up on its own when typing "plastic" in the Add Order product
+  // search, instead of only being findable under "salad cups".
+  "plastic salad cups",
+  "plastic salad cups - 12 - Cabbage",
+  "plastic salad cups - 12 - Ceasar",
+  "plastic salad cups - 12 - Citrus",
+  "plastic salad cups - 12 - Greek",
+  "plastic salad cups - 12 - Mango",
+  "plastic salad cups - 12 - Mushroom",
+  "plastic salad cups - 12 - Nish Nosh",
+  "plastic salad cups - 12 - Quinoa"
 ];
 
 // Known-good sku -> price map, captured from the same Aug 31, 2026 product
@@ -401,6 +414,15 @@ const KNOWN_PRODUCT_PRICES = {
   "salad cups - 12 - Mango": 84,
   "salad cups - 12 - Mushroom": 84,
   "salad cups - 12 - Quinoa": 84,
+  // Same prices as "salad cups" above -- see KNOWN_PRODUCT_SKUS comment.
+  "plastic salad cups - 12 - Ceasar": 72,
+  "plastic salad cups - 12 - Citrus": 72,
+  "plastic salad cups - 12 - Nish Nosh": 72,
+  "plastic salad cups - 12 - Cabbage": 84,
+  "plastic salad cups - 12 - Greek": 84,
+  "plastic salad cups - 12 - Mango": 84,
+  "plastic salad cups - 12 - Mushroom": 84,
+  "plastic salad cups - 12 - Quinoa": 84,
   "14x21 - Standard": 150,
   "14x21 - Plus": 175,
   "2 oz Fruit Cups - Mango - 12": 51,
@@ -672,12 +694,16 @@ async function fetchAllWooCommerceSkus(baseUrl, consumerKey, consumerSecret) {
   return Array.from(new Set(skus)).sort();
 }
 
-function parseSheetData(values) {
-  if (!values || values.length < 2) return [];
-
-  const headers = values[0].map(h => h.toLowerCase().trim());
-  const orders = [];
-
+// Resolves the sheet's header row into column indexes by matching
+// keywords in the header text (see parseSheetData's original comment on
+// why -- this sheet's real headers don't always match the "obvious" name,
+// e.g. a bare "name" instead of "last name", "deliver to" instead of
+// "delivered to"). Shared between parseSheetData (loading orders) and
+// /api/update-order's fallback row-matching (locating a row that has no
+// order number yet), so both stay in sync with a single copy of this
+// fragile-by-nature logic instead of two copies that can silently drift
+// apart from each other.
+function resolveColumnIndexes(headers) {
   const dateIdx = headers.findIndex(h => h.includes('delivery date'));
   // Root cause of the missing-name bug: this sheet's actual header for the
   // customer's own name is a bare "name" (confirmed from a screenshot of
@@ -721,6 +747,25 @@ function parseSheetData(values) {
   // corrupt the positional alignment with itemNames/quantities the moment
   // a note contains a comma.
   const itemNotesIdx = headers.findIndex(h => h.includes('special instructions'));
+
+  return {
+    dateIdx, nameIdx, itemIdx, qtyIdx, qtyIndividualIdx, deliveredToIdx,
+    addressIdx, pickupIdx, noteIdx, orderNumIdx, paymentIdx, totalIdx,
+    productCostIdx, deliveryCostIdx, itemNotesIdx
+  };
+}
+
+function parseSheetData(values) {
+  if (!values || values.length < 2) return [];
+
+  const headers = values[0].map(h => h.toLowerCase().trim());
+  const orders = [];
+
+  const {
+    dateIdx, nameIdx, itemIdx, qtyIdx, qtyIndividualIdx, deliveredToIdx,
+    addressIdx, pickupIdx, noteIdx, orderNumIdx, paymentIdx, totalIdx,
+    productCostIdx, deliveryCostIdx, itemNotesIdx
+  } = resolveColumnIndexes(headers);
 
   for (let i = 1; i < values.length; i++) {
     const row = values[i];
@@ -1278,11 +1323,16 @@ export default async function handler(req, res) {
         return;
       }
 
+      // An order added straight on the sheet sometimes ends up with no
+      // Order Number (column B left blank) -- previously that made it
+      // impossible to ever edit through the app, since the only way this
+      // endpoint could find the right row was an exact order-number match.
+      // orderNumber is no longer required up front: it's used when present
+      // (the normal case), and when it's blank -- or is a brand-new number
+      // being assigned here for the first time and doesn't exist in the
+      // sheet yet -- the fallback below locates the row a different way
+      // instead of failing outright.
       const orderNumber = (req.body.orderNumber || '').toString().trim();
-      if (!orderNumber) {
-        res.status(400).json({ error: 'Missing order number — this order can\'t be matched back to its row in the sheet' });
-        return;
-      }
 
       const built = validateAndBuildOrderRow(req.body, orderNumber);
       if (built.error) {
@@ -1307,18 +1357,67 @@ export default async function handler(req, res) {
       const readData = await readResp.json();
       const values = readData.values || [];
       const headers = (values[0] || []).map(h => h.toLowerCase().trim());
-      const orderNumIdx = headers.findIndex(h => h.includes('order number'));
-      if (orderNumIdx === -1) {
+      const cols = resolveColumnIndexes(headers);
+      if (cols.orderNumIdx === -1) {
         throw new Error('Could not find the Order Number column in the sheet');
       }
 
       let rowNumber = -1;
-      for (let i = 1; i < values.length; i++) {
-        if ((values[i][orderNumIdx] || '').toString().trim() === orderNumber) {
-          rowNumber = i + 1; // sheet rows are 1-indexed; values[0] is row 1
-          break;
+
+      // 1) Exact order-number match -- the normal, unambiguous path for
+      // any order that already has one, whether or not other fields are
+      // also being changed in this same edit.
+      if (orderNumber) {
+        for (let i = 1; i < values.length; i++) {
+          if ((values[i][cols.orderNumIdx] || '').toString().trim() === orderNumber) {
+            rowNumber = i + 1; // sheet rows are 1-indexed; values[0] is row 1
+            break;
+          }
         }
       }
+
+      // 2) No order number to match on -- either this order never had one,
+      // or one is being typed in here for the first time and so can't
+      // exist anywhere in the sheet yet. Fall back to matching by delivery
+      // date + name + address, but ONLY against rows that currently have a
+      // BLANK order number (a row that already carries a different real
+      // number is never touched by this path), and ONLY when that narrows
+      // it down to exactly one row -- otherwise this refuses rather than
+      // guessing and risking a write to the wrong order.
+      //
+      // Matches against matchDeliveryDate/matchLastName/matchDeliveryAddress
+      // -- a snapshot the client took of this order's fields at the moment
+      // it was opened for editing -- rather than the (possibly just-edited)
+      // deliveryDate/lastName/deliveryAddress in this same request. Using
+      // the live values would fail to find the row at all the moment
+      // someone fixes a typo in the name in the very same edit that adds
+      // the missing order number.
+      if (rowNumber === -1) {
+        if (cols.dateIdx === -1 || cols.nameIdx === -1 || cols.addressIdx === -1) {
+          res.status(500).json({ error: 'Could not find this order by its order number, and the sheet is missing column(s) needed to match it another way.' });
+          return;
+        }
+        const matchDate = (req.body.matchDeliveryDate || req.body.deliveryDate || '').toString().trim();
+        const matchName = (req.body.matchLastName || req.body.lastName || '').toString().trim().toLowerCase();
+        const matchAddress = (req.body.matchDeliveryAddress || req.body.deliveryAddress || '').toString().trim().toLowerCase();
+        const candidates = [];
+        for (let i = 1; i < values.length; i++) {
+          const row = values[i];
+          if (!row) continue;
+          if (((row[cols.orderNumIdx] || '').toString().trim()) !== '') continue;
+          if ((row[cols.dateIdx] || '').toString().trim() !== matchDate) continue;
+          if ((row[cols.nameIdx] || '').toString().trim().toLowerCase() !== matchName) continue;
+          if ((row[cols.addressIdx] || '').toString().trim().toLowerCase() !== matchAddress) continue;
+          candidates.push(i + 1);
+        }
+        if (candidates.length === 1) {
+          rowNumber = candidates[0];
+        } else if (candidates.length > 1) {
+          res.status(409).json({ error: 'More than one order on the sheet matches this one and has no order number yet, so which row to update is ambiguous. Add order numbers directly in the sheet to tell them apart, then try again.' });
+          return;
+        }
+      }
+
       if (rowNumber === -1) {
         res.status(404).json({ error: 'Order not found in the sheet — it may have been changed or removed since this page loaded. Refresh and try again.' });
         return;
