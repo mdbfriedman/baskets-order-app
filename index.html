@@ -2927,7 +2927,15 @@
           // that the header auto-shrinks itself if it ever gets too wide
           // again -- autoHeight + the 300mm maxHeightMm ceiling means the
           // label just grows taller to fit, exactly what was asked for.
-          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '5px', fontSize: '22px', headerSize: '20px', productSize: '21px', addressSize: '22px', countSize: '20px', qrSize: '46px', noteSize: '17px', cutSafetyTopMm: 9, cutSafetyBottomMm: 3, bottomTrimMm: 0, qrRightOffset: '28px', printRightTrim: '24px', printCutSafetyTopMm: 9, pdfRightGapMm: 14 };
+          // Round 7 (Sep 22): round 6's +2px bump confirmed deployed and
+          // live (not a caching issue) but reportedly looked "the same" --
+          // matches this whole session's pattern where small nudges read
+          // as no change and only big jumps actually look different, so
+          // this round is a much larger, decisive increase rather than
+          // another +2px. Left-aligned fields (name/product/address/note)
+          // just wrap to more lines if they don't fit, which is safe;
+          // headerSize is covered by the shrink-to-fit guard either way.
+          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '5px', fontSize: '28px', headerSize: '24px', productSize: '26px', addressSize: '28px', countSize: '24px', qrSize: '52px', noteSize: '20px', cutSafetyTopMm: 9, cutSafetyBottomMm: 3, bottomTrimMm: 0, qrRightOffset: '28px', printRightTrim: '24px', printCutSafetyTopMm: 9, pdfRightGapMm: 14 };
         }
         // Unknown/unset labelSize -- fall back to the smallest, safest
         // preset rather than silently rendering with undefined CSS values.
