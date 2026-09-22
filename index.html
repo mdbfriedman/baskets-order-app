@@ -2334,11 +2334,38 @@
                   thisHmm = cfg.minHeightMm || 40;
                 }
                 if (thisHmm > maxHmm) maxHmm = thisHmm;
+                // Sep 22 (found via live console reproduction on a real
+                // order with an unusually long note): `orientation` above
+                // was computed ONCE, up front, from the STATIC fallback
+                // pageHmm (50mm) vs pageWmm (62mm) -- 62 > 50, so this
+                // preset was permanently locked to orientation:'l' for
+                // every page it ever produces, regardless of that page's
+                // real height. That's silently wrong the moment a real
+                // label's content genuinely needs to be taller than it is
+                // wide (completely normal for autoHeight -- most labels
+                // end up taller than 62mm once name/product/address/note
+                // are drawn). jsPDF's own contract for an explicit
+                // orientation is to force width >= height for 'l' -- so
+                // handing it format:[62, 280] (a tall page) while also
+                // saying orientation:'l' makes it silently SWAP to
+                // [280, 62] to keep that promise, confirmed directly
+                // against the real library in console (not a mock):
+                // format:[62,280] + orientation:'l' -> actual page came
+                // back 280x62; the same format with orientation:'p' came
+                // back correctly as 62x280. That swap is exactly what
+                // produced the reported bug: real content laid out for a
+                // 62mm-wide label, stranded in the corner of a page that
+                // actually came out 280mm wide and only 62mm tall. Fix:
+                // decide portrait vs landscape PER PAGE from that page's
+                // own real dimensions (pageWmm vs thisHmm), never from the
+                // stale batch-level `orientation`, so jsPDF is always told
+                // the truth and never needs to swap anything.
+                var thisOrientation = pageWmm > thisHmm ? 'l' : 'p';
                 if (!doc) {
-                  doc = new window.jspdf.jsPDF({ unit: 'mm', format: [pageWmm, thisHmm], orientation: orientation });
+                  doc = new window.jspdf.jsPDF({ unit: 'mm', format: [pageWmm, thisHmm], orientation: thisOrientation });
                   app.registerHebrewFont(doc);
                 } else {
-                  doc.addPage([pageWmm, thisHmm], orientation);
+                  doc.addPage([pageWmm, thisHmm], thisOrientation);
                 }
               } else {
                 if (!firstPage) doc.addPage([pageWmm, pageHmm], orientation);
