@@ -2128,11 +2128,21 @@
           // Moved up from below (was computed right before the QR draw
           // call, well after every addWrapped call had already run) so
           // addWrapped itself can check "have we scrolled past the QR yet"
-          // per field -- see wideTextWidthMm comment above. Values
-          // unchanged from before, just computed earlier; the QR draw call
-          // further down reuses these same two variables instead of
+          // per field -- see wideTextWidthMm comment above. The QR draw
+          // call further down reuses these same two variables instead of
           // recomputing them.
-          var qrTopMm = padMm + app.mmFromPx('2px') + cutSafetyTopMm;
+          //
+          // qrTopMm (Sep 22, round 10): previously padMm + 2px + cutSafety
+          // TopMm -- that extra 2px was deliberately added earlier this
+          // session to match where NAME text starts (after the header row
+          // + its rule + the 2px gap), not the header itself, so the QR
+          // ended up level with "Gruber" instead of "BASKETS BY BLIMI" --
+          // exactly what a real preview showed and the user asked to fix
+          // ("QR code higher and even with baskets by blimi"). Now matches
+          // `y`'s own starting value exactly (padMm + cutSafetyTopMm, no
+          // extra offset), so the QR's top edge is level with the header
+          // row's own top instead of the name row's.
+          var qrTopMm = padMm + cutSafetyTopMm;
           var qrBottomMm = qrTopMm + qrMm;
 
           function addWrapped(text, sizePx, style, lineGapFactor) {
@@ -2285,29 +2295,31 @@
           }
 
           // QR + count, top-right -- same corner reservation as print.
-          // qrBottomMm accounts for the QR block's own height when the
-          // text content above it is short enough that the QR would
-          // otherwise stick out past a tightly-fit auto-height label.
-          // Shifted down by the same cutSafetyTopMm as the text column so
-          // the QR block doesn't end up sitting closer to the top cut line
-          // than the text next to it does.
+          // qrTopMm/qrBottomMm are computed once near the top of this
+          // function now (see that comment for the round-10 QR-height
+          // history) and reused here rather than recomputed.
           //
-          // padMm added (Sep 22): the comment above always said this should
-          // match the text column, but the formula never actually included
-          // padMm the way the text column's own "y = padMm + cutSafetyTopMm"
-          // does -- so the QR's top edge has been sitting padMm (~1.3mm)
-          // CLOSER to the physical top edge than the header text this whole
-          // time, a real bug just found via a real print reporting the QR
-          // specifically cut while the text next to it wasn't. Fixed by
-          // actually matching the text column's formula now.
-          var qrTopMm = padMm + app.mmFromPx('2px') + cutSafetyTopMm;
-          var qrBottomMm = qrTopMm + qrMm;
+          // Count text ("1 of 1") 24px -> 11px and repositioned (Sep 22,
+          // round 10): previously sat right at qrBottomMm with barely any
+          // gap, which -- combined with the QR itself sitting lower than
+          // the header before this round's qrTopMm fix -- visually landed
+          // in the middle of the product/address text instead of reading
+          // as its own element below the QR. Shrunk (it's a small
+          // reference number, doesn't need to compete with the header) and
+          // given real breathing room below the QR instead of nearly
+          // touching it.
+          // countBaselineMm used for both the actual draw call below AND
+          // rawBottomMm further down, so the bottom safety buffer always
+          // accounts for wherever the count text really ends up -- now that
+          // it's drawn BELOW qrBottomMm instead of even with it, a very
+          // short label could otherwise clip it at the bottom.
+          var countBaselineMm = qrBottomMm + app.mmFromPx('3px') + app.mmFromPx(cfg.countSize) * 0.9;
           if (!measuring) {
             var qrX = pageWmm - qrMm - rightGapMm;
             targetDoc.addImage(app.QR_CODE_DATA_URI, 'PNG', qrX, qrTopMm, qrMm, qrMm);
             targetDoc.setFont('FreeSansHebrew', 'bold');
             targetDoc.setFontSize(app.ptFromPx(cfg.countSize));
-            targetDoc.text(unitCounter + ' of ' + totalUnits, pageWmm - rightGapMm, qrTopMm + qrMm + app.mmFromPx(cfg.countSize) * 0.9, { align: 'right' });
+            targetDoc.text(unitCounter + ' of ' + totalUnits, pageWmm - rightGapMm, countBaselineMm, { align: 'right' });
           }
 
           // Bottom buffer starts from the same idea as the top (padMm +
@@ -2317,7 +2329,7 @@
           // bottom cut line) but can never go negative and start eating
           // into the actual drawn QR code or last text line, no matter how
           // large a trim is requested.
-          var rawBottomMm = Math.max(y, qrBottomMm);
+          var rawBottomMm = Math.max(y, qrBottomMm, countBaselineMm);
           var cutSafetyBottomMm = cfg.cutSafetyBottomMm != null ? cfg.cutSafetyBottomMm : (cfg.cutSafetyMarginMm || 0);
           var bottomBufferMm = Math.max(0, padMm + cutSafetyBottomMm - (cfg.bottomTrimMm || 0));
           return rawBottomMm + bottomBufferMm;
@@ -3113,7 +3125,11 @@
           // (only name/product were called out that round), but now
           // matched to fontSize's 15px. Also shrinks item.specialInstructions
           // (which has always shared addressSize) as a side effect.
-          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '5px', fontSize: '15px', headerSize: '24px', productSize: '14px', addressSize: '15px', countSize: '24px', qrSize: '52px', noteSize: '20px', noteSizeThresholds: [{ maxLen: 60, size: 20 }, { maxLen: 120, size: 17 }, { maxLen: 200, size: 14 }, { maxLen: 300, size: 12 }, { maxLen: 450, size: 10 }, { maxLen: Infinity, size: 9 }], cutSafetyTopMm: 9, cutSafetyBottomMm: 3, bottomTrimMm: 0, qrRightOffset: '28px', printRightTrim: '24px', printCutSafetyTopMm: 9, pdfRightGapMm: 14, pdfLeftShiftMm: 5 };
+          // countSize 24->11 (Sep 22, round 10): "1 of 1" is a small
+          // reference number, not a headline element -- shrunk to match the
+          // user's request, now that it's drawn below the QR (see
+          // renderUnit's countBaselineMm) instead of beside it.
+          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '5px', fontSize: '15px', headerSize: '24px', productSize: '14px', addressSize: '15px', countSize: '11px', qrSize: '52px', noteSize: '20px', noteSizeThresholds: [{ maxLen: 60, size: 20 }, { maxLen: 120, size: 17 }, { maxLen: 200, size: 14 }, { maxLen: 300, size: 12 }, { maxLen: 450, size: 10 }, { maxLen: Infinity, size: 9 }], cutSafetyTopMm: 9, cutSafetyBottomMm: 3, bottomTrimMm: 0, qrRightOffset: '28px', printRightTrim: '24px', printCutSafetyTopMm: 9, pdfRightGapMm: 14, pdfLeftShiftMm: 5 };
         }
         // Unknown/unset labelSize -- fall back to the smallest, safest
         // preset rather than silently rendering with undefined CSS values.
