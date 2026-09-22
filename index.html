@@ -1832,6 +1832,7 @@
         var commaIdx = dataUri.indexOf(',');
         var base64 = commaIdx === -1 ? dataUri : dataUri.slice(commaIdx + 1);
         app.openGeneratedDocument(filename, base64, 'application/pdf', 'base64');
+        app.notifyRecommendedLabelLength(doc);
       },
 
       // First version of this tried navigator.share() directly, but real
@@ -1853,6 +1854,21 @@
         var commaIdx = dataUri.indexOf(',');
         var base64 = commaIdx === -1 ? dataUri : dataUri.slice(commaIdx + 1);
         app.downloadViaBlob(filename, base64, 'application/pdf', 'base64');
+        app.notifyRecommendedLabelLength(doc);
+      },
+
+      // Only fires when buildLabelsPdf set doc.__recommendedLengthIn (i.e.
+      // this was a 2.4in-continuous-roll labels PDF, not a day-export PDF
+      // or a fixed-size label preset -- those never set this property).
+      // Placed here rather than in every button handler that calls
+      // viewPdfInNewTab/sharePdf so it can't be forgotten on a future one.
+      // Fires AFTER the tab/download already happened, not before, since a
+      // blocking alert() ahead of window.open() can trip some browsers'
+      // popup blockers (the open no longer looks like it's directly inside
+      // the click's own call stack once a modal dismiss sits in between).
+      notifyRecommendedLabelLength: function(doc) {
+        if (!doc || !doc.__recommendedLengthIn) return;
+        alert('This batch needs up to ' + doc.__recommendedLengthIn.toFixed(1) + '" of label length.\n\nPrinting from Windows: set the Brother driver\'s Length (Printing Preferences → Basic tab) to at least ' + doc.__recommendedLengthIn.toFixed(1) + '" before printing, so nothing gets cut off. This number is recalculated fresh each time from whatever you\'re printing, so re-check it before you print -- a longer product name or note next time can need more.\n\nPrinting via FlashLabel Pro on Android: this doesn\'t apply, it already sizes each label automatically.');
       },
 
       downloadLabels: function() {
@@ -2031,7 +2047,32 @@
         // Reusing one function for both passes means the measured height
         // can never drift out of sync with what's actually drawn.
         function renderUnit(targetDoc, measuring, item, order, deliveryNameDisplay, addressLines, unitCounter, totalUnits) {
-          var y = padMm;
+          // cutSafetyTopMm/cutSafetyBottomMm (see getLabelStyleConfig's
+          // '2.4-continuous' branch) push content in from the top/bottom
+          // edges of the page -- added after a real printed test showed
+          // the header box's top edge getting clipped by the auto-cutter's
+          // ordinary registration slop when content sat right at the page
+          // boundary. 0 for every other preset (fixed-size labels aren't
+          // cut per-label off a continuous roll the same way), so this is
+          // a no-op there.
+          //
+          // Sep 22 follow-up: after confirming that fix worked, asked to
+          // trim the top margin back down by 1/8in (leaves 0, since 1/8in
+          // is slightly MORE than the 3mm/~0.12in this was set to -- this
+          // removes essentially the entire top safety buffer, back to
+          // roughly where it sat before that fix) and the bottom by a
+          // further 1/4in specifically. bottomTrimMm is clamped in the
+          // final return below so it can reduce the bottom buffer to zero
+          // (flush against the actual content) but never further -- never
+          // cropping into real drawn content (QR code / last text line) no
+          // matter how large a trim is requested. Both ends now carry
+          // little to no cushion, which is a deliberate, explicit
+          // trade-off the user asked for after seeing a real print with
+          // the previous (safer) margins -- worth watching the next real
+          // test print closely for clipping at BOTH edges, not just typing
+          // in this number and assuming it's final.
+          var cutSafetyTopMm = cfg.cutSafetyTopMm != null ? cfg.cutSafetyTopMm : (cfg.cutSafetyMarginMm || 0);
+          var y = padMm + cutSafetyTopMm;
 
           function addWrapped(text, sizePx, style, lineGapFactor) {
             targetDoc.setFont('FreeSansHebrew', style || 'normal');
@@ -2106,16 +2147,30 @@
           // qrBottomMm accounts for the QR block's own height when the
           // text content above it is short enough that the QR would
           // otherwise stick out past a tightly-fit auto-height label.
-          var qrBottomMm = app.mmFromPx('2px') + qrMm;
+          // Shifted down by the same cutSafetyTopMm as the text column so
+          // the QR block doesn't end up sitting closer to the top cut line
+          // than the text next to it does.
+          var qrTopMm = app.mmFromPx('2px') + cutSafetyTopMm;
+          var qrBottomMm = qrTopMm + qrMm;
           if (!measuring) {
             var qrX = pageWmm - qrMm - rightGapMm;
-            targetDoc.addImage(app.QR_CODE_DATA_URI, 'PNG', qrX, app.mmFromPx('2px'), qrMm, qrMm);
+            targetDoc.addImage(app.QR_CODE_DATA_URI, 'PNG', qrX, qrTopMm, qrMm, qrMm);
             targetDoc.setFont('FreeSansHebrew', 'bold');
             targetDoc.setFontSize(app.ptFromPx(cfg.countSize));
-            targetDoc.text(unitCounter + ' of ' + totalUnits, pageWmm - rightGapMm, app.mmFromPx('2px') + qrMm + app.mmFromPx(cfg.countSize) * 0.9, { align: 'right' });
+            targetDoc.text(unitCounter + ' of ' + totalUnits, pageWmm - rightGapMm, qrTopMm + qrMm + app.mmFromPx(cfg.countSize) * 0.9, { align: 'right' });
           }
 
-          return Math.max(y, qrBottomMm) + padMm;
+          // Bottom buffer starts from the same idea as the top (padMm +
+          // cutSafetyBottomMm), then bottomTrimMm shaves additional space
+          // off it on request -- clamped with Math.max so it can shrink
+          // that buffer all the way to zero (content flush against the
+          // bottom cut line) but can never go negative and start eating
+          // into the actual drawn QR code or last text line, no matter how
+          // large a trim is requested.
+          var rawBottomMm = Math.max(y, qrBottomMm);
+          var cutSafetyBottomMm = cfg.cutSafetyBottomMm != null ? cfg.cutSafetyBottomMm : (cfg.cutSafetyMarginMm || 0);
+          var bottomBufferMm = Math.max(0, padMm + cutSafetyBottomMm - (cfg.bottomTrimMm || 0));
+          return rawBottomMm + bottomBufferMm;
         }
 
         // cfg.autoHeight presets measure each label's real content height
@@ -2130,6 +2185,22 @@
           measureDoc = new window.jspdf.jsPDF({ unit: 'mm', format: [pageWmm, pageHmm], orientation: orientation });
           app.registerHebrewFont(measureDoc);
         }
+        // Tracks the tallest single label actually produced in THIS batch
+        // (whole day / selected orders / one order -- whatever the caller
+        // passed in). Windows can't vary a Brother continuous-roll
+        // printer's cut length per page the way FlashLabel Pro on Android
+        // does (confirmed platform limitation, not an app bug) -- every
+        // page in one Windows print job gets cut at whatever single Length
+        // is set in the driver's Printing Preferences. This can't be set
+        // from here (no browser API reaches printer-driver settings), but
+        // computing the exact minimum that batch needs -- instead of the
+        // user guessing one generously-oversized number and living with
+        // wasted tape on every shorter label forever -- is the closest
+        // thing to "dynamic" actually achievable through a generic Windows
+        // PDF print path. Surfaced to the user via doc.__recommendedLengthIn
+        // (see viewPdfInNewTab/sharePdf below, the two functions every
+        // labels-PDF button routes through) rather than changed here.
+        var maxHmm = 0;
         var doc = cfg.autoHeight ? null : new window.jspdf.jsPDF({ unit: 'mm', format: [pageWmm, pageHmm], orientation: orientation });
         if (doc) app.registerHebrewFont(doc);
         var firstPage = true;
@@ -2163,6 +2234,7 @@
               if (cfg.autoHeight) {
                 var measuredHmm = renderUnit(measureDoc, true, item, order, deliveryNameDisplay, addressLines, unitCounter, totalUnits);
                 var thisHmm = Math.min(Math.max(measuredHmm, cfg.minHeightMm || 0), cfg.maxHeightMm || measuredHmm);
+                if (thisHmm > maxHmm) maxHmm = thisHmm;
                 if (!doc) {
                   doc = new window.jspdf.jsPDF({ unit: 'mm', format: [pageWmm, thisHmm], orientation: orientation });
                   app.registerHebrewFont(doc);
@@ -2187,6 +2259,13 @@
         if (!doc) {
           doc = new window.jspdf.jsPDF({ unit: 'mm', format: [pageWmm, pageHmm], orientation: orientation });
           app.registerHebrewFont(doc);
+        }
+        if (cfg.autoHeight && maxHmm > 0) {
+          // Rounded UP to the nearest tenth of an inch -- a recommendation
+          // that's a hair short defeats the whole point (content still
+          // gets cut off), so this always errs generous by at most 0.1in,
+          // never short.
+          doc.__recommendedLengthIn = Math.ceil((maxHmm / 25.4) * 10) / 10;
         }
         return doc;
       },
@@ -2341,6 +2420,43 @@
         if (dayOrders.length === 0) { alert('No orders to export'); return; }
         if (!window.jspdf) { alert('PDF library failed to load -- check your internet connection and try again.'); return; }
         app.sharePdf(app.buildDayExportPdf(app.selectedDate), 'BasketsByBlimi_' + app.selectedDate + '_DayExport.pdf');
+      },
+
+      // Replaces the old Google Sheets script button for this -- that only
+      // ever worked with the sheet open on a desktop browser (Sheets on
+      // Android, app or mobile browser, can't run Apps Script at all, no
+      // matter what the script does). This does the same job -- writing
+      // this day's item(s) + delivery address into the "delivery list" and
+      // "delivery print" tabs -- but through the app talking straight to
+      // the Sheets API, same as Add/Edit Order already do, so it works
+      // from the phone like every other button here. The two tabs end up
+      // as completely normal sheet data afterward -- open, reorder, or
+      // edit them in the Sheets app same as anything else.
+      exportDeliveryList: async function() {
+        var dayOrders = app.getOrdersForDate(app.selectedDate);
+        if (dayOrders.length === 0) { alert('No orders to export for this date.'); return; }
+        var btn = document.getElementById('exportDeliveryListBtn');
+        var originalText = btn ? btn.textContent : '';
+        if (btn) { btn.textContent = 'Exporting...'; btn.disabled = true; }
+        try {
+          var savedKey = localStorage.getItem('serviceAccount');
+          var body = { password: app.appPassword, deliveryDate: app.selectedDate };
+          if (savedKey) {
+            try { body.serviceAccount = JSON.parse(savedKey); } catch (e) {}
+          }
+          var response = await fetch('/api/export-delivery-list', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          });
+          var data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Failed to export delivery list');
+          alert('Updated "delivery list" and "delivery print" with ' + data.orderCount + (data.orderCount === 1 ? ' order' : ' orders') + ' for ' + app.formatDateDisplay(app.selectedDate) + '.');
+        } catch (e) {
+          alert('Error: ' + e.message);
+        } finally {
+          if (btn) { btn.textContent = originalText; btn.disabled = false; }
+        }
       },
 
       // Switches which label size print/download use, and remembers the
@@ -2634,7 +2750,47 @@
           // constraint -- continuous rolls can go much longer) mainly to
           // stop a corrupted/pathological input from producing an absurdly
           // long label.
-          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '6px', fontSize: '12px', headerSize: '10px', productSize: '11px', addressSize: '11px', countSize: '10px', qrSize: '46px', noteSize: '9px' };
+          //
+          // cutSafetyMarginMm (Sep): a real printed test on the QL-820NWB
+          // came back with the header box's top edge cut off, even though
+          // the PDF itself (viewed on screen) had the normal ~1.6mm padMm
+          // gap above it. This is a known Brother QL continuous-roll
+          // behavior, not a bug in the measured height -- the auto-cutter's
+          // blade doesn't land with pixel-perfect precision at the exact
+          // boundary between two labels, so content sitting right at that
+          // boundary is at risk of being clipped by ordinary cut-to-cut
+          // registration slop. A dedicated Brother QL troubleshooting guide
+          // recommends a 3-5mm top/bottom safety margin specifically for
+          // this (separate from normal padding, which is about spacing
+          // from the printable-area edge, not about surviving an imprecise
+          // physical cut). Added on top of padMm at both the very top
+          // (before the header) and very bottom (after the last content) --
+          // see buildLabelsPdf/buildLabelsHtml's use of this value below.
+          // 3mm chosen as the low end of that recommended range: enough to
+          // fix real clipping without doubling the tape this preset uses on
+          // an already-short label.
+          //
+          // cutSafetyTopMm/cutSafetyBottomMm/bottomTrimMm (Sep 22): briefly
+          // tried trimming the top margin back down by 1/8in and the
+          // bottom by a further 1/4in (see git history) -- a real test
+          // print came back cut off at the top again, confirming the full
+          // 3mm safety margin from the original fix was in fact needed,
+          // not excess. Reverted to the symmetric 3mm top+bottom margin
+          // (bottomTrimMm back to 0) that was already confirmed working
+          // before that experiment. cutSafetyTopMm/cutSafetyBottomMm are
+          // kept as separate fields (rather than collapsing back to one
+          // cutSafetyMarginMm) since the code built around them is more
+          // flexible for next time either side needs adjusting on its own.
+          //
+          // Font sizes (Sep 22): bumped up a couple px across the board
+          // (name/product/address/header/count) and confirmed every one of
+          // them already renders bold (see addWrapped's 'bold' style calls
+          // in buildLabelsPdf and the CSS font-weight:bold rules in
+          // buildLabelsHtml) -- FreeSansHebrew's Bold style is the
+          // heaviest weight embedded, there's no heavier "black" weight
+          // available to go bolder than that, but larger bold text reads
+          // visibly thicker on a thermal print regardless.
+          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '6px', fontSize: '14px', headerSize: '12px', productSize: '13px', addressSize: '13px', countSize: '12px', qrSize: '46px', noteSize: '10px', cutSafetyTopMm: 3, cutSafetyBottomMm: 3, bottomTrimMm: 0 };
         }
         // Unknown/unset labelSize -- fall back to the smallest, safest
         // preset rather than silently rendering with undefined CSS values.
@@ -2732,10 +2888,33 @@
         // been reported affected; presets without wordLeftShiftPx keep the
         // original plain symmetric padding.
         var wordLeftPadding = (paddingNum + (cfg.wordLeftShiftPx || 0)) + 'px';
+        // Same cutSafetyTopMm fix as buildLabelsPdf, applied to the top
+        // padding here too (real printed test on the QL-820NWB showed the
+        // header's top edge clipped by ordinary auto-cutter registration
+        // slop) -- calc() mixing cfg.padding's px with an mm value is
+        // fine, CSS length values in a shorthand can each carry their own
+        // unit. Only the top gets this treatment here (unlike
+        // buildLabelsPdf's PDF path) since this print/Word path uses a
+        // fixed heightDim with overflow:hidden rather than a true
+        // auto-fit bottom edge -- there's no equivalent "trailing tape"
+        // to trim at the bottom the way there is on the real PDF path, so
+        // the bottom keeps plain cfg.padding. cfg.cutSafetyTopMm is unset
+        // (0) on every preset except '2.4-continuous', so this is a no-op
+        // elsewhere.
+        var topPadding = cfg.cutSafetyTopMm
+          ? ('calc(' + cfg.padding + ' + ' + cfg.cutSafetyTopMm + 'mm)')
+          : cfg.padding;
         var labelPadding = forWord
-          ? (cfg.padding + ' ' + cfg.padding + ' ' + cfg.padding + ' ' + wordLeftPadding)
-          : (cfg.padding + ' ' + rightPadding + ' ' + cfg.padding + ' ' + printLeftPadding);
-        var countTop = (2 + qrSizeNum + 3) + 'px';
+          ? (topPadding + ' ' + cfg.padding + ' ' + cfg.padding + ' ' + wordLeftPadding)
+          : (topPadding + ' ' + rightPadding + ' ' + cfg.padding + ' ' + printLeftPadding);
+        // qrTopCss: same top-edge cut-safety shift as the QR block gets in
+        // buildLabelsPdf, expressed as CSS (mixing the normal 2px offset
+        // with cfg.cutSafetyTopMm in mm via calc() -- a no-op calc() isn't
+        // worth the extra CSS when the preset doesn't set one).
+        var qrTopCss = cfg.cutSafetyTopMm ? ('calc(2px + ' + cfg.cutSafetyTopMm + 'mm)') : '2px';
+        var countTop = cfg.cutSafetyTopMm
+          ? ('calc(2px + ' + cfg.cutSafetyTopMm + 'mm + ' + (qrSizeNum + 3) + 'px)')
+          : ((2 + qrSizeNum + 3) + 'px');
         // Print-only: shrinks the visible box by printRightTrim (if the
         // preset sets one), leaving that sliver as blank space on the
         // physical label's right edge instead of shifting the declared
@@ -2758,7 +2937,7 @@
         // rules are declared so print (unnamed @page) and Word (named
         // Section1 + div.Section1) each get the page size from the one
         // they actually read.
-        var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>@page Section1{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';mso-page-orientation:portrait;margin:0in 0in 0in 0in;}div.Section1{page:Section1;}* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + labelWidthCss + ' !important;height:' + cfg.heightDim + ' !important;padding:' + labelPadding + ' !important;margin:0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:block;position:relative}.header{font-size:' + cfg.headerSize + ';font-weight:bold;display:block;text-align:center;border:1px solid #000;margin:0;padding:1px 0}.name{font-size:' + cfg.fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product{font-size:' + cfg.productSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.address{font-size:' + cfg.addressSize + ';font-weight:bold;line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.item-note{font-size:' + cfg.addressSize + ';font-weight:bold;font-style:italic;margin:1px 0 0 0;display:block;word-break:break-word}.qr{width:' + cfg.qrSize + ';height:' + cfg.qrSize + ';position:absolute;top:2px;right:' + qrRightOffset + ';margin:0;padding:0}.count{font-size:' + cfg.countSize + ';font-weight:bold;position:absolute;top:' + countTop + ';right:' + qrRightOffset + ';margin:0;padding:0;white-space:nowrap}.countWord{font-size:' + cfg.countSize + ';font-weight:bold;text-align:right;margin:0 0 2px 0;padding:0;white-space:nowrap}</style></head><body><div class="Section1">';
+        var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>@page Section1{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';mso-page-orientation:portrait;margin:0in 0in 0in 0in;}div.Section1{page:Section1;}* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{size:' + cfg.labelDim + ' ' + cfg.heightDim + ';margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + labelWidthCss + ' !important;height:' + cfg.heightDim + ' !important;padding:' + labelPadding + ' !important;margin:0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:block;position:relative}.header{font-size:' + cfg.headerSize + ';font-weight:bold;display:block;text-align:center;border:1px solid #000;margin:0;padding:1px 0}.name{font-size:' + cfg.fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product{font-size:' + cfg.productSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.address{font-size:' + cfg.addressSize + ';font-weight:bold;line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.item-note{font-size:' + cfg.addressSize + ';font-weight:bold;font-style:italic;margin:1px 0 0 0;display:block;word-break:break-word}.qr{width:' + cfg.qrSize + ';height:' + cfg.qrSize + ';position:absolute;top:' + qrTopCss + ';right:' + qrRightOffset + ';margin:0;padding:0}.count{font-size:' + cfg.countSize + ';font-weight:bold;position:absolute;top:' + countTop + ';right:' + qrRightOffset + ';margin:0;padding:0;white-space:nowrap}.countWord{font-size:' + cfg.countSize + ';font-weight:bold;text-align:right;margin:0 0 2px 0;padding:0;white-space:nowrap}</style></head><body><div class="Section1">';
         // Counts labels emitted so far so every label after the first opens
         // on its own fresh page. Needed because Word doesn't reliably clip
         // content to .label's fixed height/overflow:hidden the way a
@@ -3073,7 +3252,7 @@
         // up there; grouped down here with the other buttons that were
         // already confirmed working.
         if (categorizedTotals.length > 0) {
-          html += '<div class="action-buttons"><button class="print-btn" onclick="app.downloadDayExportPdf()" title="Categorized, easy-to-scan PDF of this day\'s totals -- fruit platters by size, fruit cups, salads by type & size, smoothies" style="background:#7c3aed">📊 Export Day (PDF)</button><button class="print-btn" onclick="app.shareDayExportPdf()" title="Download this PDF -- then use Android\'s own Share button on the download, or import it directly into a printer app like FlashLabel Pro" style="background:#0f766e">⬇️ Download Export</button></div>';
+          html += '<div class="action-buttons"><button class="print-btn" onclick="app.downloadDayExportPdf()" title="Categorized, easy-to-scan PDF of this day\'s totals -- fruit platters by size, fruit cups, salads by type & size, smoothies" style="background:#7c3aed">📊 Export Day (PDF)</button><button class="print-btn" onclick="app.shareDayExportPdf()" title="Download this PDF -- then use Android\'s own Share button on the download, or import it directly into a printer app like FlashLabel Pro" style="background:#0f766e">⬇️ Download Export</button><button class="print-btn" id="exportDeliveryListBtn" onclick="app.exportDeliveryList()" title="Writes this day\'s item(s) + delivery address into the \'delivery list\' and \'delivery print\' sheet tabs -- works from your phone, unlike the old script button" style="background:#0369a1">📋 Export Delivery List</button></div>';
         }
 
         if (dayOrders.length === 0) {
