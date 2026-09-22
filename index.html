@@ -2011,10 +2011,30 @@
         var pageHmm = app.mmFromDim(cfg.autoHeight ? (cfg.heightDim || '40mm') : cfg.heightDim);
         var padMm = app.mmFromPx(cfg.padding);
         var qrMm = app.mmFromPx(cfg.qrSize);
-        var rightGapMm = app.mmFromPx('9px');
+        // pdfRightGapMm (Sep 22): this was a flat 9px (~2.4mm) for every
+        // preset until now -- fine for presets where the QR/count were
+        // never reported clipped, but on the 2.4-continuous roll a real
+        // print came back with the QR cut off even though the PDF's own
+        // preview (opened before printing) showed it completely intact.
+        // That preview-vs-print mismatch is the signature of a printer
+        // that physically can't put ink all the way to the page's
+        // declared right edge -- the PDF is "correct" relative to its own
+        // 62mm page, but the print head's real printable width is
+        // apparently narrower than that, so anything sitting close to the
+        // declared edge gets silently dropped during the actual print,
+        // invisible in any on-screen preview. Same underlying printer as
+        // the print/Word path, which needed roughly 13-14mm of total
+        // right-edge clearance (printRightTrim + qrRightOffset combined)
+        // before its own QR stopped clipping -- giving the PDF path that
+        // same clearance via cfg.pdfRightGapMm rather than the old flat
+        // 9px, which was never actually tuned against this printer.
+        var rightGapMm = cfg.pdfRightGapMm != null ? cfg.pdfRightGapMm : app.mmFromPx('9px');
         // Mirrors buildLabelsHtml's rightPadding reservation so text never
-        // runs under the QR/count column in the top-right corner.
-        var textWidthMm = pageWmm - (2 * padMm) - qrMm - app.mmFromPx('10px');
+        // runs under the QR/count column in the top-right corner -- uses
+        // the real rightGapMm (plus the original 1px buffer) instead of a
+        // hardcoded 10px so the text column shrinks correctly on presets
+        // that override the gap, like 2.4-continuous now does.
+        var textWidthMm = pageWmm - (2 * padMm) - qrMm - rightGapMm - app.mmFromPx('1px');
         // Real-world PDF prints came out shifted left (see pdfLeftShiftMm
         // comment on the 2.25x1.25 preset) -- leftMm is where all
         // left-anchored content actually starts, padMm left as-is for the
@@ -2835,7 +2855,7 @@
           // (frees room rather than risking a new wrap), and the extra
           // font-size room should be more than covered by that freed
           // padding plus the label's own auto-height growing to fit.
-          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '5px', fontSize: '15px', headerSize: '13px', productSize: '14px', addressSize: '14px', countSize: '13px', qrSize: '46px', noteSize: '11px', cutSafetyTopMm: 5, cutSafetyBottomMm: 3, bottomTrimMm: 0, qrRightOffset: '28px', printRightTrim: '24px', printCutSafetyTopMm: 5 };
+          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '5px', fontSize: '16px', headerSize: '14px', productSize: '15px', addressSize: '15px', countSize: '14px', qrSize: '46px', noteSize: '12px', cutSafetyTopMm: 5, cutSafetyBottomMm: 3, bottomTrimMm: 0, qrRightOffset: '28px', printRightTrim: '24px', printCutSafetyTopMm: 5, pdfRightGapMm: 14 };
         }
         // Unknown/unset labelSize -- fall back to the smallest, safest
         // preset rather than silently rendering with undefined CSS values.
