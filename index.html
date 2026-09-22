@@ -2851,15 +2851,25 @@
           // print-head pins usable out of the physical 62mm for this tape
           // width (12 pins reserved as margin on each side, ~1mm apiece at
           // the standard ~0.0848mm pin pitch), so the real printable window
-          // is closer to 59mm than the full 62mm. padding here (6px,
-          // ~1.6mm) is a first-pass guess at keeping content inside that
-          // printable window with a little breathing room -- unlike the
-          // 2.25x1.25 preset's printRightTrim/pdfLeftShiftMm (which
-          // correct a MEASURED real-world offset from actual print tests
-          // on that specific printer), there's no real-print data for this
-          // one yet, so no shift is applied. Expect this to need the same
-          // kind of real-print tuning every other preset here went through
-          // before it's dialed in.
+          // is closer to 59mm than the full 62mm. padding here (5px,
+          // ~1.3mm) is a first-pass guess at keeping content inside that
+          // printable window with a little breathing room.
+          //
+          // pdfLeftShiftMm 0->5 (Sep 22, after real prints): a real print of
+          // a long-note label came back with all left-anchored content
+          // (name/product/address/note) hugging the physical left edge with
+          // almost no visible margin, next to a short-preset label on the
+          // same photo clearly showing a real margin -- the same "PDF path
+          // drifts left" symptom the 2.25x1.25 preset already measured and
+          // corrected for on this exact printer (see its own pdfLeftShiftMm
+          // comment above). This preset never got that same correction
+          // before now because there was no real-print data yet; there is
+          // now, so applying the same 5mm shift right as a starting point
+          // rather than re-deriving it from scratch -- same physical
+          // printer, same PDF-viewer print path, same direction of drift.
+          // Not yet confirmed by a real reprint -- if 5mm turns out to be
+          // too much or too little on this preset specifically, adjust from
+          // here rather than assuming it's exactly right the first time.
           //
           // Font sizes are deliberately a bit more generous than the
           // 2.25x1.25 preset despite the similar width, since that preset
@@ -2996,7 +3006,31 @@
           // another +2px. Left-aligned fields (name/product/address/note)
           // just wrap to more lines if they don't fit, which is safe;
           // headerSize is covered by the shrink-to-fit guard either way.
-          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '5px', fontSize: '28px', headerSize: '24px', productSize: '26px', addressSize: '28px', countSize: '24px', qrSize: '52px', noteSize: '20px', cutSafetyTopMm: 9, cutSafetyBottomMm: 3, bottomTrimMm: 0, qrRightOffset: '28px', printRightTrim: '24px', printCutSafetyTopMm: 9, pdfRightGapMm: 14 };
+          // noteSizeThresholds (Sep 22, after the orientation-swap fix):
+          // this preset had no length-based note shrinking at all -- every
+          // note printed at the flat 20px noteSize above regardless of how
+          // long it was. Fine for a short one-liner, but a real "Mazal Tov"
+          // note (~270 chars) wrapped to 33 lines at 20px in this preset's
+          // narrow ~31mm text column and, now that the orientation bug is
+          // fixed and the label actually prints at its true (correct)
+          // height instead of getting swapped/mangled, that came out as a
+          // genuinely foot-long label -- confirmed by a real print, vs 5in
+          // for a short-note label. Same fix pattern the 4x3 preset already
+          // uses (see its own noteSizeThresholds above): shrink the note's
+          // OWN font as it gets longer, tiered by length, leaving
+          // name/product/address/header untouched (those rarely run long
+          // enough to matter). Breakpoints picked from this preset's real
+          // ~31mm text column width, calibrated against the actual 33-line
+          // wrap measured for that 270-char note at 20px: <=60 chars keeps
+          // today's 20px (typical short note, unaffected), longer notes
+          // step down, floor is 9px (still legible bold text at this
+          // physical size, just no longer devouring a foot of tape for a
+          // long paragraph). Same app.pickNoteFontPx() function already
+          // used by buildLabelsHtml's Print/Word path too, so this also
+          // reduces that path's own long-note overflow risk (see the
+          // fixed-50mm-box latent-risk note elsewhere in this file) as a
+          // side effect, not just the PDF/Download path.
+          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '5px', fontSize: '28px', headerSize: '24px', productSize: '26px', addressSize: '28px', countSize: '24px', qrSize: '52px', noteSize: '20px', noteSizeThresholds: [{ maxLen: 60, size: 20 }, { maxLen: 120, size: 17 }, { maxLen: 200, size: 14 }, { maxLen: 300, size: 12 }, { maxLen: 450, size: 10 }, { maxLen: Infinity, size: 9 }], cutSafetyTopMm: 9, cutSafetyBottomMm: 3, bottomTrimMm: 0, qrRightOffset: '28px', printRightTrim: '24px', printCutSafetyTopMm: 9, pdfRightGapMm: 14, pdfLeftShiftMm: 5 };
         }
         // Unknown/unset labelSize -- fall back to the smallest, safest
         // preset rather than silently rendering with undefined CSS values.
