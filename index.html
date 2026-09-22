@@ -653,11 +653,14 @@
           var today = new Date();
           var todayStr = today.getFullYear() + '/' + String(today.getMonth() + 1).padStart(2, '0') + '/' + String(today.getDate()).padStart(2, '0');
           
-          // Set selectedDate to today if it exists, otherwise first available date
+          // Set selectedDate to today if it exists, otherwise the most
+          // recent (last) date that actually has orders -- not the very
+          // first date ever in the sheet. dates is sorted ascending, so
+          // the last entry is the most recent one.
           if (dates.indexOf(todayStr) !== -1) {
             app.selectedDate = todayStr;
           } else {
-            app.selectedDate = dates[0] || '2026/08/28';
+            app.selectedDate = dates[dates.length - 1] || '2026/08/28';
           }
           
           app.loading = false;
@@ -2892,7 +2895,11 @@
           // actual heavier weight available to apply, so "bolder" is
           // covered by going bigger, which reads visibly thicker on a
           // thermal print, rather than any further boldness setting.
-          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '5px', fontSize: '18px', headerSize: '16px', productSize: '17px', addressSize: '18px', countSize: '16px', qrSize: '46px', noteSize: '14px', cutSafetyTopMm: 9, cutSafetyBottomMm: 3, bottomTrimMm: 0, qrRightOffset: '28px', printRightTrim: '24px', printCutSafetyTopMm: 9, pdfRightGapMm: 14 };
+          // Font sizes bumped again (Sep 22, round 5) -- QR-position fix
+          // confirmed working on a real print ("working exclamation
+          // mark"), this is now just further "bigger" polish, not chasing
+          // a bug.
+          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '5px', fontSize: '20px', headerSize: '18px', productSize: '19px', addressSize: '20px', countSize: '18px', qrSize: '46px', noteSize: '15px', cutSafetyTopMm: 9, cutSafetyBottomMm: 3, bottomTrimMm: 0, qrRightOffset: '28px', printRightTrim: '24px', printCutSafetyTopMm: 9, pdfRightGapMm: 14 };
         }
         // Unknown/unset labelSize -- fall back to the smallest, safest
         // preset rather than silently rendering with undefined CSS values.
