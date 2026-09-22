@@ -3030,7 +3030,21 @@
           // reduces that path's own long-note overflow risk (see the
           // fixed-50mm-box latent-risk note elsewhere in this file) as a
           // side effect, not just the PDF/Download path.
-          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '5px', fontSize: '28px', headerSize: '24px', productSize: '26px', addressSize: '28px', countSize: '24px', qrSize: '52px', noteSize: '20px', noteSizeThresholds: [{ maxLen: 60, size: 20 }, { maxLen: 120, size: 17 }, { maxLen: 200, size: 14 }, { maxLen: 300, size: 12 }, { maxLen: 450, size: 10 }, { maxLen: Infinity, size: 9 }], cutSafetyTopMm: 9, cutSafetyBottomMm: 3, bottomTrimMm: 0, qrRightOffset: '28px', printRightTrim: '24px', printCutSafetyTopMm: 9, pdfRightGapMm: 14, pdfLeftShiftMm: 5 };
+          // fontSize (name) / productSize 28/26 -> 15/14 (Sep 22, round 8):
+          // user confirmed noteSize is fine as-is (leave untouched), but
+          // name and product specifically read as much too big -- these two
+          // fields got dragged up along with everything else across rounds
+          // 4-7's repeated "bigger/bolder" bumps, but unlike the note (which
+          // now has length-based shrinking) name/product had no ceiling and
+          // every order pays their full height cost on every label,
+          // regardless of content -- a real contributor to "still huge"
+          // labels independent of note length. Cut substantially (not a
+          // small nudge -- this session's established pattern is that small
+          // changes read as no change on a real print) rather than just
+          // reverting to an earlier round's value. headerSize/addressSize/
+          // countSize intentionally left untouched -- only name/product were
+          // singled out.
+          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '5px', fontSize: '15px', headerSize: '24px', productSize: '14px', addressSize: '28px', countSize: '24px', qrSize: '52px', noteSize: '20px', noteSizeThresholds: [{ maxLen: 60, size: 20 }, { maxLen: 120, size: 17 }, { maxLen: 200, size: 14 }, { maxLen: 300, size: 12 }, { maxLen: 450, size: 10 }, { maxLen: Infinity, size: 9 }], cutSafetyTopMm: 9, cutSafetyBottomMm: 3, bottomTrimMm: 0, qrRightOffset: '28px', printRightTrim: '24px', printCutSafetyTopMm: 9, pdfRightGapMm: 14, pdfLeftShiftMm: 5 };
         }
         // Unknown/unset labelSize -- fall back to the smallest, safest
         // preset rather than silently rendering with undefined CSS values.
