@@ -2855,7 +2855,16 @@
           // (frees room rather than risking a new wrap), and the extra
           // font-size room should be more than covered by that freed
           // padding plus the label's own auto-height growing to fit.
-          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '5px', fontSize: '16px', headerSize: '14px', productSize: '15px', addressSize: '15px', countSize: '14px', qrSize: '46px', noteSize: '12px', cutSafetyTopMm: 5, cutSafetyBottomMm: 3, bottomTrimMm: 0, qrRightOffset: '28px', printRightTrim: '24px', printCutSafetyTopMm: 5, pdfRightGapMm: 14 };
+          // cutSafetyTopMm/printCutSafetyTopMm 5->9 (Sep 22, round 3): the
+          // documented Brother 3-5mm range turned out to be a floor, not a
+          // ceiling, for this specific unit -- 3mm and then 5mm both came
+          // back cut off on real prints. Rather than nudge up by another
+          // small amount and risk a fourth round, jumping to nearly double
+          // (9mm), matching the same "the first small correction wasn't
+          // remotely enough, a big jump was what actually worked" pattern
+          // the right-edge fix (qrRightOffset/printRightTrim) already went
+          // through this same session.
+          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '5px', fontSize: '16px', headerSize: '14px', productSize: '15px', addressSize: '15px', countSize: '14px', qrSize: '46px', noteSize: '12px', cutSafetyTopMm: 9, cutSafetyBottomMm: 3, bottomTrimMm: 0, qrRightOffset: '28px', printRightTrim: '24px', printCutSafetyTopMm: 9, pdfRightGapMm: 14 };
         }
         // Unknown/unset labelSize -- fall back to the smallest, safest
         // preset rather than silently rendering with undefined CSS values.
