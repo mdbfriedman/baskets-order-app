@@ -2181,7 +2181,16 @@
           // Shifted down by the same cutSafetyTopMm as the text column so
           // the QR block doesn't end up sitting closer to the top cut line
           // than the text next to it does.
-          var qrTopMm = app.mmFromPx('2px') + cutSafetyTopMm;
+          //
+          // padMm added (Sep 22): the comment above always said this should
+          // match the text column, but the formula never actually included
+          // padMm the way the text column's own "y = padMm + cutSafetyTopMm"
+          // does -- so the QR's top edge has been sitting padMm (~1.3mm)
+          // CLOSER to the physical top edge than the header text this whole
+          // time, a real bug just found via a real print reporting the QR
+          // specifically cut while the text next to it wasn't. Fixed by
+          // actually matching the text column's formula now.
+          var qrTopMm = padMm + app.mmFromPx('2px') + cutSafetyTopMm;
           var qrBottomMm = qrTopMm + qrMm;
           if (!measuring) {
             var qrX = pageWmm - qrMm - rightGapMm;
@@ -2875,7 +2884,15 @@
           // remotely enough, a big jump was what actually worked" pattern
           // the right-edge fix (qrRightOffset/printRightTrim) already went
           // through this same session.
-          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '5px', fontSize: '16px', headerSize: '14px', productSize: '15px', addressSize: '15px', countSize: '14px', qrSize: '46px', noteSize: '12px', cutSafetyTopMm: 9, cutSafetyBottomMm: 3, bottomTrimMm: 0, qrRightOffset: '28px', printRightTrim: '24px', printCutSafetyTopMm: 9, pdfRightGapMm: 14 };
+          // Font sizes bumped again (Sep 22, round 4) per "bigger and
+          // bolder... address bolder" -- address bumped a bit more than
+          // the rest since it was called out specifically. Note: every
+          // size here already renders at FreeSansHebrew's Bold style, the
+          // heaviest weight embedded (see earlier comment) -- there's no
+          // actual heavier weight available to apply, so "bolder" is
+          // covered by going bigger, which reads visibly thicker on a
+          // thermal print, rather than any further boldness setting.
+          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '5px', fontSize: '18px', headerSize: '16px', productSize: '17px', addressSize: '18px', countSize: '16px', qrSize: '46px', noteSize: '14px', cutSafetyTopMm: 9, cutSafetyBottomMm: 3, bottomTrimMm: 0, qrRightOffset: '28px', printRightTrim: '24px', printCutSafetyTopMm: 9, pdfRightGapMm: 14 };
         }
         // Unknown/unset labelSize -- fall back to the smallest, safest
         // preset rather than silently rendering with undefined CSS values.
@@ -3014,9 +3031,19 @@
         // buildLabelsPdf, expressed as CSS (mixing the normal 2px offset
         // with printCutSafetyTopMm in mm via calc() -- a no-op calc() isn't
         // worth the extra CSS when the preset doesn't set one).
-        var qrTopCss = printCutSafetyTopMm ? ('calc(2px + ' + printCutSafetyTopMm + 'mm)') : '2px';
+        //
+        // cfg.padding added (Sep 22): .qr/.count are position:absolute
+        // inside .label, which means their `top` is measured from the
+        // .label's own padding EDGE (i.e. from before .label's own
+        // padding-top is applied), NOT from where normal-flow content like
+        // .header actually starts after that padding pushes it down --
+        // same underlying bug just found and fixed in buildLabelsPdf's
+        // qrTopMm (which was missing padMm the same way). Only added when
+        // printCutSafetyTopMm is set, so every other preset's QR position
+        // is unchanged.
+        var qrTopCss = printCutSafetyTopMm ? ('calc(' + cfg.padding + ' + 2px + ' + printCutSafetyTopMm + 'mm)') : '2px';
         var countTop = printCutSafetyTopMm
-          ? ('calc(2px + ' + printCutSafetyTopMm + 'mm + ' + (qrSizeNum + 3) + 'px)')
+          ? ('calc(' + cfg.padding + ' + 2px + ' + printCutSafetyTopMm + 'mm + ' + (qrSizeNum + 3) + 'px)')
           : ((2 + qrSizeNum + 3) + 'px');
         // Print-only: shrinks the visible box by printRightTrim (if the
         // preset sets one), leaving that sliver as blank space on the
