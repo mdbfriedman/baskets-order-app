@@ -2135,11 +2135,33 @@
           // on this label sits any closer to the top edge now than the
           // text itself does, and bold text has never been reported cut
           // on this printer -- only thin box/line strokes have.
-          var headerH = app.mmFromPx(cfg.headerSize) * 1.6;
+          // Shrink-to-fit (Sep 22): a real phone/Mopria print of a 2.4in
+          // continuous label came back with "BASKETS BY BLIMI" missing its
+          // first and last letters -- the header is centered as ONE fixed
+          // string in textWidthMm, and after this session's several
+          // "bigger and bolder" font bumps (headerSize crept from 12px to
+          // 18px) that string simply stopped fitting the ~33mm column this
+          // narrow preset leaves for it, so it overflowed symmetrically
+          // past both edges (off the true left edge on one side, behind
+          // the QR image painted on top on the other -- not a margin bug,
+          // a plain text-overflow bug that any future font bump could
+          // reintroduce). Rather than pick another one-off px value that
+          // only happens to fit today's fonts, measure the real rendered
+          // width via jsPDF's own getTextWidth and step the font down
+          // until "BASKETS BY BLIMI" actually fits textWidthMm -- same
+          // targetDoc/font in both the measuring and real passes (see the
+          // autoHeight comment above), so the header height used to lay
+          // out the rest of the label always matches what actually prints.
+          var headerSizePx = parseInt(cfg.headerSize, 10);
           targetDoc.setFont('FreeSansHebrew', 'bold');
-          targetDoc.setFontSize(app.ptFromPx(cfg.headerSize));
+          targetDoc.setFontSize(app.ptFromPx(headerSizePx + 'px'));
+          while (headerSizePx > 8 && targetDoc.getTextWidth('BASKETS BY BLIMI') > textWidthMm) {
+            headerSizePx -= 1;
+            targetDoc.setFontSize(app.ptFromPx(headerSizePx + 'px'));
+          }
+          var headerH = app.mmFromPx(headerSizePx + 'px') * 1.6;
           if (!measuring) {
-            targetDoc.text('BASKETS BY BLIMI', leftMm + textWidthMm / 2, y + headerH / 2 + app.mmFromPx(cfg.headerSize) * 0.3, { align: 'center' });
+            targetDoc.text('BASKETS BY BLIMI', leftMm + textWidthMm / 2, y + headerH / 2 + app.mmFromPx(headerSizePx + 'px') * 0.3, { align: 'center' });
           }
           y += headerH;
           if (!measuring) { targetDoc.setLineWidth(0.3); targetDoc.line(leftMm, y, leftMm + textWidthMm, y); }
