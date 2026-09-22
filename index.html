@@ -2152,11 +2152,32 @@
           // targetDoc/font in both the measuring and real passes (see the
           // autoHeight comment above), so the header height used to lay
           // out the rest of the label always matches what actually prints.
+          // Sep 22 follow-up: a real download came back as a full US-Letter
+          // page (612x792pt) with our tiny label content stranded in the
+          // top-left corner -- proof that getTextWidth() below returned
+          // something jsPDF's page-format constructor couldn't use (NaN /
+          // undefined / threw), corrupting thisHmm for the WHOLE label,
+          // not just the header. getTextWidth touching an embedded custom
+          // font's metrics is exactly the kind of call that can behave
+          // differently against the real jsPDF/font than it does in any
+          // mock, and this sandbox can't load real jsPDF to reproduce it.
+          // Wrapped in try/catch now so ANY failure here just keeps the
+          // configured size (no shrink) instead of ever being able to take
+          // the whole label's page size down with it again.
           var headerSizePx = parseInt(cfg.headerSize, 10);
           targetDoc.setFont('FreeSansHebrew', 'bold');
           targetDoc.setFontSize(app.ptFromPx(headerSizePx + 'px'));
-          while (headerSizePx > 8 && targetDoc.getTextWidth('BASKETS BY BLIMI') > textWidthMm) {
-            headerSizePx -= 1;
+          try {
+            var headerGuard = 0;
+            while (headerSizePx > 8 && headerGuard < 40) {
+              var hw = targetDoc.getTextWidth('BASKETS BY BLIMI');
+              if (!(typeof hw === 'number' && isFinite(hw)) || hw <= textWidthMm) break;
+              headerSizePx -= 1;
+              targetDoc.setFontSize(app.ptFromPx(headerSizePx + 'px'));
+              headerGuard++;
+            }
+          } catch (headerFitErr) {
+            headerSizePx = parseInt(cfg.headerSize, 10);
             targetDoc.setFontSize(app.ptFromPx(headerSizePx + 'px'));
           }
           var headerH = app.mmFromPx(headerSizePx + 'px') * 1.6;
@@ -2299,6 +2320,19 @@
               if (cfg.autoHeight) {
                 var measuredHmm = renderUnit(measureDoc, true, item, order, deliveryNameDisplay, addressLines, unitCounter, totalUnits);
                 var thisHmm = Math.min(Math.max(measuredHmm, cfg.minHeightMm || 0), cfg.maxHeightMm || measuredHmm);
+                // Sep 22: a real print came back as a full US-Letter page
+                // with the label's actual content stranded tiny in one
+                // corner -- proof that a bad measuredHmm (NaN/undefined,
+                // from a font-metrics call misbehaving against the real
+                // jsPDF/font in a way no mock in this sandbox could catch)
+                // can reach jsPDF's page-format constructor and silently
+                // fall back to Letter instead of our real label size. This
+                // is the last line of defense: whatever produced thisHmm,
+                // never hand jsPDF anything but a sane, finite, positive
+                // height for this preset's own bounds.
+                if (!(typeof thisHmm === 'number' && isFinite(thisHmm)) || thisHmm <= 0) {
+                  thisHmm = cfg.minHeightMm || 40;
+                }
                 if (thisHmm > maxHmm) maxHmm = thisHmm;
                 if (!doc) {
                   doc = new window.jspdf.jsPDF({ unit: 'mm', format: [pageWmm, thisHmm], orientation: orientation });
