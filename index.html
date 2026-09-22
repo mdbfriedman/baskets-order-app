@@ -2921,7 +2921,13 @@
           // confirmed working on a real print ("working exclamation
           // mark"), this is now just further "bigger" polish, not chasing
           // a bug.
-          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '5px', fontSize: '20px', headerSize: '18px', productSize: '19px', addressSize: '20px', countSize: '18px', qrSize: '46px', noteSize: '15px', cutSafetyTopMm: 9, cutSafetyBottomMm: 3, bottomTrimMm: 0, qrRightOffset: '28px', printRightTrim: '24px', printCutSafetyTopMm: 9, pdfRightGapMm: 14 };
+          // Round 6 (Sep 22): real phone print confirmed the header
+          // shrink-to-fit fix worked ("printing well"), asked for the
+          // label to print bigger/longer still. Safe to keep bumping now
+          // that the header auto-shrinks itself if it ever gets too wide
+          // again -- autoHeight + the 300mm maxHeightMm ceiling means the
+          // label just grows taller to fit, exactly what was asked for.
+          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '5px', fontSize: '22px', headerSize: '20px', productSize: '21px', addressSize: '22px', countSize: '20px', qrSize: '46px', noteSize: '17px', cutSafetyTopMm: 9, cutSafetyBottomMm: 3, bottomTrimMm: 0, qrRightOffset: '28px', printRightTrim: '24px', printCutSafetyTopMm: 9, pdfRightGapMm: 14 };
         }
         // Unknown/unset labelSize -- fall back to the smallest, safest
         // preset rather than silently rendering with undefined CSS values.
