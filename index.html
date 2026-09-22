@@ -2119,9 +2119,25 @@
           }
 
           // Header: bordered box, centered, bold -- matches .header.
+          // Line width 0.12->0.35mm (Sep 22): a real print at 9mm top
+          // margin STILL came back with the header box's own top border
+          // missing entirely -- but the header text right below it, and
+          // every other ruled line further down the label (under
+          // name/product, under the address), printed completely fine at
+          // the same time. That pattern points away from a dead-zone/
+          // margin problem (which would also clip the text, not just a
+          // hairline sitting right next to it) and toward the border
+          // simply being too thin (0.12mm, under 1.5px at this printer's
+          // native resolution) to reliably survive a thermal printer's
+          // rasterizing/dithering, especially right at the very top of a
+          // print job. Left cutSafetyTopMm at 9mm rather than reverting it
+          // (no evidence it's wrong, just that it wasn't THIS bug), and
+          // tripled the border's line width instead -- a much bolder,
+          // more robust line, still visually a thin box border, not a
+          // margin change at all.
           var headerH = app.mmFromPx(cfg.headerSize) * 1.6;
           if (!measuring) {
-            targetDoc.setLineWidth(0.12);
+            targetDoc.setLineWidth(0.35);
             targetDoc.rect(leftMm, y, textWidthMm, headerH);
           }
           targetDoc.setFont('FreeSansHebrew', 'bold');
