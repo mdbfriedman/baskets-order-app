@@ -3129,7 +3129,23 @@
           // reference number, not a headline element -- shrunk to match the
           // user's request, now that it's drawn below the QR (see
           // renderUnit's countBaselineMm) instead of beside it.
-          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '5px', fontSize: '15px', headerSize: '24px', productSize: '14px', addressSize: '15px', countSize: '11px', qrSize: '52px', noteSize: '20px', noteSizeThresholds: [{ maxLen: 60, size: 20 }, { maxLen: 120, size: 17 }, { maxLen: 200, size: 14 }, { maxLen: 300, size: 12 }, { maxLen: 450, size: 10 }, { maxLen: Infinity, size: 9 }], cutSafetyTopMm: 9, cutSafetyBottomMm: 3, bottomTrimMm: 0, qrRightOffset: '28px', printRightTrim: '24px', printCutSafetyTopMm: 9, pdfRightGapMm: 14, pdfLeftShiftMm: 5 };
+          // cutSafetyTopMm 9->3 (Sep 22, round 11): user asked for the top
+          // blank space to match the bottom's (cutSafetyBottomMm=3mm)
+          // exactly. IMPORTANT KNOWN RISK, not a guess: this value has a
+          // real history earlier this session on THIS printer -- 3mm was
+          // the ORIGINAL value, came back with the header clipped by the
+          // auto-cutter's registration slop on a real reprint; 5mm was
+          // tried next, "still cut off on top"; only 9mm finally printed
+          // clean. Reverting to 3mm here is very likely to reintroduce
+          // that exact clipping. Shipping it anyway since that's what was
+          // asked, but this needs a close look at the top edge specifically
+          // on the next real reprint -- if it clips again, the fix is
+          // probably raising cutSafetyBottomMm to meet 9mm instead of
+          // lowering this back down, not another guess at a middle value
+          // (5mm already failed once). printCutSafetyTopMm (the separate
+          // Print/Word path) intentionally left at 9 -- this round's
+          // testing has all been on the PDF/Download path.
+          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '5px', fontSize: '15px', headerSize: '24px', productSize: '14px', addressSize: '15px', countSize: '11px', qrSize: '52px', noteSize: '20px', noteSizeThresholds: [{ maxLen: 60, size: 20 }, { maxLen: 120, size: 17 }, { maxLen: 200, size: 14 }, { maxLen: 300, size: 12 }, { maxLen: 450, size: 10 }, { maxLen: Infinity, size: 9 }], cutSafetyTopMm: 3, cutSafetyBottomMm: 3, bottomTrimMm: 0, qrRightOffset: '28px', printRightTrim: '24px', printCutSafetyTopMm: 9, pdfRightGapMm: 14, pdfLeftShiftMm: 5 };
         }
         // Unknown/unset labelSize -- fall back to the smallest, safest
         // preset rather than silently rendering with undefined CSS values.
