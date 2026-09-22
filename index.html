@@ -2046,6 +2046,20 @@
         // where the QR/count sit, since only the left side was reported off.
         var leftMm = padMm + (cfg.pdfLeftShiftMm || 0);
         textWidthMm -= (cfg.pdfLeftShiftMm || 0);
+        // wideTextWidthMm (Sep 22): textWidthMm above reserves room for the
+        // QR code (qrMm) on EVERY line, but the QR only actually occupies
+        // the top ~15-25mm of the label (see qrTopMm/qrBottomMm below) --
+        // every line drawn below that point was still being squeezed into
+        // that same narrow ~31mm column for no reason, wasting roughly the
+        // right HALF of the label as blank space and forcing address/note
+        // text to wrap far more than necessary (a real print showed this
+        // clearly: content crammed left, nothing using the label's right
+        // side once past the QR). Once a field's start position (y) has
+        // already cleared qrBottomMm, it's safe to use the full width the
+        // printer can physically print to (still respecting rightGapMm,
+        // which is a real printable-edge limit, not just QR clearance) --
+        // see addWrapped's per-field width choice below.
+        var wideTextWidthMm = textWidthMm + qrMm;
 
         // jsPDF defaults to portrait and will silently SWAP a [width,height]
         // format's two values to force height >= width unless orientation
@@ -2097,9 +2111,27 @@
           var cutSafetyTopMm = cfg.cutSafetyTopMm != null ? cfg.cutSafetyTopMm : (cfg.cutSafetyMarginMm || 0);
           var y = padMm + cutSafetyTopMm;
 
+          // Moved up from below (was computed right before the QR draw
+          // call, well after every addWrapped call had already run) so
+          // addWrapped itself can check "have we scrolled past the QR yet"
+          // per field -- see wideTextWidthMm comment above. Values
+          // unchanged from before, just computed earlier; the QR draw call
+          // further down reuses these same two variables instead of
+          // recomputing them.
+          var qrTopMm = padMm + app.mmFromPx('2px') + cutSafetyTopMm;
+          var qrBottomMm = qrTopMm + qrMm;
+
           function addWrapped(text, sizePx, style, lineGapFactor) {
             targetDoc.setFont('FreeSansHebrew', style || 'normal');
             targetDoc.setFontSize(app.ptFromPx(sizePx));
+            // Once this field's start position has already cleared the
+            // QR's bottom edge, it's safe to use the full printable width
+            // for the WHOLE field (text only ever flows further down from
+            // here, never back up into the QR's row) -- see
+            // wideTextWidthMm comment above. Header intentionally isn't
+            // routed through here (it's drawn/measured directly, always
+            // centered in the QR-safe textWidthMm column).
+            var useWidthMm = (y >= qrBottomMm) ? wideTextWidthMm : textWidthMm;
             // Wrap on the ORIGINAL logical text first -- splitTextToSize
             // needs real reading order to find correct word boundaries --
             // then pass each already-wrapped line to jsPDF's own
@@ -2109,7 +2141,7 @@
             // text's word/space positions no longer match the logical
             // text's -- wrapping stays on logical text either way, only the
             // drawing step changes.
-            var lines = targetDoc.splitTextToSize(String(text), textWidthMm);
+            var lines = targetDoc.splitTextToSize(String(text), useWidthMm);
             lines.forEach(function(line) {
               y += app.mmFromPx(sizePx) * (lineGapFactor || 1.15);
               if (measuring) return;
@@ -2180,7 +2212,19 @@
             headerSizePx = parseInt(cfg.headerSize, 10);
             targetDoc.setFontSize(app.ptFromPx(headerSizePx + 'px'));
           }
-          var headerH = app.mmFromPx(headerSizePx + 'px') * 1.6;
+          // headerH multiplier 1.6->1.3 (Sep 22): user reported too much
+          // blank space before printing even starts. cutSafetyTopMm (9mm)
+          // is left untouched -- that value was specifically hard-won
+          // through several rounds of real reprints to stop this printer's
+          // auto-cutter from clipping the header, and guessing it back down
+          // risks reintroducing that exact bug. This multiplier is a
+          // different, lower-risk knob: it only controls how much padding
+          // sits around the header TEXT inside its own row (unrelated to
+          // cut-line safety), tightened from a fairly generous 1.6x line
+          // height down to 1.3x -- still comfortably clears the text's own
+          // ascender/descender (checked against the baseline formula right
+          // below), just without the extra cushion.
+          var headerH = app.mmFromPx(headerSizePx + 'px') * 1.3;
           if (!measuring) {
             targetDoc.text('BASKETS BY BLIMI', leftMm + textWidthMm / 2, y + headerH / 2 + app.mmFromPx(headerSizePx + 'px') * 0.3, { align: 'center' });
           }
@@ -2193,13 +2237,19 @@
           addWrapped(productDisplay, cfg.productSize, 'bold');
           if (item.specialInstructions) addWrapped(item.specialInstructions, cfg.addressSize, 'bolditalic');
 
-          // Address: bold, ruled top and bottom -- matches .address.
+          // Address: bold, ruled top and bottom -- matches .address. These
+          // rules now match whichever column width the text next to them
+          // is actually using (see addWrapped's useWidthMm) -- by the time
+          // the address block draws, y has almost always already cleared
+          // qrBottomMm, so a rule staying at the old narrow textWidthMm
+          // would look visually inconsistent (a short line under/over a
+          // now much wider block of text).
           y += app.mmFromPx('2px');
-          if (!measuring) { targetDoc.setLineWidth(0.1); targetDoc.line(leftMm, y, leftMm + textWidthMm, y); }
+          if (!measuring) { targetDoc.setLineWidth(0.1); targetDoc.line(leftMm, y, leftMm + (y >= qrBottomMm ? wideTextWidthMm : textWidthMm), y); }
           y += app.mmFromPx('2px');
           addressLines.forEach(function(line) { addWrapped(line, cfg.addressSize, 'bold', 1.1); });
           y += app.mmFromPx('2px');
-          if (!measuring) targetDoc.line(leftMm, y, leftMm + textWidthMm, y);
+          if (!measuring) targetDoc.line(leftMm, y, leftMm + (y >= qrBottomMm ? wideTextWidthMm : textWidthMm), y);
 
           if (order.customerNote) {
             y += app.mmFromPx('2px');
