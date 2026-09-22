@@ -2803,18 +2803,27 @@
           // actual printable width on this roll is apparently a bit
           // narrower than the declared 62mm, same as every other preset
           // turned out to be narrower than its declared label width.
-          // Starting with the same 20px value that fixed the small label
-          // rather than guessing a new number, since it's the closest
-          // precedent (an absolutely-positioned QR+count column clipped
-          // at the physical right edge) -- print-test this and report
-          // back whether the QR/count are now fully clear or still
-          // clipped so this can be dialed in precisely, the same way
-          // every other preset's right edge was tuned over a few rounds.
+          // First pass only bumped qrRightOffset (9px->20px) and left the
+          // declared page width untouched -- a real reprint came back
+          // still cut off by about the same amount, meaning just moving
+          // the QR/count column further from the label's own right edge
+          // wasn't enough; the declared 62mm width itself is apparently
+          // wider than what this printer can actually put ink on. Adding
+          // printRightTrim now too (same combined approach 2.25x1.25
+          // needed), which shrinks the whole physical page width the
+          // printer is told about rather than just repositioning content
+          // within it -- and bumping qrRightOffset further on top, since
+          // the first bump alone wasn't sufficient. 24px trim + 28px
+          // offset (~6.35mm / ~7.4mm) is a noticeably bigger correction
+          // than the first attempt, not another small nudge, given the
+          // first pass produced no visible improvement. Please test again
+          // and report exactly what (if anything) is still cut off so
+          // this can be finished in one more round rather than several.
           // Not applied to the PDF path (buildLabelsPdf's rightGapMm is
           // a fixed 9px for every preset) since that path hasn't shown
           // this symptom in any real test this session -- only the print
           // button's own right edge was reported cut off.
-          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '6px', fontSize: '14px', headerSize: '12px', productSize: '13px', addressSize: '13px', countSize: '12px', qrSize: '46px', noteSize: '10px', cutSafetyTopMm: 3, cutSafetyBottomMm: 3, bottomTrimMm: 0, qrRightOffset: '20px' };
+          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '6px', fontSize: '14px', headerSize: '12px', productSize: '13px', addressSize: '13px', countSize: '12px', qrSize: '46px', noteSize: '10px', cutSafetyTopMm: 3, cutSafetyBottomMm: 3, bottomTrimMm: 0, qrRightOffset: '28px', printRightTrim: '24px' };
         }
         // Unknown/unset labelSize -- fall back to the smallest, safest
         // preset rather than silently rendering with undefined CSS values.
