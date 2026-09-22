@@ -2056,10 +2056,24 @@
         // clearly: content crammed left, nothing using the label's right
         // side once past the QR). Once a field's start position (y) has
         // already cleared qrBottomMm, it's safe to use the full width the
-        // printer can physically print to (still respecting rightGapMm,
-        // which is a real printable-edge limit, not just QR clearance) --
-        // see addWrapped's per-field width choice below.
-        var wideTextWidthMm = textWidthMm + qrMm;
+        // printer can physically print to -- see addWrapped's per-field
+        // width choice below.
+        // Sep 22 follow-up: first version of this still reserved the full
+        // rightGapMm (14mm, tuned specifically for the QR/count) on the
+        // right, leaving a visibly bigger right margin than left -- user
+        // asked for the two to actually match. Made the WIDE column's right
+        // margin symmetric with the real left margin (leftMm, which already
+        // includes the printer's pdfLeftShiftMm compensation) instead of
+        // reusing rightGapMm. Deliberately NOT touching the QR/count's own
+        // position (still governed by rightGapMm=14mm below) since that
+        // specific clearance was hard-won from a real clipped QR earlier
+        // this session -- this only affects body TEXT once it's past the
+        // QR's row, bringing it closer to the true right edge than the QR
+        // ever needed to sit. Worth specifically checking the right edge of
+        // address/note text (not just the QR) isn't clipped on the next
+        // real physical reprint, since this is less safety-margin than
+        // this printer needed for the QR at the same edge.
+        var wideTextWidthMm = pageWmm - (2 * leftMm);
 
         // jsPDF defaults to portrait and will silently SWAP a [width,height]
         // format's two values to force height >= width unless orientation
@@ -3094,7 +3108,12 @@
           // reverting to an earlier round's value. headerSize/addressSize/
           // countSize intentionally left untouched -- only name/product were
           // singled out.
-          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '5px', fontSize: '15px', headerSize: '24px', productSize: '14px', addressSize: '28px', countSize: '24px', qrSize: '52px', noteSize: '20px', noteSizeThresholds: [{ maxLen: 60, size: 20 }, { maxLen: 120, size: 17 }, { maxLen: 200, size: 14 }, { maxLen: 300, size: 12 }, { maxLen: 450, size: 10 }, { maxLen: Infinity, size: 9 }], cutSafetyTopMm: 9, cutSafetyBottomMm: 3, bottomTrimMm: 0, qrRightOffset: '28px', printRightTrim: '24px', printCutSafetyTopMm: 9, pdfRightGapMm: 14, pdfLeftShiftMm: 5 };
+          // addressSize 28->15 (Sep 22, round 9): user asked for address to
+          // match name's size explicitly -- was left untouched in round 8
+          // (only name/product were called out that round), but now
+          // matched to fontSize's 15px. Also shrinks item.specialInstructions
+          // (which has always shared addressSize) as a side effect.
+          return { labelDim: '62mm', heightDim: '50mm', autoHeight: true, minHeightMm: 22, maxHeightMm: 300, padding: '5px', fontSize: '15px', headerSize: '24px', productSize: '14px', addressSize: '15px', countSize: '24px', qrSize: '52px', noteSize: '20px', noteSizeThresholds: [{ maxLen: 60, size: 20 }, { maxLen: 120, size: 17 }, { maxLen: 200, size: 14 }, { maxLen: 300, size: 12 }, { maxLen: 450, size: 10 }, { maxLen: Infinity, size: 9 }], cutSafetyTopMm: 9, cutSafetyBottomMm: 3, bottomTrimMm: 0, qrRightOffset: '28px', printRightTrim: '24px', printCutSafetyTopMm: 9, pdfRightGapMm: 14, pdfLeftShiftMm: 5 };
         }
         // Unknown/unset labelSize -- fall back to the smallest, safest
         // preset rather than silently rendering with undefined CSS values.
