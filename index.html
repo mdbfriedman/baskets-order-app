@@ -1969,29 +1969,61 @@
       // Round 1 of the RTL fix hand-rolled a bidi approximation here (split
       // into Hebrew/Latin runs, reverse each Hebrew run's characters,
       // reverse the run order) and fed the ALREADY-reordered string to
-      // doc.text() as a plain string. Real-world test: letters now render
-      // correctly (the font fix worked) but the order still came out
-      // left-to-right, i.e. as if nothing had been reordered at all --
-      // consistent with jsPDF ALSO doing its own RTL handling internally
-      // for text drawn with a custom/embedded Unicode font, which would
-      // cancel out a second manual reversal stacked on top of it (reverse
-      // it myself, jsPDF reverses it back). Switched to jsPDF's own
-      // documented mechanism for this instead of guessing at another
-      // hand-rolled one: doc.text()'s options object accepts isInputRtl,
-      // which tells jsPDF the given string is logical-order RTL text and
-      // to handle the reordering (including mixed Hebrew/Latin runs
-      // within it) itself, rather than assuming the string is already in
-      // visual order the way a plain doc.text() call does.
-      // Detection stays simple -- if a wrapped line contains any Hebrew
-      // character, pass isInputRtl; a pure-Latin/number line (the common
-      // case: name, address, product) is left completely alone.
-      // Caveat: this sandbox has no network access to the real jsPDF
-      // library, so none of this can be rendered and visually checked here
-      // the way the print/Word paths were all session -- this is my best
-      // read of jsPDF's documented behavior, not something verified
-      // against a real PDF. Please test print another Hebrew note and
-      // report back exactly what's still off.
+      // doc.text() as a plain string. That was abandoned in favor of
+      // jsPDF's own isInputRtl option (round 2) based on a guess that
+      // didn't pan out -- see below.
+      //
+      // Round 2 (isInputRtl): passed the ORIGINAL, un-reordered line straight
+      // to doc.text() with { isInputRtl: true } whenever it contained any
+      // Hebrew character, trusting jsPDF's documented claim to handle mixed
+      // Hebrew/Latin reordering itself. A real print (Sept, Nathan/Berenstein
+      // labels) proved that wrong: "Wishing you much \u05E0\u05D7\u05EA from the bar
+      // mitzva bachur..." came back as "Wishing you much \u05EA\u05D7\u05E0 avztim rab eht
+      // morf bachur..." -- jsPDF's isInputRtl does a dumb whole-line
+      // character-by-character reversal, not real bidi. That's actually
+      // CORRECT for a line that's purely Hebrew (reversing the whole logical
+      // string and drawing it with a plain LTR call is the standard trick to
+      // make RTL text render right through an LTR-only drawer), which is
+      // exactly why it looked fine in every test that happened to be
+      // pure-Hebrew or pure-Latin -- it only breaks the moment a line mixes
+      // scripts, sweeping whole English phrases into the reversal along with
+      // the Hebrew word that triggered it.
+      //
+      // Round 3 (current): stop handing jsPDF mixed lines at all. Detection
+      // (HEBREW_RE) stays the same, but the actual fix is bidiVisualText
+      // below -- it finds just the Hebrew run(s) within a line, reverses
+      // only THEIR characters, and leaves every Latin run untouched and in
+      // its original position (these are English sentences with an
+      // occasional Hebrew/Yiddish word dropped in, not Hebrew paragraphs, so
+      // overall word order should never move). The result is drawn with a
+      // plain doc.text() call -- isInputRtl is no longer set anywhere.
+      // Caveat: this sandbox still has no network access to the real jsPDF
+      // library, so this is verified against the real bug report's exact
+      // input/output, not re-rendered here. Please test print another mixed
+      // Hebrew/English note and report back exactly what's still off.
       HEBREW_RE: /[\u0590-\u05FF\uFB1D-\uFB4F]/,
+
+      // Matches one Hebrew "phrase": one-or-more Hebrew letters, optionally
+      // continuing through a single interior space/hyphen/quote into more
+      // Hebrew letters (so a multi-word Hebrew phrase like "\u05DB\u05DC \u05D8\u05D5\u05D1" reverses
+      // as one correctly-ordered unit) -- but stops the instant it hits a
+      // Latin letter, digit, or any punctuation not in this list, so it
+      // never sweeps an adjacent English word into the same run.
+      HEBREW_RUN_RE: /[\u0590-\u05FF\uFB1D-\uFB4F]+(?:[ \-'"\u05F3\u05F4]+[\u0590-\u05FF\uFB1D-\uFB4F]+)*/g,
+
+      // Turns a logical-order line that may mix Hebrew and Latin into a
+      // string that's safe to draw with a PLAIN doc.text() call (no
+      // isInputRtl -- see the round-3 comment above for why). Pure-Latin
+      // lines (the common case) are returned untouched without even running
+      // the replace. A line with no Hebrew at all skips the regex work
+      // entirely.
+      bidiVisualText: function(text) {
+        var str = String(text);
+        if (!app.HEBREW_RE.test(str)) return str;
+        return str.replace(app.HEBREW_RUN_RE, function(run) {
+          return run.split('').reverse().join('');
+        });
+      },
 
       // Builds a jsPDF document with one page per label, page size set
       // directly to cfg.labelDim x cfg.heightDim -- no browser print
@@ -2158,9 +2190,9 @@
             var useWidthMm = (y >= qrBottomMm) ? wideTextWidthMm : textWidthMm;
             // Wrap on the ORIGINAL logical text first -- splitTextToSize
             // needs real reading order to find correct word boundaries --
-            // then pass each already-wrapped line to jsPDF's own
-            // isInputRtl handling (see the HEBREW_RE comment above) if it
-            // contains Hebrew. Wrapping AFTER reordering (if this were done
+            // then run each already-wrapped line through bidiVisualText
+            // (see the HEBREW_RE/bidiVisualText comments above) before
+            // drawing it. Wrapping AFTER reordering (if this were done
             // manually) would wrap at the wrong points, since reordered
             // text's word/space positions no longer match the logical
             // text's -- wrapping stays on logical text either way, only the
@@ -2169,11 +2201,7 @@
             lines.forEach(function(line) {
               y += app.mmFromPx(sizePx) * (lineGapFactor || 1.15);
               if (measuring) return;
-              if (app.HEBREW_RE.test(line)) {
-                targetDoc.text(line, leftMm, y, { isInputRtl: true });
-              } else {
-                targetDoc.text(line, leftMm, y);
-              }
+              targetDoc.text(app.bidiVisualText(line), leftMm, y);
             });
           }
 
@@ -2531,8 +2559,7 @@
         }
         function drawText(text, x, yPos, opts) {
           var o = opts || {};
-          if (app.HEBREW_RE.test(text)) o.isInputRtl = true;
-          doc.text(String(text), x, yPos, o);
+          doc.text(app.bidiVisualText(text), x, yPos, o);
         }
         function ensureSpace(neededMm) {
           if (y + neededMm > pageHmm - bottomMargin) {
