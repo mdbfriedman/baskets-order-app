@@ -1989,18 +1989,37 @@
       // scripts, sweeping whole English phrases into the reversal along with
       // the Hebrew word that triggered it.
       //
-      // Round 3 (current): stop handing jsPDF mixed lines at all. Detection
-      // (HEBREW_RE) stays the same, but the actual fix is bidiVisualText
-      // below -- it finds just the Hebrew run(s) within a line, reverses
-      // only THEIR characters, and leaves every Latin run untouched and in
-      // its original position (these are English sentences with an
-      // occasional Hebrew/Yiddish word dropped in, not Hebrew paragraphs, so
-      // overall word order should never move). The result is drawn with a
-      // plain doc.text() call -- isInputRtl is no longer set anywhere.
+      // Round 3 (isInputRtl removed, bidiVisualText): stopped handing jsPDF
+      // mixed lines with isInputRtl set, and instead pre-reversed just the
+      // Hebrew run's own characters in the STRING before handing the whole
+      // line to one plain doc.text() call. A real print (Sept 24, Nathan
+      // label) proved this half-right: the Hebrew word itself now read
+      // correctly (confirmed by rendering the actual returned PDF to an
+      // image and reading it as real Hebrew, right-to-left) -- but the
+      // Latin text sharing that SAME doc.text() call/string ("from the bar
+      // mitzva") still came out as "avztim rab eht morf". So jsPDF's
+      // automatic Hebrew handling isn't gated by isInputRtl at all -- it's
+      // an unconditional per-call behavior that correctly leaves my
+      // pre-reversed Hebrew alone but ALSO corrupts any Latin sharing that
+      // call, no matter what the string content is. isInputRtl was never
+      // the actual lever.
+      //
+      // Round 4 (current): stop letting Hebrew and Latin ever share a
+      // doc.text() call at all. HEBREW_RE/HEBREW_RUN_RE detection is
+      // unchanged; bidiSegments splits a line into per-script chunks
+      // (Hebrew runs pre-reversed exactly as round 3 did, Latin runs
+      // untouched), and drawBidiLine below issues one SEPARATE doc.text()
+      // call per chunk, manually advancing the x cursor via getTextWidth so
+      // adjacent chunks still sit flush against each other. No call jsPDF
+      // ever sees contains both scripts, so its automatic handling has
+      // nothing adjacent left to sweep in.
       // Caveat: this sandbox still has no network access to the real jsPDF
-      // library, so this is verified against the real bug report's exact
-      // input/output, not re-rendered here. Please test print another mixed
-      // Hebrew/English note and report back exactly what's still off.
+      // library -- round 3 above is a direct lesson in how far reasoning
+      // about jsPDF's undocumented behavior can go without a real test.
+      // This round WAS checked against an actual returned PDF (rendered to
+      // an image with pdftoppm, not just a photo), but please test print
+      // another mixed Hebrew/English note and report back exactly what's
+      // still off if anything.
       HEBREW_RE: /[\u0590-\u05FF\uFB1D-\uFB4F]/,
 
       // Matches one Hebrew "phrase": one-or-more Hebrew letters, optionally
@@ -2011,17 +2030,54 @@
       // never sweeps an adjacent English word into the same run.
       HEBREW_RUN_RE: /[\u0590-\u05FF\uFB1D-\uFB4F]+(?:[ \-'"\u05F3\u05F4]+[\u0590-\u05FF\uFB1D-\uFB4F]+)*/g,
 
-      // Turns a logical-order line that may mix Hebrew and Latin into a
-      // string that's safe to draw with a PLAIN doc.text() call (no
-      // isInputRtl -- see the round-3 comment above for why). Pure-Latin
-      // lines (the common case) are returned untouched without even running
-      // the replace. A line with no Hebrew at all skips the regex work
-      // entirely.
-      bidiVisualText: function(text) {
+      // Splits a logical-order line into alternating {text, hebrew} chunks,
+      // each safe to hand to its OWN doc.text() call (see the round-4
+      // comment above for why one call can never mix scripts). Hebrew
+      // chunks have their own characters reversed here (the same trick as
+      // round 3 -- proven correct against a real rendered PDF); Latin
+      // chunks are returned byte-for-byte untouched. A line with no Hebrew
+      // at all returns a single untouched chunk without running the regex.
+      bidiSegments: function(text) {
         var str = String(text);
-        if (!app.HEBREW_RE.test(str)) return str;
-        return str.replace(app.HEBREW_RUN_RE, function(run) {
-          return run.split('').reverse().join('');
+        if (!app.HEBREW_RE.test(str)) return [{ text: str, hebrew: false }];
+        var segments = [];
+        var lastIndex = 0;
+        str.replace(app.HEBREW_RUN_RE, function(run, offset) {
+          if (offset > lastIndex) segments.push({ text: str.slice(lastIndex, offset), hebrew: false });
+          segments.push({ text: run.split('').reverse().join(''), hebrew: true });
+          lastIndex = offset + run.length;
+          return run;
+        });
+        if (lastIndex < str.length) segments.push({ text: str.slice(lastIndex), hebrew: false });
+        return segments;
+      },
+
+      // Draws one logical-order line that may mix Hebrew and Latin, script
+      // run by script run, via bidiSegments -- the actual fix (see round-4
+      // comment above). Font/size must already be set on targetDoc before
+      // calling this. Advances x itself with getTextWidth so multi-segment
+      // lines sit exactly as flush as a single doc.text() call would have;
+      // align:'center'/'right' in opts is honored against the segments'
+      // TOTAL measured width, same visual result a single aligned call
+      // would have produced. The common pure-Latin case (the vast majority
+      // of fields) short-circuits straight to a single plain doc.text()
+      // call, same cost as before this fix.
+      drawBidiLine: function(targetDoc, text, x, y, opts) {
+        var segments = app.bidiSegments(text);
+        if (segments.length === 1 && !segments[0].hebrew) {
+          targetDoc.text(segments[0].text, x, y, opts);
+          return;
+        }
+        var align = opts && opts.align;
+        var cursorX = x;
+        if (align === 'center' || align === 'right') {
+          var totalW = 0;
+          segments.forEach(function(seg) { totalW += targetDoc.getTextWidth(seg.text); });
+          cursorX = (align === 'center') ? x - totalW / 2 : x - totalW;
+        }
+        segments.forEach(function(seg) {
+          targetDoc.text(seg.text, cursorX, y);
+          cursorX += targetDoc.getTextWidth(seg.text);
         });
       },
 
@@ -2190,18 +2246,19 @@
             var useWidthMm = (y >= qrBottomMm) ? wideTextWidthMm : textWidthMm;
             // Wrap on the ORIGINAL logical text first -- splitTextToSize
             // needs real reading order to find correct word boundaries --
-            // then run each already-wrapped line through bidiVisualText
-            // (see the HEBREW_RE/bidiVisualText comments above) before
-            // drawing it. Wrapping AFTER reordering (if this were done
-            // manually) would wrap at the wrong points, since reordered
-            // text's word/space positions no longer match the logical
-            // text's -- wrapping stays on logical text either way, only the
-            // drawing step changes.
+            // then draw each already-wrapped line through drawBidiLine (see
+            // the HEBREW_RE/bidiSegments/drawBidiLine comments above) so any
+            // Hebrew run in it never shares a doc.text() call with the
+            // surrounding Latin text. Wrapping AFTER reordering (if this
+            // were done manually) would wrap at the wrong points, since
+            // reordered text's word/space positions no longer match the
+            // logical text's -- wrapping stays on logical text either way,
+            // only the drawing step changes.
             var lines = targetDoc.splitTextToSize(String(text), useWidthMm);
             lines.forEach(function(line) {
               y += app.mmFromPx(sizePx) * (lineGapFactor || 1.15);
               if (measuring) return;
-              targetDoc.text(app.bidiVisualText(line), leftMm, y);
+              app.drawBidiLine(targetDoc, line, leftMm, y);
             });
           }
 
@@ -2558,8 +2615,7 @@
           doc.setTextColor(color || 0);
         }
         function drawText(text, x, yPos, opts) {
-          var o = opts || {};
-          doc.text(app.bidiVisualText(text), x, yPos, o);
+          app.drawBidiLine(doc, text, x, yPos, opts);
         }
         function ensureSpace(neededMm) {
           if (y + neededMm > pageHmm - bottomMargin) {
