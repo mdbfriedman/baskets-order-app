@@ -2221,7 +2221,7 @@
           if (itemUnderQr) {
             // Defaults to three quarters of productSize, floored at 7px so it
             // stays legible on a thermal print. cfg.qrItemSize overrides it.
-            var qrItemSizePx = cfg.qrItemSize || (Math.max(7, Math.round(parseInt(cfg.productSize, 10) * 0.75)) + 'px');
+            var qrItemSizePx = cfg.qrItemSize || (Math.max(7, Math.round(parseInt(cfg.productSize, 10) * 0.6)) + 'px');
             // Column defaults to the QR's own width so the stack reads as one
             // aligned block. cfg.qrItemWidthMm widens it if long product
             // names wrap to too many short lines on a real print.
@@ -2311,12 +2311,20 @@
 
           // Address: bold, ruled top and bottom. The rules match whichever
           // column width the text beside them is actually using.
+          // ruleWidth: a rule drawn at full width while the item column is
+          // still occupied runs straight through that text (seen on a real
+          // print). When the item sits under the QR, rules stay in the left
+          // column for the whole label rather than widening partway down.
+          function ruleWidthMm() {
+            if (itemUnderQr) return textWidthMm;
+            return (y >= rightStackBottomMm) ? wideTextWidthMm : textWidthMm;
+          }
           y += app.mmFromPx('2px');
-          if (!measuring) { targetDoc.setLineWidth(0.1); targetDoc.line(leftMm, y, leftMm + (y >= rightStackBottomMm ? wideTextWidthMm : textWidthMm), y); }
+          if (!measuring) { targetDoc.setLineWidth(0.1); targetDoc.line(leftMm, y, leftMm + ruleWidthMm(), y); }
           y += app.mmFromPx('2px');
           addressLines.forEach(function(line) { addWrapped(line, cfg.addressSize, 'bold', 1.1); });
           y += app.mmFromPx('2px');
-          if (!measuring) targetDoc.line(leftMm, y, leftMm + (y >= rightStackBottomMm ? wideTextWidthMm : textWidthMm), y);
+          if (!measuring) targetDoc.line(leftMm, y, leftMm + ruleWidthMm(), y);
 
           if (order.customerNote) {
             y += app.mmFromPx('2px');
