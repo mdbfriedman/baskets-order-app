@@ -218,6 +218,217 @@
         app.render();
       },
 
+      printPackingList: function() {
+        var dayOrders = app.getOrdersForDate(app.selectedDate);
+        if (dayOrders.length === 0) {
+          alert('No orders for this date');
+          return;
+        }
+
+        // Group orders by product
+        var productGroups = {};
+        dayOrders.forEach(function(order) {
+          if (order.items) {
+            order.items.forEach(function(item) {
+              if (!productGroups[item.product]) {
+                productGroups[item.product] = [];
+              }
+              productGroups[item.product].push({
+                name: app.cleanLastName(order.lastName),
+                quantity: item.quantity,
+                quantityIndividual: item.quantityIndividual
+              });
+            });
+          }
+        });
+
+        // Sort products alphabetically
+        var sortedProducts = Object.keys(productGroups).sort();
+
+        var html = '<html><head><meta charset="utf-8"><title>Packing List</title><style>body{font-family:Arial;margin:20px;background:white}h1{font-size:24px;margin-bottom:5px}h2{font-size:18px;margin:20px 0 10px 0;border-bottom:2px solid #000;padding-bottom:5px;color:#059669}.product-section{margin-bottom:25px;page-break-inside:avoid}.quantity{font-size:16px;font-weight:bold;color:#059669;margin:10px 0}.orders-list{margin-left:20px;font-size:13px}.order-item{margin:5px 0}.total{font-size:18px;font-weight:bold;color:#059669;margin-top:30px;padding-top:20px;border-top:2px solid #000}</style></head><body>';
+
+        html += '<h1>BASKETS BY BLIMI</h1>';
+        html += '<h2>PACKING LIST - ' + app.formatDateDisplay(app.selectedDate) + '</h2>';
+        html += '<p style="font-size:12px">Organized by Product</p>';
+
+        var grandTotal = 0;
+
+        sortedProducts.forEach(function(product) {
+          var orders = productGroups[product];
+          var totalQty = orders.reduce(function(sum, o) { return sum + (parseInt(o.quantity) || 0); }, 0);
+          grandTotal += totalQty;
+
+          html += '<div class="product-section">';
+          html += '<h2>' + product + '</h2>';
+          html += '<div class="quantity">Total to Prepare: <strong>' + totalQty + '</strong></div>';
+          html += '<div class="orders-list">';
+          
+          orders.forEach(function(order) {
+            html += '<div class="order-item">• ' + order.name + ' (qty: ' + order.quantity + ')</div>';
+          });
+
+          html += '</div>';
+          html += '</div>';
+        });
+
+        html += '<div class="total">TOTAL ITEMS: <strong>' + grandTotal + '</strong></div>';
+        html += '</body></html>';
+
+        var w = window.open('', '_blank');
+        w.document.write(html);
+        w.document.close();
+        setTimeout(function() { w.print(); }, 500);
+      },
+
+      printDailyOrders: function() {
+        var dayOrders = app.getOrdersForDate(app.selectedDate);
+        if (dayOrders.length === 0) {
+          alert('No orders for this date');
+          return;
+        }
+
+        var html = '<html><head><meta charset="utf-8"><title>Daily Orders</title><style>body{font-family:Arial;margin:20px;background:white}h1{font-size:24px;margin-bottom:5px}h2{font-size:16px;margin:20px 0 10px 0;border-bottom:2px solid #000;padding-bottom:5px}.order{margin-bottom:20px;padding:15px;border:1px solid #ccc;page-break-inside:avoid}.order-name{font-size:14px;font-weight:bold}.order-address{font-size:12px;color:#666;margin-top:5px}.order-items{margin-top:10px;font-size:12px}.item{margin:5px 0}.total{font-size:18px;font-weight:bold;color:#059669;margin-top:20px;padding-top:20px;border-top:2px solid #000}</style></head><body>';
+
+        html += '<h1>BASKETS BY BLIMI</h1>';
+        html += '<h2>Daily Orders - ' + app.formatDateDisplay(app.selectedDate) + '</h2>';
+        html += '<p style="font-size:14px"><strong>Total Orders: ' + dayOrders.length + '</strong></p>';
+
+        var dayTotal = dayOrders.reduce(function(sum, o) { return sum + (parseFloat(o.total) || 0); }, 0);
+
+        dayOrders.forEach(function(order, idx) {
+          html += '<div class="order">';
+          html += '<div class="order-name">' + (idx + 1) + '. ' + app.cleanLastName(order.lastName) + '</div>';
+          
+          var addressParts = app.splitAddress(order.address);
+          html += '<div class="order-address">' + addressParts.address + ', ' + addressParts.city + '</div>';
+          html += '<div style="font-size:11px;color:#999;margin-top:3px">' + (order.pickupOrDelivery || 'Delivery').toUpperCase() + '</div>';
+          
+          if (order.items) {
+            html += '<div class="order-items">';
+            order.items.forEach(function(item) {
+              html += '<div class="item">• ' + item.product + ' (qty: ' + item.quantity + ')</div>';
+            });
+            html += '</div>';
+          }
+          
+          if (order.total) {
+            html += '<div style="font-weight:bold;font-size:12px;margin-top:8px">$' + parseFloat(order.total).toFixed(2) + '</div>';
+          }
+          
+          if (order.customerNote) {
+            html += '<div style="font-size:11px;color:#d97706;margin-top:8px;font-weight:bold">Note: ' + order.customerNote + '</div>';
+          }
+          
+          html += '</div>';
+        });
+
+        html += '<div class="total">Daily Total: $' + dayTotal.toFixed(2) + '</div>';
+        html += '</body></html>';
+
+        var w = window.open('', '_blank');
+        w.document.write(html);
+        w.document.close();
+        setTimeout(function() { w.print(); }, 500);
+      },
+
+      downloadLabels: function() {
+        var dayOrders = app.getOrdersForDate(app.selectedDate);
+        if (dayOrders.length === 0) {
+          alert('No orders to download');
+          return;
+        }
+
+        var htmlContent = '<html><head><meta charset="utf-8"><title>Baskets by Blimi Labels</title></head><body>';
+        htmlContent += '<h1>BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '</h1>';
+        htmlContent += '<p>Use Word\'s Mail Merge or Labels feature to format for your label printer.</p>';
+        htmlContent += '<hr>';
+        
+        dayOrders.forEach(function(order, orderIdx) {
+          if (order.items) {
+            var cleanName = app.cleanLastName(order.lastName);
+            var addressParts = app.splitAddress(order.address);
+            order.items.forEach(function(item, idx) {
+              htmlContent += '<p style="border:1px solid #000; padding:10px; margin:10px 0; page-break-inside:avoid; position:relative">';
+              htmlContent += '<div style="text-align:right;font-size:9px;color:#999;margin-bottom:8px">Order ' + (idx + 1) + ' of ' + order.items.length + '</div>';
+              htmlContent += '<b>' + cleanName + '</b><br>';
+              var productDisplay = item.product;
+              if (item.quantityIndividual) {
+                productDisplay = item.quantityIndividual + ' ' + item.product;
+              }
+              htmlContent += '<b>' + productDisplay + '</b><br>';
+              htmlContent += addressParts.address + '<br>';
+              htmlContent += addressParts.city + '<br>';
+              if (order.customerNote) {
+                htmlContent += '<br><b>NOTE: ' + order.customerNote + '</b>';
+              }
+              htmlContent += '</p>';
+            });
+          }
+        });
+
+        htmlContent += '</body></html>';
+
+        var blob = new Blob([htmlContent], { type: 'application/msword' });
+        var url = window.URL.createObjectURL(blob);
+        var link = document.createElement('a');
+        link.href = url;
+        link.download = 'BasketsByBlimi_' + app.selectedDate + '_Labels.doc';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+      },
+
+      downloadOrder: function(orderIdx) {
+        var dayOrders = app.getOrdersForDate(app.selectedDate);
+        if (orderIdx < 0 || orderIdx >= dayOrders.length) {
+          alert('Order not found');
+          return;
+        }
+
+        var order = dayOrders[orderIdx];
+        if (!order.items) {
+          alert('No items in this order');
+          return;
+        }
+
+        var htmlContent = '<html><head><meta charset="utf-8"><title>Baskets by Blimi Labels</title></head><body>';
+        htmlContent += '<h1>BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '</h1>';
+        htmlContent += '<p>Use Word\'s Mail Merge or Labels feature to format for your label printer.</p>';
+        htmlContent += '<hr>';
+        
+        var cleanName = app.cleanLastName(order.lastName);
+        var addressParts = app.splitAddress(order.address);
+        order.items.forEach(function(item, idx) {
+          htmlContent += '<p style="border:1px solid #000; padding:10px; margin:10px 0; page-break-inside:avoid; position:relative">';
+          htmlContent += '<div style="text-align:right;font-size:9px;color:#999;margin-bottom:8px">Order ' + (idx + 1) + ' of ' + order.items.length + '</div>';
+          htmlContent += '<b>' + cleanName + '</b><br>';
+          var productDisplay = item.product;
+          if (item.quantityIndividual) {
+            productDisplay = item.quantityIndividual + ' ' + item.product;
+          }
+          htmlContent += '<b>' + productDisplay + '</b><br>';
+          htmlContent += addressParts.address + '<br>';
+          htmlContent += addressParts.city + '<br>';
+          if (order.customerNote) {
+            htmlContent += '<br><b>NOTE: ' + order.customerNote + '</b>';
+          }
+          htmlContent += '</p>';
+        });
+
+        htmlContent += '</body></html>';
+
+        var blob = new Blob([htmlContent], { type: 'application/msword' });
+        var url = window.URL.createObjectURL(blob);
+        var link = document.createElement('a');
+        link.href = url;
+        link.download = 'BasketsByBlimi_' + app.selectedDate + '_' + cleanName + '.doc';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+      },
+
       printLabels: function() {
         var dayOrders = app.getOrdersForDate(app.selectedDate);
         var labelDim = app.labelSize === '4x3' ? '4in' : '3in';
@@ -281,8 +492,9 @@
         var totals = app.getProductTotals(app.selectedDate);
         var dates = app.getAllDates();
         var currentIdx = dates.indexOf(app.selectedDate);
+        var dayTotal = dayOrders.reduce(function(sum, o) { return sum + (parseFloat(o.total) || 0); }, 0);
 
-        var html = '<div class="date-nav"><button onclick="app.previousDate()" ' + (currentIdx === 0 ? 'disabled' : '') + '>←</button><div class="date-display"><h2>' + app.formatDateDisplay(app.selectedDate) + '</h2><p>' + dayOrders.length + ' orders</p></div><button onclick="app.nextDate()" ' + (currentIdx === dates.length - 1 ? 'disabled' : '') + '>→</button></div>';
+        var html = '<div class="date-nav"><button onclick="app.previousDate()" ' + (currentIdx === 0 ? 'disabled' : '') + '>←</button><div class="date-display"><h2>' + app.formatDateDisplay(app.selectedDate) + '</h2><p>' + dayOrders.length + ' orders</p><p style="font-size:18px;font-weight:bold;color:#059669;margin-top:8px">Total: $' + dayTotal.toFixed(2) + '</p></div><button onclick="app.nextDate()" ' + (currentIdx === dates.length - 1 ? 'disabled' : '') + '>→</button></div>';
 
         if (Object.keys(totals).length > 0) {
           html += '<div class="totals-box"><h3>Product Totals</h3><div class="totals-grid">';
@@ -292,9 +504,9 @@
           html += '</div></div>';
         }
 
-        html += '<div style="margin-bottom:15px"><strong>Label Size:</strong> <button onclick="app.labelSize=\'4x3\';app.render()" style="background:' + (app.labelSize === '4x3' ? '#16a34a' : '#e5e7eb') + ';color:' + (app.labelSize === '4x3' ? 'white' : '#111827') + ';border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;margin-right:5px">4×3</button><button onclick="app.labelSize=\'3x2\';app.render()" style="background:' + (app.labelSize === '3x2' ? '#16a34a' : '#e5e7eb') + ';color:' + (app.labelSize === '3x2' ? 'white' : '#111827') + ';border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px">3×2</button></div>';
+        html += '<div style="margin-bottom:15px"><strong>Label Size:</strong> <button onclick="app.labelSize=\'4x3\';app.render()" style="background:' + (app.labelSize === '4x3' ? '#16a34a' : '#e5e7eb') + ';color:' + (app.labelSize === '4x3' ? 'white' : '#111827') + ';border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;margin-right:5px">4×3</button><button onclick="app.labelSize=\'3x2\';app.render()" style="background:' + (app.labelSize === '3x2' ? '#16a34a' : '#e5e7eb') + ';color:' + (app.labelSize === '3x2' ? 'white' : '#111827') + ';border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;margin-right:5px">3×2</button><button onclick="app.labelSize=\'2.4x3\';app.render()" style="background:' + (app.labelSize === '2.4x3' ? '#16a34a' : '#e5e7eb') + ';color:' + (app.labelSize === '2.4x3' ? 'white' : '#111827') + ';border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px">2.4\" Continuous</button></div>';
 
-        html += '<div class="action-buttons"><button class="print-btn" onclick="app.printLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + '>🖨️ Print All Labels</button><button class="setup-btn" onclick="app.showSetup=true;app.render()">Setup</button></div>';
+        html += '<div class="action-buttons"><button class="print-btn" onclick="app.printPackingList()" ' + (dayOrders.length === 0 ? 'disabled' : '') + '>📋 Packing List</button><button onclick="app.printDailyOrders()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#059669">🖨️ Daily Orders</button><button onclick="app.downloadLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#16a34a">📥 Labels</button><button class="setup-btn" onclick="app.showSetup=true;app.render()">Setup</button></div>';
 
         if (dayOrders.length === 0) {
           html += '<div class="empty-state">No orders for this date</div>';
@@ -303,7 +515,7 @@
           dayOrders.forEach(function(order, orderIdx) {
             html += '<div class="order-item"><div style="display:flex;justify-content:space-between;align-items:start"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#059669;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
             if (order.deliverTo) html += '<div class="order-address">' + order.deliverTo + '</div>';
-            html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div></div><button onclick="app.printOrder(' + orderIdx + ')" style="background:#16a34a;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;margin-left:10px;height:fit-content">🖨️ Print</button></div>';
+            html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div></div><button onclick="app.downloadOrder(' + orderIdx + ')" style="background:#2563eb;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📥 Download</button></div>';
             html += '<div class="order-items">';
             if (order.items) {
               order.items.forEach(function(item, idx) {
