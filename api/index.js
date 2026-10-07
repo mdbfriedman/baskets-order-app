@@ -7,7 +7,7 @@ function parseSheetData(values) {
   const orders = [];
 
   const dateIdx = headers.findIndex(h => h.includes('delivery date'));
-  const nameIdx = headers.findIndex(h => h === 'name' || h.includes('last name'));
+  const nameIdx = headers.findIndex(h => h.includes('last name') && !h.includes('delivered'));
   const itemIdx = headers.findIndex(h => h.includes('line item'));
   const qtyIdx = headers.findIndex(h => h.includes('quantity') && !h.includes('individual'));
   const qtyIndividualIdx = headers.findIndex(h => h.includes('individual'));
@@ -128,6 +128,7 @@ export default async function handler(req, res) {
     return;
   }
 
+  // Store key in memory (from frontend)
   if (req.method === 'POST' && req.url === '/api/setup') {
     try {
       const { serviceAccount } = req.body;
@@ -143,14 +144,18 @@ export default async function handler(req, res) {
     return;
   }
 
+  // Load orders from Google Sheets
   if (req.method === 'POST' && req.url === '/api/load-orders') {
     try {
       let serviceAccount = null;
       
+      // Try: env var → stored in memory → sent in request
       if (process.env.SERVICE_ACCOUNT) {
         try {
           serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT);
-        } catch (e) {}
+        } catch (e) {
+          // env var is corrupted, skip it
+        }
       }
       
       if (!serviceAccount && storedServiceAccount) {
@@ -196,4 +201,89 @@ export default async function handler(req, res) {
     return;
   }
 
-  if (req.url === '/api/create-google-doc' && req.method ===
+  // Create Google Doc
+  if (req.url === '/api/create-google-doc' && req.method === 'POST') {
+    try {
+      let serviceAccount = null;
+      
+      if (process.env.SERVICE_ACCOUNT) {
+        try {
+          serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT);
+        } catch (e) {}
+      }
+      
+      if (!serviceAccount && storedServiceAccount) {
+        serviceAccount = storedServiceAccount;
+      }
+      
+      if (!serviceAccount && req.body && req.body.serviceAccount) {
+        serviceAccount = req.body.serviceAccount;
+      }
+
+      if (!serviceAccount || !serviceAccount.private_key) {
+        res.status(400).json({ error: 'Service account not configured' });
+        return;
+      }
+
+      const { title, content } = req.body;
+      if (!title || !content) {
+        res.status(400).json({ error: 'Title and content required' });
+        return;
+      }
+
+      const accessToken = await getAccessToken(serviceAccount);
+
+      const createResponse = await fetch('https://docs.googleapis.com/v1/documents', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ title: title })
+      });
+
+      if (!createResponse.ok) {
+        throw new Error(`Failed to create Google Doc: ${createResponse.status}`);
+      }
+
+      const docData = await createResponse.json();
+      const docId = docData.documentId;
+
+      const insertResponse = await fetch(`https://docs.googleapis.com/v1/documents/${docId}:batchUpdate`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          requests: [
+            {
+              insertText: {
+                text: content,
+                location: { index: 1 }
+              }
+            }
+          ]
+        })
+      });
+
+      if (!insertResponse.ok) {
+        throw new Error(`Failed to insert content: ${insertResponse.status}`);
+      }
+
+      const docUrl = `https://docs.google.com/document/d/${docId}/edit`;
+      res.status(200).json({ success: true, docUrl: docUrl, docId: docId });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+    return;
+  }
+
+  // Health check
+  if (req.url === '/api/health') {
+    res.status(200).json({ status: 'ok' });
+    return;
+  }
+
+  res.status(404).json({ error: 'Not found' });
+}
