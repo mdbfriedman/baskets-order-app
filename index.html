@@ -2234,9 +2234,14 @@
             qrItemLines.forEach(function(line) {
               itemY += qrItemLineH;
               if (measuring) return;
+              // Left-aligned against the QR's own left edge (qrX), so the
+              // wrapped lines start flush instead of sitting ragged -- they
+              // were right-aligned at first, which left an uneven left edge
+              // on a real print. Lines are wrapped to qrColWidthMm, so none
+              // can run past the QR's right edge either.
               // drawBidiLine, not doc.text -- a product name can carry Hebrew
               // and must not share a doc.text() call with Latin text.
-              app.drawBidiLine(targetDoc, line, qrColRightMm, itemY, { align: 'right' });
+              app.drawBidiLine(targetDoc, line, qrX, itemY);
             });
             rightStackBottomMm = itemY + app.mmFromPx('3px') + app.mmFromPx(cfg.countSize) * 0.9;
           } else {
