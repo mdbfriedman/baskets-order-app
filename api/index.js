@@ -130,6 +130,16 @@ export default async function handler(req, res) {
     return;
   }
 
+  // Parse JSON body if it's a string
+  if (req.body && typeof req.body === 'string') {
+    try {
+      req.body = JSON.parse(req.body);
+    } catch (e) {
+      res.status(400).json({ error: 'Invalid JSON in request body' });
+      return;
+    }
+  }
+
   // Store key in memory (from frontend)
   if (req.url === '/api/is-setup') {
     const isSetup = !!process.env.SERVICE_ACCOUNT || !!storedServiceAccount;
