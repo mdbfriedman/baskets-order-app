@@ -1,4 +1,790 @@
 const crypto = require('crypto');
+// NOT required at the top level on purpose -- see /api/upload-doc below,
+// which requires it lazily inside its own try/catch instead. A top-level
+// require() that throws (e.g. the package failed to install on a given
+// deployment) crashes this ENTIRE file for every single route, not just
+// the one that needs it -- confirmed to be exactly what happened after
+// @vercel/blob was first added here: the whole app, including the
+// completely unrelated setup/password/load-orders endpoints, started
+// failing with a generic Vercel error page instead of JSON.
+
+const KNOWN_PRODUCT_SKUS = [
+  "12\" sliced platter",
+  "14\" sliced platter",
+  "14x14",
+  "14x21",
+  "14x21 - Plus",
+  "14x21 - Standard",
+  "16\" sliced platter",
+  "16\" sliced platter - Grand",
+  "16\" sliced platter - Plus",
+  "16\" sliced platter - Standard",
+  "16x16",
+  "16x16 - Grand",
+  "16x16 - Plus",
+  "16x16 - Standard",
+  "18x18",
+  "18x18 - Grand",
+  "18x18 - Standard",
+  "2 oz Fruit Cups",
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 12",
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 16",
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 24",
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 32",
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 36",
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 40",
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 48",
+  "2 oz Fruit Cups - Kiwi - 12",
+  "2 oz Fruit Cups - Kiwi - 24",
+  "2 oz Fruit Cups - Mango - 12",
+  "2 oz Fruit Cups - Mango - 24",
+  "2 oz glass cups",
+  "2 oz glass cups - Assorted Melons and Pineapple - 24",
+  "2 oz glass cups - Assorted Melons and Pineapple - 36",
+  "2 oz glass cups - Assorted Melons and Pineapple - 48",
+  "2 oz glass cups - Kiwi - 12",
+  "2 oz glass cups - Mango - 12",
+  "3 oz covered cups",
+  "3 oz covered cups - Assorted Melons and Pineapple - 12",
+  "3 oz covered cups - Assorted Melons and Pineapple - 24",
+  "3 oz covered cups - Assorted Melons and Pineapple - 36",
+  "3 oz covered cups - Assorted Melons and Pineapple - 48",
+  "3 oz covered cups - Kiwi - 12",
+  "3 oz covered cups - Mango - 12",
+  "8 oz glass cups",
+  "8 oz glass cups - Assorted Melons and Pineapple - 12",
+  "8 oz glass cups - Kiwi - 12",
+  "8 oz glass cups - Mango - 12",
+  "8x14",
+  "Acai Minis",
+  "Acai Trays",
+  "Acai Trays - Large",
+  "Acai Trays - Medium",
+  "Acai Trays - Small",
+  "Barbeque Corn Nut Salad",
+  "Barbeque Corn Nut Salad - Large - Pan",
+  "Barbeque Corn Nut Salad - Large - Tray",
+  "Barbeque Corn Nut Salad - Medium - Pan",
+  "Barbeque Corn Nut Salad - Medium - Tray",
+  "Barbeque Corn Nut Salad - Small - Rosebowl",
+  "Basic Simcha Package",
+  "Broccoli Cabbage Salad",
+  "Broccoli Cabbage Salad - Large - Pan",
+  "Broccoli Cabbage Salad - Large - Tray",
+  "Broccoli Cabbage Salad - Medium - Pan",
+  "Broccoli Cabbage Salad - Medium - Tray",
+  "Broccoli Cabbage Salad - Small - Rosebowl",
+  "Broccoli Salad",
+  "Broccoli Salad - Large - Pan",
+  "Broccoli Salad - Large - Tray",
+  "Broccoli Salad - Medium - Pan",
+  "Broccoli Salad - Medium - Tray",
+  "Broccoli Salad - Small - Rosebowl",
+  "Caesar Salad",
+  "Caesar Salad - Large - Pan",
+  "Caesar Salad - Large - Tray",
+  "Caesar Salad - Medium - Pan",
+  "Caesar Salad - Medium - Tray",
+  "Caesar Salad - Small - Rosebowl",
+  "Cauliflower Salad",
+  "Cauliflower Salad - Large - Box",
+  "Cauliflower Salad - Large - Pan",
+  "Cauliflower Salad - Medium - Box",
+  "Cauliflower Salad - Medium - Pan",
+  "Cauliflower Salad - Small - Rosebowl",
+  "Citrus Salad",
+  "Citrus Salad - Large - Pan",
+  "Citrus Salad - Large - Tray",
+  "Citrus Salad - Medium - Pan",
+  "Citrus Salad - Medium - Tray",
+  "Citrus Salad - Small - Rosebowl",
+  "Cubed Fruit",
+  "Cubed Fruit - 2 lb container - Canteloupe - Bite Sized",
+  "Cubed Fruit - 2 lb container - Canteloupe - Diced",
+  "Cubed Fruit - 2 lb container - Honeydew - Bite Sized",
+  "Cubed Fruit - 2 lb container - Honeydew - Diced",
+  "Cubed Fruit - 2 lb container - Mango - Bite Sized",
+  "Cubed Fruit - 2 lb container - Mango - Diced",
+  "Cubed Fruit - 2 lb container - Pineapple - Bite Sized",
+  "Cubed Fruit - 2 lb container - Pineapple - Diced",
+  "Cubed Fruit - 2 lb container - Watermelon - Bite Sized",
+  "Cubed Fruit - 2 lb container - Watermelon - Diced",
+  "Cubed Fruit - 9x13 pan - 2 pans- 4 melons - Bite Sized",
+  "Cubed Fruit - 9x13 pan - 2 pans- 4 melons - Diced",
+  "Cubed Fruit - 9x13 pan - Canteloupe - Bite Sized",
+  "Cubed Fruit - 9x13 pan - Canteloupe - Diced",
+  "Cubed Fruit - 9x13 pan - Honeydew - Bite Sized",
+  "Cubed Fruit - 9x13 pan - Honeydew - Diced",
+  "Cubed Fruit - 9x13 pan - Mango - Bite Sized",
+  "Cubed Fruit - 9x13 pan - Mango - Diced",
+  "Cubed Fruit - 9x13 pan - Pineapple - Bite Sized",
+  "Cubed Fruit - 9x13 pan - Pineapple - Diced",
+  "Cubed Fruit - 9x13 pan - Watermelon - Bite Sized",
+  "Cubed Fruit - 9x13 pan - Watermelon - Diced",
+  "Decorative Cubed Platter",
+  "Decorative Cubed Platter - Extra Large",
+  "Decorative Cubed Platter - Large",
+  "Decorative Cubed Platter - Medium",
+  "Decorative Cubed Platter - Small",
+  "Deluxe Simcha Package",
+  "Exotic Fruit Platter",
+  "Exotic Fruit Platter - Large",
+  "Exotic Fruit Platter - Medium",
+  "Exotic Fruit Platter - Small",
+  "Exotic Mango Salad",
+  "Exotic Mango Salad - Large - Box",
+  "Exotic Mango Salad - Large - Pan",
+  "Exotic Mango Salad - Medium - Box",
+  "Exotic Mango Salad - Medium - Pan",
+  "Exotic Mango Salad - Small - Rosebowl",
+  "Feta Cheese Greek Salad (Dairy)",
+  "Feta Cheese Greek Salad (Dairy) - Large - Pan",
+  "Feta Cheese Greek Salad (Dairy) - Large - Tray",
+  "Feta Cheese Greek Salad (Dairy) - Medium - Pan",
+  "Feta Cheese Greek Salad (Dairy) - Medium - Tray",
+  "Feta Cheese Greek Salad (Dairy) - Small - Rosebowl",
+  "Feta Mushroom Salad (Dairy)",
+  "Feta Mushroom Salad (Dairy) - Large - Pan",
+  "Feta Mushroom Salad (Dairy) - Large - Tray",
+  "Feta Mushroom Salad (Dairy) - Medium - Pan",
+  "Feta Mushroom Salad (Dairy) - Medium - Tray",
+  "Feta Mushroom Salad (Dairy) - Small - Rosebowl",
+  "Fruit Cake (Available Monday-Wednesday only)",
+  "Glass Salad Cups",
+  "Glass Salad Cups - 12 - Cabbage",
+  "Glass Salad Cups - 12 - Ceasar",
+  "Glass Salad Cups - 12 - Citrus",
+  "Glass Salad Cups - 12 - Greek",
+  "Glass Salad Cups - 12 - Mango",
+  "Glass Salad Cups - 12 - Mushroom",
+  "Glass Salad Cups - 12 - Nish Nosh",
+  "Glass Salad Cups - 12 - Quinoa",
+  "Greek (Parve) Salad",
+  "Greek (Parve) Salad - Large - Pan",
+  "Greek (Parve) Salad - Large - Tray",
+  "Greek (Parve) Salad - Medium - Pan",
+  "Greek (Parve) Salad - Medium - Tray",
+  "Greek (Parve) Salad - Small - Rosebowl",
+  "Hearts of Palm Salad",
+  "Hearts of Palm Salad - Large - Pan",
+  "Hearts of Palm Salad - Large - Tray",
+  "Hearts of Palm Salad - Medium - Pan",
+  "Hearts of Palm Salad - Medium - Tray",
+  "Hearts of Palm Salad - Small - Rosebowl",
+  "L'chaim/Sweet Table Package",
+  "Lucite Fruit Tray",
+  "Mango Pomegranate Salad",
+  "Mango Pomegranate Salad - Large - Pan",
+  "Mango Pomegranate Salad - Large - Tray",
+  "Mango Pomegranate Salad - Medium - Pan",
+  "Mango Pomegranate Salad - Medium - Tray",
+  "Mango Pomegranate Salad - Small - Rosebowl",
+  "Mushroom Medley Salad",
+  "Mushroom Medley Salad - Large - Box",
+  "Mushroom Medley Salad - Large - Pan",
+  "Mushroom Medley Salad - Medium - Box",
+  "Mushroom Medley Salad - Medium - Pan",
+  "Mushroom Medley Salad - Small - Rosebowl",
+  "Nish Nosh Salad",
+  "Nish Nosh Salad - Large - Pan",
+  "Nish Nosh Salad - Large - Tray",
+  "Nish Nosh Salad - Medium - Pan",
+  "Nish Nosh Salad - Medium - Tray",
+  "Nish Nosh Salad - Small - Rosebowl",
+  "Onion Caesar Salad",
+  "Onion Caesar Salad - Large - Pan",
+  "Onion Caesar Salad - Large - Tray",
+  "Onion Caesar Salad - Medium - Pan",
+  "Onion Caesar Salad - Medium - Tray",
+  "Onion Caesar Salad - Small - Rosebowl",
+  "Portabella Mushroom Salad",
+  "Portabella Mushroom Salad - Large - Pan",
+  "Portabella Mushroom Salad - Large - Tray",
+  "Portabella Mushroom Salad - Medium - Pan",
+  "Portabella Mushroom Salad - Medium - Tray",
+  "Portabella Mushroom Salad - Small - Rosebowl",
+  "Purple Cabbage Salad",
+  "Purple Cabbage Salad - Large - Pan",
+  "Purple Cabbage Salad - Large - Tray",
+  "Purple Cabbage Salad - Medium - Pan",
+  "Purple Cabbage Salad - Medium - Tray",
+  "Purple Cabbage Salad - Small - Rosebowl",
+  "Quinoa (Lettuce) Salad",
+  "Quinoa (Lettuce) Salad - Large - Pan",
+  "Quinoa (Lettuce) Salad - Large - Tray",
+  "Quinoa (Lettuce) Salad - Medium - Pan",
+  "Quinoa (Lettuce) Salad - Medium - Tray",
+  "Quinoa (Lettuce) Salad - Small - Rosebowl",
+  "Ramen Sesame Salad",
+  "Ramen Sesame Salad - Large - Pan",
+  "Ramen Sesame Salad - Large - Tray",
+  "Ramen Sesame Salad - Medium - Pan",
+  "Ramen Sesame Salad - Medium - Tray",
+  "Ramen Sesame Salad - Small - Rosebowl",
+  "Salad Dressing",
+  "Salad Dressing - Cabbage",
+  "Salad Dressing - Caesar",
+  "Salad Dressing - Mango",
+  "Salad Dressing - Nish Nosh",
+  "Salad Dressing - Portabella",
+  "Salad Dressing - Quinoa",
+  "Sectional",
+  "Set of Lucites",
+  "Shechaynu Platter",
+  "Shehechyanu Fruit Board",
+  "Simanim Salad",
+  "Small Simcha Package",
+  "Smoothies",
+  "Smoothies - Assorted - 15",
+  "Smoothies - Assorted - 24",
+  "Smoothies - Assorted - 30",
+  "Smoothies - Assorted - 36",
+  "Smoothies in Glass cups",
+  "Smoothies in Glass cups - Assorted - 24",
+  "Smoothies in Glass cups - Assorted - 36",
+  "Smoothies in Glass cups - Assorted - 48",
+  "Sushi Salad",
+  "Sushi Salad - Large - Pan",
+  "Sushi Salad - Large - Tray",
+  "Sushi Salad - Medium - Pan",
+  "Sushi Salad - Medium - Tray",
+  "Sushi Salad - Small - Rosebowl",
+  "Sweet Potato Salad",
+  "Sweet Potato Salad - Large - Pan",
+  "Sweet Potato Salad - Large - Tray",
+  "Sweet Potato Salad - Medium - Pan",
+  "Sweet Potato Salad - Medium - Tray",
+  "Sweet Potato Salad - Small - Rosebowl",
+  "Tu B'shvat",
+  "Tu B'shvat - Flower Board Dried Fruit",
+  "Tu B'shvat - Fresh Fruit Board",
+  "Tu B'shvat - Lined Board Dried Fruit",
+  "Tu B'shvat - Mini Dried Fruit Board",
+  "Tu B'shvat - Mini Fresh Fruit Board",
+  "Tu B'shvat - Tu B'shvat Salad",
+  "Upgraded L'chaim/Sweet Table Package",
+  "Upgraded Simcha Package",
+  "salad cups",
+  "salad cups - 12 - Cabbage",
+  "salad cups - 12 - Ceasar",
+  "salad cups - 12 - Citrus",
+  "salad cups - 12 - Greek",
+  "salad cups - 12 - Mango",
+  "salad cups - 12 - Mushroom",
+  "salad cups - 12 - Nish Nosh",
+  "salad cups - 12 - Quinoa",
+  // "Plastic salad cups" (Sept 2026): same product/prices as "salad cups"
+  // above, added as its own separate, searchable entry per request so it
+  // shows up on its own when typing "plastic" in the Add Order product
+  // search, instead of only being findable under "salad cups".
+  "plastic salad cups",
+  "plastic salad cups - 12 - Cabbage",
+  "plastic salad cups - 12 - Ceasar",
+  "plastic salad cups - 12 - Citrus",
+  "plastic salad cups - 12 - Greek",
+  "plastic salad cups - 12 - Mango",
+  "plastic salad cups - 12 - Mushroom",
+  "plastic salad cups - 12 - Nish Nosh",
+  "plastic salad cups - 12 - Quinoa"
+];
+
+// Known-good sku -> price map, captured from the same Aug 31, 2026 product
+// export as KNOWN_PRODUCT_SKUS above (WooCommerce Products -> Export, "All
+// product types"). Baked directly into the code so Add Order's Product Cost
+// auto-fill is instant and doesn't depend on WooCommerce's API being up or
+// fast — that live variation-price fetch (fetchWooCommerceVariationPrices
+// below) is what kept timing out/lagging for product families with lots of
+// variations (salads, fruit cups). Prices for the 3 products the store
+// itself has no price set for are simply absent here, same as they'd come
+// back absent from a live fetch. Update this whenever prices change by
+// re-exporting and regenerating this block.
+const KNOWN_PRODUCT_PRICES = {
+  "Caesar Salad - Small - Rosebowl": 30,
+  "Caesar Salad - Medium - Tray": 65,
+  "Caesar Salad - Medium - Pan": 45,
+  "Caesar Salad - Large - Tray": 80,
+  "Caesar Salad - Large - Pan": 60,
+  "Onion Caesar Salad - Small - Rosebowl": 30,
+  "Onion Caesar Salad - Medium - Tray": 70,
+  "Onion Caesar Salad - Medium - Pan": 50,
+  "Onion Caesar Salad - Large - Tray": 80,
+  "Onion Caesar Salad - Large - Pan": 60,
+  "Purple Cabbage Salad - Small - Rosebowl": 30,
+  "Purple Cabbage Salad - Medium - Tray": 70,
+  "Purple Cabbage Salad - Medium - Pan": 50,
+  "Purple Cabbage Salad - Large - Tray": 80,
+  "Purple Cabbage Salad - Large - Pan": 60,
+  "Nish Nosh Salad - Small - Rosebowl": 30,
+  "Nish Nosh Salad - Medium - Tray": 75,
+  "Nish Nosh Salad - Medium - Pan": 50,
+  "Nish Nosh Salad - Large - Tray": 85,
+  "Nish Nosh Salad - Large - Pan": 60,
+  "Ramen Sesame Salad - Small - Rosebowl": 35,
+  "Ramen Sesame Salad - Medium - Tray": 75,
+  "Ramen Sesame Salad - Medium - Pan": 50,
+  "Ramen Sesame Salad - Large - Pan": 60,
+  "Ramen Sesame Salad - Large - Tray": 85,
+  "Greek (Parve) Salad - Small - Rosebowl": 40,
+  "Greek (Parve) Salad - Medium - Tray": 80,
+  "Greek (Parve) Salad - Medium - Pan": 60,
+  "Greek (Parve) Salad - Large - Tray": 90,
+  "Greek (Parve) Salad - Large - Pan": 70,
+  "Portabella Mushroom Salad - Small - Rosebowl": 40,
+  "Portabella Mushroom Salad - Medium - Tray": 85,
+  "Portabella Mushroom Salad - Medium - Pan": 60,
+  "Portabella Mushroom Salad - Large - Tray": 105,
+  "Portabella Mushroom Salad - Large - Pan": 85,
+  "Hearts of Palm Salad - Small - Rosebowl": 40,
+  "Hearts of Palm Salad - Medium - Tray": 80,
+  "Hearts of Palm Salad - Medium - Pan": 60,
+  "Hearts of Palm Salad - Large - Tray": 105,
+  "Hearts of Palm Salad - Large - Pan": 80,
+  "Citrus Salad - Small - Rosebowl": 40,
+  "Citrus Salad - Medium - Tray": 80,
+  "Citrus Salad - Medium - Pan": 60,
+  "Citrus Salad - Large - Tray": 95,
+  "Citrus Salad - Large - Pan": 75,
+  "Mango Pomegranate Salad - Small - Rosebowl": 50,
+  "Mango Pomegranate Salad - Medium - Tray": 85,
+  "Mango Pomegranate Salad - Medium - Pan": 65,
+  "Mango Pomegranate Salad - Large - Tray": 105,
+  "Mango Pomegranate Salad - Large - Pan": 85,
+  "Sushi Salad - Small - Rosebowl": 50,
+  "Sushi Salad - Medium - Tray": 85,
+  "Sushi Salad - Medium - Pan": 65,
+  "Sushi Salad - Large - Tray": 105,
+  "Sushi Salad - Large - Pan": 85,
+  "Quinoa (Lettuce) Salad - Small - Rosebowl": 50,
+  "Quinoa (Lettuce) Salad - Medium - Tray": 80,
+  "Quinoa (Lettuce) Salad - Medium - Pan": 60,
+  "Quinoa (Lettuce) Salad - Large - Tray": 100,
+  "Quinoa (Lettuce) Salad - Large - Pan": 80,
+  "Feta Cheese Greek Salad (Dairy) - Small - Rosebowl": 50,
+  "Feta Cheese Greek Salad (Dairy) - Medium - Tray": 85,
+  "Feta Cheese Greek Salad (Dairy) - Medium - Pan": 65,
+  "Feta Cheese Greek Salad (Dairy) - Large - Tray": 105,
+  "Feta Cheese Greek Salad (Dairy) - Large - Pan": 85,
+  "Feta Mushroom Salad (Dairy) - Small - Rosebowl": 50,
+  "Feta Mushroom Salad (Dairy) - Medium - Tray": 80,
+  "Feta Mushroom Salad (Dairy) - Medium - Pan": 60,
+  "Feta Mushroom Salad (Dairy) - Large - Tray": 100,
+  "Feta Mushroom Salad (Dairy) - Large - Pan": 80,
+  "Sweet Potato Salad - Small - Rosebowl": 50,
+  "Sweet Potato Salad - Medium - Tray": 80,
+  "Sweet Potato Salad - Medium - Pan": 60,
+  "Sweet Potato Salad - Large - Tray": 105,
+  "Sweet Potato Salad - Large - Pan": 85,
+  "Broccoli Salad - Small - Rosebowl": 50,
+  "Broccoli Salad - Medium - Tray": 80,
+  "Broccoli Salad - Medium - Pan": 60,
+  "Broccoli Salad - Large - Tray": 105,
+  "Broccoli Salad - Large - Pan": 85,
+  "Broccoli Cabbage Salad - Small - Rosebowl": 50,
+  "Broccoli Cabbage Salad - Medium - Tray": 80,
+  "Broccoli Cabbage Salad - Medium - Pan": 60,
+  "Broccoli Cabbage Salad - Large - Tray": 100,
+  "Broccoli Cabbage Salad - Large - Pan": 80,
+  "Cauliflower Salad - Small - Rosebowl": 60,
+  "Cauliflower Salad - Medium - Box": 75,
+  "Cauliflower Salad - Medium - Pan": 75,
+  "Cauliflower Salad - Large - Box": 100,
+  "Cauliflower Salad - Large - Pan": 100,
+  "Exotic Mango Salad - Small - Rosebowl": 60,
+  "Exotic Mango Salad - Medium - Box": 75,
+  "Exotic Mango Salad - Medium - Pan": 75,
+  "Exotic Mango Salad - Large - Box": 100,
+  "Exotic Mango Salad - Large - Pan": 100,
+  "Mushroom Medley Salad - Small - Rosebowl": 60,
+  "Mushroom Medley Salad - Medium - Box": 75,
+  "Mushroom Medley Salad - Medium - Pan": 75,
+  "Mushroom Medley Salad - Large - Box": 100,
+  "Mushroom Medley Salad - Large - Pan": 100,
+  "12\" sliced platter": 50,
+  "8x14": 40,
+  "14\" sliced platter": 60,
+  "salad cups - 12 - Ceasar": 72,
+  "salad cups - 12 - Citrus": 72,
+  "salad cups - 12 - Nish Nosh": 72,
+  "Decorative Cubed Platter - Small": 45,
+  "Decorative Cubed Platter - Medium": 60,
+  "Decorative Cubed Platter - Large": 80,
+  "Decorative Cubed Platter - Extra Large": 105,
+  "salad cups - 12 - Cabbage": 84,
+  "salad cups - 12 - Greek": 84,
+  "salad cups - 12 - Mango": 84,
+  "salad cups - 12 - Mushroom": 84,
+  "salad cups - 12 - Quinoa": 84,
+  // Same prices as "salad cups" above -- see KNOWN_PRODUCT_SKUS comment.
+  "plastic salad cups - 12 - Ceasar": 72,
+  "plastic salad cups - 12 - Citrus": 72,
+  "plastic salad cups - 12 - Nish Nosh": 72,
+  "plastic salad cups - 12 - Cabbage": 84,
+  "plastic salad cups - 12 - Greek": 84,
+  "plastic salad cups - 12 - Mango": 84,
+  "plastic salad cups - 12 - Mushroom": 84,
+  "plastic salad cups - 12 - Quinoa": 84,
+  "14x21 - Standard": 150,
+  "14x21 - Plus": 175,
+  "2 oz Fruit Cups - Mango - 12": 51,
+  "2 oz Fruit Cups - Mango - 24": 102,
+  "2 oz Fruit Cups - Kiwi - 24": 102,
+  "2 oz Fruit Cups - Kiwi - 12": 51,
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 32": 72,
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 24": 54,
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 16": 36,
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 12": 27,
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 48": 108,
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 40": 90,
+  "2 oz Fruit Cups - Assorted Melons and Pineapple - 36": 81,
+  "3 oz covered cups - Assorted Melons and Pineapple - 12": 45,
+  "3 oz covered cups - Assorted Melons and Pineapple - 24": 90,
+  "3 oz covered cups - Assorted Melons and Pineapple - 36": 135,
+  "3 oz covered cups - Assorted Melons and Pineapple - 48": 180,
+  "3 oz covered cups - Kiwi - 12": 75,
+  "3 oz covered cups - Mango - 12": 75,
+  "2 oz glass cups - Assorted Melons and Pineapple - 24": 108,
+  "2 oz glass cups - Assorted Melons and Pineapple - 36": 162,
+  "2 oz glass cups - Assorted Melons and Pineapple - 48": 216,
+  "2 oz glass cups - Kiwi - 12": 72,
+  "2 oz glass cups - Mango - 12": 72,
+  "8 oz glass cups - Assorted Melons and Pineapple - 12": 72,
+  "8 oz glass cups - Kiwi - 12": 90,
+  "8 oz glass cups - Mango - 12": 90,
+  "Smoothies - Assorted - 15": 45,
+  "Smoothies - Assorted - 24": 72,
+  "Smoothies - Assorted - 30": 90,
+  "Smoothies - Assorted - 36": 108,
+  "Smoothies in Glass cups - Assorted - 24": 108,
+  "Smoothies in Glass cups - Assorted - 48": 216,
+  "Smoothies in Glass cups - Assorted - 36": 162,
+  "Glass Salad Cups - 12 - Cabbage": 96,
+  "Glass Salad Cups - 12 - Greek": 96,
+  "Glass Salad Cups - 12 - Mango": 96,
+  "Glass Salad Cups - 12 - Mushroom": 96,
+  "Glass Salad Cups - 12 - Quinoa": 99,
+  "Glass Salad Cups - 12 - Ceasar": 85,
+  "Glass Salad Cups - 12 - Citrus": 96,
+  "Glass Salad Cups - 12 - Nish Nosh": 96,
+  "16\" sliced platter - Standard": 85,
+  "16\" sliced platter - Plus": 95,
+  "16x16 - Standard": 105,
+  "16x16 - Plus": 125,
+  "16x16 - Grand": 145,
+  "Fruit Cake (Available Monday-Wednesday only)": 75,
+  "18x18 - Standard": 200,
+  "18x18 - Grand": 250,
+  "14x14": 75,
+  "Sectional": 32,
+  "Lucite Fruit Tray": 85,
+  "Set of Lucites": 170,
+  "Cubed Fruit - 9x13 pan - 2 pans- 4 melons - Bite Sized": 70,
+  "Cubed Fruit - 9x13 pan - 2 pans- 4 melons - Diced": 90,
+  "Cubed Fruit - 9x13 pan - Watermelon - Bite Sized": 35,
+  "Cubed Fruit - 9x13 pan - Watermelon - Diced": 45,
+  "Cubed Fruit - 9x13 pan - Canteloupe - Bite Sized": 35,
+  "Cubed Fruit - 9x13 pan - Canteloupe - Diced": 45,
+  "Cubed Fruit - 9x13 pan - Honeydew - Bite Sized": 35,
+  "Cubed Fruit - 9x13 pan - Honeydew - Diced": 45,
+  "Cubed Fruit - 9x13 pan - Pineapple - Bite Sized": 35,
+  "Cubed Fruit - 9x13 pan - Pineapple - Diced": 45,
+  "Cubed Fruit - 2 lb container - Watermelon - Bite Sized": 18,
+  "Cubed Fruit - 2 lb container - Canteloupe - Bite Sized": 18,
+  "Cubed Fruit - 2 lb container - Canteloupe - Diced": 20,
+  "Cubed Fruit - 2 lb container - Honeydew - Bite Sized": 18,
+  "Cubed Fruit - 2 lb container - Honeydew - Diced": 20,
+  "Cubed Fruit - 2 lb container - Pineapple - Bite Sized": 18,
+  "Cubed Fruit - 2 lb container - Pineapple - Diced": 20,
+  "Cubed Fruit - 2 lb container - Mango - Diced": 36,
+  "Cubed Fruit - 2 lb container - Mango - Bite Sized": 36,
+  "Basic Simcha Package": 380,
+  "Small Simcha Package": 240,
+  "Upgraded Simcha Package": 506,
+  "Deluxe Simcha Package": 720,
+  "L'chaim/Sweet Table Package": 225,
+  "Upgraded L'chaim/Sweet Table Package": 310,
+  "Exotic Fruit Platter - Small": 115,
+  "Exotic Fruit Platter - Medium": 195,
+  "Exotic Fruit Platter - Large": 325,
+  "Barbeque Corn Nut Salad - Small - Rosebowl": 30,
+  "Barbeque Corn Nut Salad - Medium - Tray": 75,
+  "Barbeque Corn Nut Salad - Medium - Pan": 55,
+  "Barbeque Corn Nut Salad - Large - Tray": 85,
+  "Barbeque Corn Nut Salad - Large - Pan": 65,
+  "Salad Dressing - Caesar": 8,
+  "Salad Dressing - Nish Nosh": 8,
+  "Salad Dressing - Portabella": 8,
+  "Salad Dressing - Quinoa": 8,
+  "Salad Dressing - Mango": 8,
+  "Salad Dressing - Cabbage": 8,
+  "Tu B'shvat - Mini Fresh Fruit Board": 20,
+  "Tu B'shvat - Mini Dried Fruit Board": 20,
+  "Tu B'shvat - Fresh Fruit Board": 55,
+  "Tu B'shvat - Flower Board Dried Fruit": 50,
+  "Tu B'shvat - Lined Board Dried Fruit": 50,
+  "Tu B'shvat - Tu B'shvat Salad": 90,
+  "Acai Trays - Small": 125,
+  "Acai Trays - Medium": 175,
+  "Acai Trays - Large": 300,
+  "Shehechyanu Fruit Board": 55,
+  "Simanim Salad": 50,
+  "Cubed Fruit - 9x13 pan - Mango - Bite Sized": 110,
+  "Cubed Fruit - 9x13 pan - Mango - Diced": 110
+};
+
+
+// Runs `fn` over `items` with at most `limit` requests in flight at once —
+// fast (parallel), but bounded so we don't hammer a modest WordPress host.
+async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < items.length) {
+      const current = nextIndex++;
+      results[current] = await fn(items[current], current);
+    }
+  }
+  const workers = Array.from({ length: Math.min(limit, items.length) }, worker);
+  await Promise.all(workers);
+  return results;
+}
+
+let productsCache = null; // { skus: [...], fetchedAt: <ms> }
+const PRODUCTS_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+let priceCache = null; // { prices: { sku: price }, variableProductIds: [...], fetchedAt: <ms> }
+const PRICE_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+let variationPriceCache = {}; // productId -> { prices: { sku: price }, fetchedAt: <ms> }
+const VARIATION_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+function wcAuthHeader(consumerKey, consumerSecret) {
+  const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
+  return { Authorization: `Basic ${auth}` };
+}
+
+async function wcGetJson(url, authHeader) {
+  const resp = await fetch(url, { headers: authHeader });
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new Error(`WooCommerce error ${resp.status} at ${url}: ${body.slice(0, 300)}`);
+  }
+  return resp;
+}
+
+function addWcPrice(prices, sku, p) {
+  if (!sku) return;
+  const price = parseFloat(p.price !== undefined && p.price !== '' ? p.price : p.regular_price);
+  if (!isNaN(price)) prices[sku] = price;
+}
+
+// Step 1 of the price feature: fetch ONLY the top-level products list (a
+// handful of paginated calls, no per-product variation calls) and return
+// prices for simple products immediately, plus the id list of variable
+// products still needing their variations fetched. This alone used to be
+// fast and reliable even when the full fetch (below) wasn't — the timeouts
+// on this store have consistently come from firing one variations call per
+// variable product all at once inside a single function invocation, not
+// from the products list itself.
+async function fetchSimpleWooCommercePrices(baseUrl, consumerKey, consumerSecret) {
+  const authHeader = wcAuthHeader(consumerKey, consumerSecret);
+
+  const firstResp = await wcGetJson(`${baseUrl}/wp-json/wc/v3/products?per_page=100&page=1`, authHeader);
+  const totalPages = parseInt(firstResp.headers.get('x-wp-totalpages') || '1', 10);
+  const firstPageProducts = await firstResp.json();
+
+  const extraPageNumbers = [];
+  for (let page = 2; page <= totalPages; page++) extraPageNumbers.push(page);
+  const extraPages = await Promise.all(extraPageNumbers.map(async (page) => {
+    const resp = await wcGetJson(`${baseUrl}/wp-json/wc/v3/products?per_page=100&page=${page}`, authHeader);
+    return resp.json();
+  }));
+
+  const allProducts = firstPageProducts.concat(...extraPages);
+
+  const prices = {};
+  const variableProductIds = [];
+  allProducts.forEach(p => {
+    if (p.type === 'variable') {
+      variableProductIds.push(p.id);
+    } else {
+      addWcPrice(prices, p.sku, p);
+    }
+  });
+
+  return { prices, variableProductIds };
+}
+
+// Step 2: fetch variation prices for a small, caller-supplied batch of
+// variable product ids (not the whole catalog at once) — small enough that
+// even a slow response from this store's API stays well inside the
+// function timeout. The client drives this in batches; see
+// loadProductPrices() in index.html.
+async function fetchWooCommerceVariationPrices(baseUrl, consumerKey, consumerSecret, productIds) {
+  const authHeader = wcAuthHeader(consumerKey, consumerSecret);
+  const prices = {};
+
+  const variationLists = await Promise.all(productIds.map(async (id) => {
+    try {
+      const resp = await wcGetJson(`${baseUrl}/wp-json/wc/v3/products/${id}/variations?per_page=100`, authHeader);
+      return resp.json();
+    } catch (e) {
+      return [];
+    }
+  }));
+  variationLists.forEach(variations => {
+    variations.forEach(v => addWcPrice(prices, v.sku, v));
+  });
+
+  return prices;
+}
+
+async function fetchAllWooCommerceSkus(baseUrl, consumerKey, consumerSecret) {
+  const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
+  const authHeader = { Authorization: `Basic ${auth}` };
+
+  async function getJson(url) {
+    const resp = await fetch(url, { headers: authHeader });
+    if (!resp.ok) {
+      const body = await resp.text();
+      throw new Error(`WooCommerce error ${resp.status} at ${url}: ${body.slice(0, 300)}`);
+    }
+    return resp;
+  }
+
+  // Only the top-level products (simple + variable) come back here — trimming
+  // to just the 3 fields we actually use keeps this response small and fast.
+  const firstResp = await getJson(`${baseUrl}/wp-json/wc/v3/products?per_page=100&page=1`);
+  const totalPages = parseInt(firstResp.headers.get('x-wp-totalpages') || '1', 10);
+  const firstPageProducts = await firstResp.json();
+
+  const extraPageNumbers = [];
+  for (let page = 2; page <= totalPages; page++) extraPageNumbers.push(page);
+  const extraPages = await Promise.all(extraPageNumbers.map(async (page) => {
+    const resp = await getJson(`${baseUrl}/wp-json/wc/v3/products?per_page=100&page=${page}`);
+    return resp.json();
+  }));
+
+  const allProducts = firstPageProducts.concat(...extraPages);
+
+  const skus = [];
+  const variableProducts = [];
+  allProducts.forEach(p => {
+    if (p.type === 'variable') {
+      variableProducts.push(p);
+    } else if (p.sku) {
+      skus.push(p.sku);
+    }
+  });
+
+  // The slow part: one variations call per variable product. Fire every one
+  // of them at once (trimmed to just id+sku) instead of throttling — a
+  // partial batch delay is what was tipping this over the time limit before.
+  const variationLists = await Promise.all(variableProducts.map(async (p) => {
+    try {
+      const resp = await getJson(`${baseUrl}/wp-json/wc/v3/products/${p.id}/variations?per_page=100`);
+      return resp.json();
+    } catch (e) {
+      return [];
+    }
+  }));
+  variationLists.forEach(variations => {
+    variations.forEach(v => { if (v.sku) skus.push(v.sku); });
+  });
+
+  return Array.from(new Set(skus)).sort();
+}
+
+// Loose text match for the date/name/address fallback below: collapses
+// whitespace, trims, lowercases. Guards against a stray double space or
+// case difference (e.g. sheet has "19 Arosa Hill", something sends "19
+// arosa  hill") being treated as a non-match.
+function normalizeMatchText(s) {
+  return (s || '').toString().trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+// A date typed directly into the sheet by hand (rather than through the
+// app's own date picker) very often ends up in a different text format
+// than the app's own "YYYY/MM/DD" -- Google Sheets silently reformats a
+// typed date like "9/20" into its own locale style (e.g. "9/20/2026"),
+// and that's exactly the kind of row this fallback exists to match in the
+// first place (an order typed straight into the sheet, with no order
+// number either -- so almost by definition, its date was typed straight
+// in too, not picked through the app). A byte-for-byte string compare
+// would silently fail to match "2026/09/20" against "9/20/2026" even
+// though they're the same day. Parses either "YYYY/MM/DD"-ish or
+// "M/D/YYYY"-ish text into a canonical "Y-M-D" key (no leading zeros) so
+// both shapes compare equal; anything that doesn't look like a date at
+// all just falls back to a plain lowercased/trimmed compare instead of
+// matching everything (or nothing) by accident.
+function normalizeDateForMatch(s) {
+  var t = (s || '').toString().trim();
+  var m = t.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  if (m) return m[1] + '-' + parseInt(m[2], 10) + '-' + parseInt(m[3], 10);
+  m = t.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (m) return m[3] + '-' + parseInt(m[1], 10) + '-' + parseInt(m[2], 10);
+  return t.toLowerCase();
+}
+
+// Resolves the sheet's header row into column indexes by matching
+// keywords in the header text (see parseSheetData's original comment on
+// why -- this sheet's real headers don't always match the "obvious" name,
+// e.g. a bare "name" instead of "last name", "deliver to" instead of
+// "delivered to"). Shared between parseSheetData (loading orders) and
+// /api/update-order's fallback row-matching (locating a row that has no
+// order number yet), so both stay in sync with a single copy of this
+// fragile-by-nature logic instead of two copies that can silently drift
+// apart from each other.
+function resolveColumnIndexes(headers) {
+  const dateIdx = headers.findIndex(h => h.includes('delivery date'));
+  // Root cause of the missing-name bug: this sheet's actual header for the
+  // customer's own name is a bare "name" (confirmed from a screenshot of
+  // row 1), not "last name". The old strict "last name" check didn't just
+  // miss that — it was matching the WRONG column ("deliver to last name",
+  // this sheet's real header for who to hand the order to), because that
+  // phrase also contains "last name" and — since it says "deliver", not
+  // "delivered" — slipped past the old "!includes('delivered')" guard.
+  // Try exact "name" first (this sheet), then "last name" done properly,
+  // then a loose name-ish fallback as a last resort — always steering
+  // clear of anything about delivery or line items.
+  let nameIdx = headers.findIndex(h => h === 'name');
+  if (nameIdx === -1) {
+    nameIdx = headers.findIndex(h => h.includes('last name') && !h.includes('deliver'));
+  }
+  if (nameIdx === -1) {
+    nameIdx = headers.findIndex(h => h.includes('name') && !h.includes('deliver') && !h.includes('item'));
+  }
+  const itemIdx = headers.findIndex(h => h.includes('line item'));
+  const qtyIdx = headers.findIndex(h => h.includes('quantity') && !h.includes('individual'));
+  const qtyIndividualIdx = headers.findIndex(h => h.includes('individual'));
+  // Same "deliver" vs "delivered" mismatch applies here — this sheet's
+  // header is "deliver to last name", not "delivered to ...".
+  const deliveredToIdx = headers.findIndex(h => h.includes('deliver to') || h.includes('delivered to'));
+  const addressIdx = headers.findIndex(h => h.includes('delivery address'));
+  const pickupIdx = headers.findIndex(h => h.includes('pickup'));
+  const noteIdx = headers.findIndex(h => h.includes('customer note'));
+  const orderNumIdx = headers.findIndex(h => h.includes('order number'));
+  const paymentIdx = headers.findIndex(h => h.includes('payment'));
+  const totalIdx = headers.findIndex(h => h.includes('total'));
+  // These two are new columns — blank/-1 until added to the sheet's header
+  // row (see /api/update-order), which is fine: editing an older order just
+  // won't have a cost breakdown to pre-fill, only whatever Total it has.
+  const productCostIdx = headers.findIndex(h => h.includes('product cost'));
+  const deliveryCostIdx = headers.findIndex(h => h.includes('delivery cost'));
+  // Per-item special instructions (e.g. "no nuts" on just the salad, not
+  // every item in the order) -- a new trailing column, absent (-1) until
+  // it's actually added to the sheet's header row. Deliberately split on
+  // "|", not "," like the other per-item columns: this is free text
+  // someone types ("no nuts, extra napkins"), and a bare comma-split would
+  // corrupt the positional alignment with itemNames/quantities the moment
+  // a note contains a comma.
+  const itemNotesIdx = headers.findIndex(h => h.includes('special instructions'));
+
+  return {
+    dateIdx, nameIdx, itemIdx, qtyIdx, qtyIndividualIdx, deliveredToIdx,
+    addressIdx, pickupIdx, noteIdx, orderNumIdx, paymentIdx, totalIdx,
+    productCostIdx, deliveryCostIdx, itemNotesIdx
+  };
+}
 
 function parseSheetData(values) {
   if (!values || values.length < 2) return [];
@@ -6,16 +792,11 @@ function parseSheetData(values) {
   const headers = values[0].map(h => h.toLowerCase().trim());
   const orders = [];
 
-  const dateIdx = headers.findIndex(h => h.includes('delivery date'));
-  const nameIdx = headers.findIndex(h => h === 'name' || (h.includes('last name') && !h.includes('delivered')));
-  const itemIdx = headers.findIndex(h => h.includes('line item'));
-  const qtyIdx = headers.findIndex(h => h.includes('quantity') && !h.includes('individual'));
-  const qtyIndividualIdx = headers.findIndex(h => h.includes('individual'));
-  const deliveredToIdx = headers.findIndex(h => h.includes('delivered to'));
-  const addressIdx = headers.findIndex(h => h.includes('delivery address'));
-  const pickupIdx = headers.findIndex(h => h.includes('pickup'));
-  const noteIdx = headers.findIndex(h => h.includes('customer note'));
-  const totalIdx = headers.findIndex(h => h === 'total' || h.includes('total'));
+  const {
+    dateIdx, nameIdx, itemIdx, qtyIdx, qtyIndividualIdx, deliveredToIdx,
+    addressIdx, pickupIdx, noteIdx, orderNumIdx, paymentIdx, totalIdx,
+    productCostIdx, deliveryCostIdx, itemNotesIdx
+  } = resolveColumnIndexes(headers);
 
   for (let i = 1; i < values.length; i++) {
     const row = values[i];
@@ -24,6 +805,7 @@ function parseSheetData(values) {
     const itemsStr = row[itemIdx] || '';
     const qtyStr = row[qtyIdx] || '1';
     const qtyIndividualStr = row[qtyIndividualIdx] || '';
+    const itemNotesStr = itemNotesIdx === -1 ? '' : (row[itemNotesIdx] || '');
 
     const items = [];
     if (itemsStr) {
@@ -36,12 +818,14 @@ function parseSheetData(values) {
         const parsed = parseInt(q.trim());
         return isNaN(parsed) ? '' : parsed;
       });
+      const itemNotes = itemNotesStr.split('|').map(n => n.trim());
 
       itemNames.forEach((name, idx) => {
         items.push({
           product: name,
           quantity: quantities[idx] || 1,
-          quantityIndividual: qtyIndividuals[idx] || ''
+          quantityIndividual: qtyIndividuals[idx] || '',
+          specialInstructions: itemNotes[idx] || ''
         });
       });
     }
@@ -52,17 +836,101 @@ function parseSheetData(values) {
 
     orders.push({
       deliveryDate: (row[dateIdx] || '').trim(),
+      orderNumber: (row[orderNumIdx] || '').trim(),
       lastName: (row[nameIdx] || 'Unknown').trim(),
       deliveredTo: (row[deliveredToIdx] || '').trim(),
       items: items,
       address: (row[addressIdx] || '').trim(),
       pickupOrDelivery: (row[pickupIdx] || 'delivery').trim(),
       customerNote: (row[noteIdx] || '').trim(),
-      total: totalIdx >= 0 ? parseFloat(row[totalIdx] || 0) : 0
+      paymentMethod: (row[paymentIdx] || '').trim(),
+      total: (row[totalIdx] || '').trim(),
+      productCost: (row[productCostIdx] || '').trim(),
+      deliveryCost: (row[deliveryCostIdx] || '').trim()
     });
   }
 
   return orders.filter(o => o.deliveryDate && o.items.length > 0);
+}
+
+// Shared between /api/add-order and /api/update-order: validates the order
+// fields and builds the flat row array matching the sheet's column order.
+// Column order must match the live sheet exactly:
+// A=Delivery Date, B=Order Number, C=Name, D=Line Item Name, E=Quantity,
+// F=Quantity of Individual, G=Deliver To Last Name, H=Pickup/Delivery,
+// I=Delivery Address, J=Total, K=Payment Method, L=Customer Note,
+// M=Product Cost, N=Delivery Cost, O=Item Special Instructions. M/N/O are
+// new — add those header labels to the sheet yourself if you want to see
+// them there; this always writes into those columns either way. O in
+// particular MUST be added as a trailing column (after N), not inserted
+// between existing ones — the sheet ranges below are hardcoded by column
+// count (A:O), so an inserted column would shift everything after it out
+// from under those ranges and scramble unrelated data.
+function validateAndBuildOrderRow(body, orderNumber) {
+  const {
+    deliveryDate, lastName, deliveryName, pickupOrDelivery,
+    deliveryAddress, customerNote, paymentMethod, total,
+    productCost, deliveryCost, items
+  } = body;
+
+  if (!deliveryDate || !lastName || !String(lastName).trim()) {
+    return { error: 'Delivery date and last name are required' };
+  }
+  if (!Array.isArray(items) || items.length === 0) {
+    return { error: 'At least one item is required' };
+  }
+
+  const productNames = items.map(i => String((i && i.product) || '').trim()).filter(Boolean);
+  const quantities = items.map(i => {
+    const q = parseInt(i && i.quantity, 10);
+    return isNaN(q) ? 1 : q;
+  });
+  // Aligned the same way quantities is (one entry per raw item, not
+  // filtered down like productNames) so position idx still lines up with
+  // the same item across all three per-item columns. "|" instead of ","
+  // so a note like "no nuts, easy on sauce" doesn't get mistaken for a
+  // column delimiter and thrown out of alignment with the other items.
+  const itemNotes = items.map(i => String((i && i.specialInstructions) || '').trim());
+
+  if (productNames.length === 0) {
+    return { error: 'At least one item with a product is required' };
+  }
+
+  // Root cause of a real, hard-to-pin-down bug report: "entering quantity
+  // 1 sometimes forces a large number, doesn't affect price." This append
+  // uses valueInputOption=USER_ENTERED (needed so deliveryDate gets
+  // recognized as a real date), which means Sheets runs its OWN
+  // auto-detection on every string in the row -- including these
+  // comma-joined multi-item cells. A single-item order writes a plain "1"
+  // (safe), but a multi-item order writes something like "1, 1" or
+  // "1, 1, 1" into one cell -- and depending on the exact digit pattern,
+  // Sheets can occasionally decide that looks like a number (comma as a
+  // thousands separator) and silently reinterpret/reformat it, which is
+  // exactly why this only ever happened "sometimes" and only on
+  // multi-item orders, never on a single flat "1". A leading apostrophe
+  // is Sheets' standard "force plain text" marker for USER_ENTERED input
+  // -- it does NOT become part of the stored/returned cell value (nothing
+  // downstream needs to strip it), it just stops Sheets from ever trying
+  // to parse these cells as anything other than literal text.
+  const row = [
+    deliveryDate,
+    orderNumber,
+    String(lastName).trim(),
+    "'" + productNames.join(', '),
+    "'" + quantities.join(', '),
+    '', // Quantity of Individual — left blank; the product's SKU already encodes pack size
+    (deliveryName || '').trim(),
+    pickupOrDelivery || 'delivery',
+    (deliveryAddress || '').trim(),
+    (total || '').toString().trim(),
+    (paymentMethod || '').trim(),
+    (customerNote || '').trim(),
+    (productCost || '').toString().trim(),
+    (deliveryCost || '').toString().trim(),
+    "'" + itemNotes.join('|')
+  ];
+
+  return { row };
 }
 
 function createJWT(serviceAccount) {
@@ -74,7 +942,7 @@ function createJWT(serviceAccount) {
   const now = Math.floor(Date.now() / 1000);
   const payload = {
     iss: serviceAccount.client_email,
-    scope: 'https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive.file',
+    scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive.file',
     aud: 'https://oauth2.googleapis.com/token',
     exp: now + 3600,
     iat: now
@@ -117,7 +985,53 @@ async function getAccessToken(serviceAccount) {
   }
 }
 
+// The tab holding order data has already been renamed once this year
+// ("Sheet1" -> "Orders"), which broke every hardcoded 'Sheet1!A:O' range
+// until it was fixed here. Rather than hardcode a name that can go stale
+// again the next time someone renames a tab, this asks Sheets for the
+// real list of tabs in the file and picks whichever one matches a short
+// list of names this data is known to have lived under, falling back to
+// whichever tab is physically first in the file if none match. Cached
+// per warm serverless instance so this doesn't cost an extra API call on
+// every single request.
+let cachedOrdersTabName = null;
+async function resolveOrdersTabName(accessToken, sheetId) {
+  if (cachedOrdersTabName) return cachedOrdersTabName;
+  try {
+    const metaUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=sheets.properties.title`;
+    const metaResp = await fetch(metaUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!metaResp.ok) return 'Orders'; // last known-good name, if the lookup itself fails
+    const metaData = await metaResp.json();
+    const titles = (metaData.sheets || []).map(s => s.properties.title);
+    const candidates = ['Orders', 'Sheet1', 'orders', 'Website Orders', 'BBB Orders'];
+    const match = candidates.find(c => titles.includes(c));
+    cachedOrdersTabName = match || titles[0] || 'Orders';
+    return cachedOrdersTabName;
+  } catch (e) {
+    return 'Orders';
+  }
+}
+
 let storedServiceAccount = null;
+
+// App-level password gate (Sept 2026): the Google service-account setup
+// above only ever protected the SERVER's own connection to the Sheet, not
+// the site itself -- once SERVICE_ACCOUNT was set as a Vercel env var,
+// /api/is-setup returned true for every visitor and the dashboard loaded
+// straight to real customer names/addresses with no login at all. This is
+// a second, independent gate: set an APP_PASSWORD env var in Vercel and
+// every request to a customer-data endpoint (load/add/update-order) must
+// include it. Left OFF (fail-open, same as before this existed) until
+// APP_PASSWORD is actually set, so nothing breaks for anyone still on the
+// old, unprotected setup.
+function checkAppPassword(req, res) {
+  const required = process.env.APP_PASSWORD;
+  if (!required) return true;
+  const provided = req.body && req.body.password;
+  if (provided === required) return true;
+  res.status(401).json({ error: 'Incorrect or missing app password.' });
+  return false;
+}
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -130,73 +1044,207 @@ export default async function handler(req, res) {
     return;
   }
 
-  // Parse JSON body if it's a string
-  if (req.body && typeof req.body === 'string') {
+  // Server-backed file download, used by downloadLabels/downloadOrder in
+  // index.html instead of the old client-side Blob + <a download> trick.
+  // That trick depends on the browser/WebView both supporting blob: URLs
+  // and honoring the `download` attribute on a synthetic click — Chrome on
+  // desktop does, but plenty of Android contexts (WebViews without a
+  // registered download handler, some in-app browsers, some "installed as
+  // an app" PWA shells) silently do nothing or half-start a download that
+  // never lands anywhere. A real HTTP response with a Content-Disposition:
+  // attachment header is handled by the OS/browser's normal download
+  // machinery instead of JS, which is far more universally supported.
+  // index.html submits a real (invisible) HTML form POST here rather than
+  // fetching + blobbing the response, for the same reason: a genuine
+  // navigation triggers native download handling; a fetched blob would hit
+  // the exact same gap this is meant to fix.
+  if (req.method === 'POST' && req.url === '/api/download-doc') {
     try {
-      req.body = JSON.parse(req.body);
-    } catch (e) {
-      res.status(400).json({ error: 'Invalid JSON in request body' });
-      return;
+      const filename = (req.body && req.body.filename || 'download.doc').toString();
+      const content = req.body && req.body.content;
+      const mimeType = (req.body && req.body.mimeType) || 'application/msword';
+      const encoding = req.body && req.body.encoding;
+      if (content === undefined || content === null) {
+        res.status(400).send('Missing content');
+        return;
+      }
+      // Strip anything that could break the Content-Disposition header or
+      // act as a path segment; keep it simple and readable.
+      const safeFilename = filename.replace(/[\r\n"]/g, '').replace(/[^a-zA-Z0-9 ._()-]/g, '_') || 'download.doc';
+      res.setHeader('Content-Disposition', 'attachment; filename="' + safeFilename + '"');
+      if (encoding === 'base64') {
+        // PDFs (see app.downloadPdfDoc) are routed through here as base64
+        // instead of jsPDF's own doc.save(), which uses a blob + <a
+        // download> click that's unreliable specifically inside an
+        // installed/standalone PWA on Android -- same failure mode Word
+        // downloads used to have before being switched to this same
+        // POST-to-/api/download-doc mechanism. Binary content can't travel
+        // safely as a plain form field, so it crosses as base64 and gets
+        // decoded back to real bytes here. No charset on a binary
+        // Content-Type -- charset=utf-8 on binary PDF bytes is exactly the
+        // kind of mismatch that can corrupt or block the download.
+        const buffer = Buffer.from(content, 'base64');
+        res.setHeader('Content-Type', mimeType);
+        res.status(200).send(buffer);
+      } else {
+        res.setHeader('Content-Type', mimeType + '; charset=utf-8');
+        res.status(200).send(content);
+      }
+    } catch (error) {
+      res.status(500).send('Error: ' + error.message);
     }
+    return;
   }
 
-  // Store key in memory (from frontend)
-  if (req.url === '/api/is-setup') {
-    const isSetup = !!process.env.SERVICE_ACCOUNT || !!storedServiceAccount;
-    res.status(200).json({ isSetup: isSetup });
+  // A GET /api/serve-file?content=<base64>&... route briefly lived here,
+  // carrying a whole generated document's bytes in the query string (a
+  // POST body was confirmed to get dropped by Android's new-tab hand-off
+  // -- see index.html's openGeneratedDocument comment -- so GET seemed
+  // like the fix). It reached the server fine, but Vercel's own edge
+  // network rejects any URL past a length limit far below what a real
+  // label PDF needs ("URI_TOO_LONG", confirmed on the very first real
+  // document tried). Removed in favor of a localStorage-based handoff
+  // that never puts the document's content in a URL at all -- see
+  // app.openGeneratedDocument and the showDoc short-circuit at the
+  // bottom of index.html's script.
+  //
+  // That localStorage handoff's showDoc tab then tried forcing a
+  // download purely client-side (a Blob typed application/octet-stream,
+  // navigated to directly) since <a download> was confirmed dead in that
+  // tab. It technically worked -- a file did land in Downloads -- but
+  // with no real Content-Disposition header, Android had nothing to name
+  // or type the file from: it saved as a bare UUID with no extension,
+  // which no app (not even "Open" from the download notification, not
+  // FlashLabel Pro's own import picker) could then recognize as a PDF or
+  // Word doc. A client-side blob: URL fundamentally can't carry a
+  // filename or a real disposition; only an actual HTTP response can.
+  //
+  // This endpoint is that actual HTTP response. It uploads the bytes to
+  // Vercel Blob storage and hands back a real https:// URL with
+  // `?download=1`, which Vercel Blob serves with a genuine
+  // Content-Disposition: attachment header and the correct Content-Type
+  // built from the real filename -- something no client-side trick can
+  // fake. Requires a Blob store to be connected to this Vercel project
+  // (Storage tab in the dashboard -- Vercel wires up the needed
+  // credentials automatically once one exists, but only takes effect on
+  // the *next* deployment after connecting it); if none is connected
+  // yet, this fails with a clear error rather than a silent one.
+  //
+  // First tried calling this from the showDoc tab (see
+  // app.openGeneratedDocument in index.html) and location.replace()-ing
+  // it there to the returned URL -- but on the real device that did
+  // nothing at all, automatic or a manual tap on a plain link, even with
+  // the real Content-Disposition header above. That showDoc tab is
+  // itself a secondary tab Android demotes to a stripped-down "mini
+  // browser" Custom Tab (it falls outside the installed app's verified
+  // scope), and it can render a page fine -- that's all viewing a PDF
+  // ever needed -- but appears to block downloads specifically,
+  // regardless of mechanism. So this is now called directly from the
+  // main, already-installed, in-scope app tab instead (see
+  // app.downloadViaBlob in index.html), with no secondary tab involved
+  // in downloads at all.
+  if (req.method === 'POST' && req.url === '/api/upload-doc') {
+    try {
+      const { put } = require('@vercel/blob');
+      const filename = (req.body && req.body.filename || 'download').toString();
+      const content = req.body && req.body.content;
+      const mimeType = (req.body && req.body.mimeType) || 'application/octet-stream';
+      if (!content) {
+        res.status(400).json({ error: 'Missing content' });
+        return;
+      }
+      const safeFilename = filename.replace(/[\r\n"\/\\]/g, '').replace(/[^a-zA-Z0-9 ._()-]/g, '_') || 'download';
+      const buffer = Buffer.from(content, 'base64');
+      const blob = await put(safeFilename, buffer, {
+        access: 'public',
+        contentType: mimeType,
+        addRandomSuffix: true,
+      });
+      res.status(200).json({ downloadUrl: blob.downloadUrl });
+    } catch (error) {
+      // Most likely cause: no Blob store connected to this Vercel
+      // project yet (Storage tab -> Create Database -> Blob).
+      res.status(500).json({ error: 'Upload failed: ' + error.message });
+    }
     return;
   }
 
   if (req.method === 'POST' && req.url === '/api/setup') {
     try {
       const { serviceAccount } = req.body;
+
       if (!serviceAccount || !serviceAccount.private_key) {
-        res.status(400).json({ error: 'Missing private_key field in JSON' });
+        res.status(400).json({ error: 'Invalid service account key' });
         return;
       }
+
       storedServiceAccount = serviceAccount;
-      res.status(200).json({ success: true });
-    } catch (e) {
-      res.status(500).json({ error: e.message });
+      res.status(200).json({ success: true, message: 'Key stored' });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
     }
     return;
   }
 
-  // Load orders from Google Sheets
+  if (req.method === 'GET' && req.url === '/api/is-setup') {
+    const envKey = process.env.SERVICE_ACCOUNT;
+    const hasKey = (envKey || storedServiceAccount) ? true : false;
+    res.status(200).json({ isSetup: hasKey });
+    return;
+  }
+
+  // Checked by index.html before anything else loads (see app.checkAppPassword).
+  // `configured: false` when no APP_PASSWORD env var is set yet -- the client
+  // treats that as "nothing to gate against" and skips the prompt entirely,
+  // same fallback the service-account setup already uses.
+  if (req.method === 'POST' && req.url === '/api/check-password') {
+    const required = process.env.APP_PASSWORD;
+    if (!required) {
+      res.status(200).json({ ok: true, configured: false });
+      return;
+    }
+    const provided = req.body && req.body.password;
+    res.status(200).json({ ok: provided === required, configured: true });
+    return;
+  }
+
+  // Hands the Google Maps API key to the page at request time instead of it
+  // being hardcoded in index.html — keeps it out of the committed source
+  // (and out of GitHub's secret scanner) while still being usable client-side,
+  // which the Maps JavaScript API requires regardless. Restrict the key by
+  // HTTP referrer in Google Cloud Console so it can't be used from elsewhere.
+  if (req.method === 'GET' && req.url === '/api/maps-key') {
+    res.status(200).json({ key: process.env.GOOGLE_MAPS_API_KEY || '' });
+    return;
+  }
+
   if (req.method === 'POST' && req.url === '/api/load-orders') {
+    if (!checkAppPassword(req, res)) return;
     try {
-      let serviceAccount = null;
-      
-      // Try: env var → stored in memory → sent in request
+      let serviceAccount;
+
       if (process.env.SERVICE_ACCOUNT) {
-        try {
-          serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT);
-        } catch (e) {
-          // env var is corrupted, skip it
-        }
-      }
-      
-      if (!serviceAccount && storedServiceAccount) {
+        serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT);
+      } else if (storedServiceAccount) {
         serviceAccount = storedServiceAccount;
-      }
-      
-      if (!serviceAccount && req.body && req.body.serviceAccount) {
+      } else if (req.body.serviceAccount) {
         serviceAccount = req.body.serviceAccount;
       }
 
-      if (!serviceAccount) {
-        res.status(400).json({ error: 'No service account configured' });
-        return;
-      }
-
-      if (!serviceAccount.private_key) {
-        res.status(400).json({ error: 'Service account missing private_key' });
+      if (!serviceAccount || !serviceAccount.private_key) {
+        res.status(400).json({ error: 'Service account key not configured' });
         return;
       }
 
       const accessToken = await getAccessToken(serviceAccount);
+
       const sheetId = '1hW5nnsCyPVxNBXGV1CywgBaE1f9wMQxZEWk-rHu71hM';
-      const range = 'Orders!A:L';
+      const tabName = await resolveOrdersTabName(accessToken, sheetId);
+      // Was A:L, missing M/N (Product Cost/Delivery Cost -- they round-trip
+      // on save but were silently never read back on load through this
+      // range) and now O (the new per-item special instructions column).
+      // Widened to cover all of them.
+      const range = `${tabName}!A:O`;
 
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}`;
       const response = await fetch(url, {
@@ -219,103 +1267,344 @@ export default async function handler(req, res) {
     return;
   }
 
-  // Create Google Doc
-  if (req.url === '/api/create-google-doc' && req.method === 'POST') {
+  if (req.method === 'POST' && req.url === '/api/add-order') {
+    if (!checkAppPassword(req, res)) return;
     try {
-      let serviceAccount = null;
-      
+      let serviceAccount;
+
       if (process.env.SERVICE_ACCOUNT) {
-        try {
-          serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT);
-        } catch (e) {}
-      }
-      
-      if (!serviceAccount && storedServiceAccount) {
+        serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT);
+      } else if (storedServiceAccount) {
         serviceAccount = storedServiceAccount;
-      }
-      
-      if (!serviceAccount && req.body && req.body.serviceAccount) {
+      } else if (req.body.serviceAccount) {
         serviceAccount = req.body.serviceAccount;
       }
 
       if (!serviceAccount || !serviceAccount.private_key) {
-        res.status(400).json({ error: 'Service account not configured' });
+        res.status(400).json({ error: 'Service account key not configured' });
         return;
       }
 
-      const { title, content, html, date } = req.body;
-      const textContent = content || (html ? html.replace(/<[^>]*>/g, '') : null);
-      const docTitle = title || (date ? `Labels - ${date}` : 'Labels');
-      
-      if (!textContent) {
-        res.status(400).json({ error: 'Content required' });
+      // Manual entries get their own order number prefix so they're distinguishable
+      // from the sequential numbers WooCommerce/Zapier assigns.
+      const orderNumber = 'M' + Date.now().toString().slice(-7);
+
+      const built = validateAndBuildOrderRow(req.body, orderNumber);
+      if (built.error) {
+        res.status(400).json({ error: built.error });
         return;
       }
 
       const accessToken = await getAccessToken(serviceAccount);
 
-      // Create Google Doc
-      const createResponse = await fetch('https://docs.googleapis.com/v1/documents', {
+      const sheetId = '1hW5nnsCyPVxNBXGV1CywgBaE1f9wMQxZEWk-rHu71hM';
+      const tabName = await resolveOrdersTabName(accessToken, sheetId);
+      const range = `${tabName}!A:O`;
+
+      // NOTE: previously tried reading the sheet first and writing to an
+      // explicitly computed "next empty row" here, to work around a known
+      // Sheets :append quirk (it can insert after a gap instead of the
+      // true bottom of the data). Reverted -- that approach does a
+      // read-then-write as two separate calls, which is NOT atomic: if two
+      // orders get added within moments of each other (e.g. two people
+      // using the app at once), both could compute the same target row and
+      // the second write would silently overwrite the first order's data.
+      // That's a worse failure mode (real data loss) than the thing it was
+      // trying to fix (a row landing somewhere unexpected but still
+      // findable). :append is a single atomic call on Google's end and
+      // doesn't have that race, so it stays the safer default here even
+      // though it isn't perfect about placement.
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
+          Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ title: docTitle })
+        body: JSON.stringify({ values: [built.row] })
       });
 
-      if (!createResponse.ok) {
-        throw new Error(`Failed to create Google Doc: ${createResponse.status}`);
+      if (!response.ok) {
+        const errBody = await response.text();
+        throw new Error(`Google Sheets error: ${response.status} ${errBody}`);
       }
 
-      const docData = await createResponse.json();
-      const docId = docData.documentId;
-
-      // Insert content as text
-      const insertResponse = await fetch(`https://docs.googleapis.com/v1/documents/${docId}:batchUpdate`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          requests: [
-            {
-              insertText: {
-                text: textContent,
-                location: { index: 1 }
-              }
-            }
-          ]
-        })
-      });
-
-      if (!insertResponse.ok) {
-        throw new Error(`Failed to insert content: ${insertResponse.status}`);
-      }
-
-      // Share the doc with "anyone with the link"
-      const shareResponse = await fetch(`https://www.googleapis.com/drive/v3/files/${docId}/permissions`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          role: 'reader',
-          type: 'anyone'
-        })
-      });
-
-      const docUrl = `https://docs.google.com/document/d/${docId}/view`;
-      res.status(200).json({ docUrl: docUrl, docId: docId });
+      res.status(200).json({ success: true, orderNumber });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
     return;
   }
 
-  // Health check
+  if (req.method === 'POST' && req.url === '/api/update-order') {
+    if (!checkAppPassword(req, res)) return;
+    try {
+      let serviceAccount;
+
+      if (process.env.SERVICE_ACCOUNT) {
+        serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT);
+      } else if (storedServiceAccount) {
+        serviceAccount = storedServiceAccount;
+      } else if (req.body.serviceAccount) {
+        serviceAccount = req.body.serviceAccount;
+      }
+
+      if (!serviceAccount || !serviceAccount.private_key) {
+        res.status(400).json({ error: 'Service account key not configured' });
+        return;
+      }
+
+      // An order added straight on the sheet sometimes ends up with no
+      // Order Number (column B left blank) -- previously that made it
+      // impossible to ever edit through the app, since the only way this
+      // endpoint could find the right row was an exact order-number match.
+      // orderNumber is no longer required up front: it's used when present
+      // (the normal case), and when it's blank -- or is a brand-new number
+      // being assigned here for the first time and doesn't exist in the
+      // sheet yet -- the fallback below locates the row a different way
+      // instead of failing outright.
+      const orderNumber = (req.body.orderNumber || '').toString().trim();
+
+      const built = validateAndBuildOrderRow(req.body, orderNumber);
+      if (built.error) {
+        res.status(400).json({ error: built.error });
+        return;
+      }
+
+      const accessToken = await getAccessToken(serviceAccount);
+      const sheetId = '1hW5nnsCyPVxNBXGV1CywgBaE1f9wMQxZEWk-rHu71hM';
+      const tabName = await resolveOrdersTabName(accessToken, sheetId);
+
+      // Re-read the sheet fresh and locate the row by order number, rather
+      // than trusting a row number the client loaded earlier — someone
+      // could have added or removed a row in the sheet in the meantime,
+      // and this way an edit can never land on the wrong row.
+      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(tabName + '!A:O')}`;
+      const readResp = await fetch(readUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!readResp.ok) {
+        const errBody = await readResp.text();
+        throw new Error(`Google Sheets error: ${readResp.status} ${errBody}`);
+      }
+      const readData = await readResp.json();
+      const values = readData.values || [];
+      const headers = (values[0] || []).map(h => h.toLowerCase().trim());
+      const cols = resolveColumnIndexes(headers);
+      if (cols.orderNumIdx === -1) {
+        throw new Error('Could not find the Order Number column in the sheet');
+      }
+
+      let rowNumber = -1;
+
+      // 1) Exact order-number match -- the normal, unambiguous path for
+      // any order that already has one, whether or not other fields are
+      // also being changed in this same edit.
+      if (orderNumber) {
+        for (let i = 1; i < values.length; i++) {
+          if ((values[i][cols.orderNumIdx] || '').toString().trim() === orderNumber) {
+            rowNumber = i + 1; // sheet rows are 1-indexed; values[0] is row 1
+            break;
+          }
+        }
+      }
+
+      // 2) No order number to match on -- either this order never had one,
+      // or one is being typed in here for the first time and so can't
+      // exist anywhere in the sheet yet. Fall back to matching by delivery
+      // date + name + address, but ONLY against rows that currently have a
+      // BLANK order number (a row that already carries a different real
+      // number is never touched by this path), and ONLY when that narrows
+      // it down to exactly one row -- otherwise this refuses rather than
+      // guessing and risking a write to the wrong order.
+      //
+      // Matches against matchDeliveryDate/matchLastName/matchDeliveryAddress
+      // -- a snapshot the client took of this order's fields at the moment
+      // it was opened for editing -- rather than the (possibly just-edited)
+      // deliveryDate/lastName/deliveryAddress in this same request. Using
+      // the live values would fail to find the row at all the moment
+      // someone fixes a typo in the name in the very same edit that adds
+      // the missing order number.
+      if (rowNumber === -1) {
+        if (cols.dateIdx === -1 || cols.nameIdx === -1 || cols.addressIdx === -1) {
+          res.status(500).json({ error: 'Could not find this order by its order number, and the sheet is missing column(s) needed to match it another way.' });
+          return;
+        }
+        const matchDate = normalizeDateForMatch(req.body.matchDeliveryDate || req.body.deliveryDate || '');
+        const matchName = normalizeMatchText(req.body.matchLastName || req.body.lastName || '');
+        const matchAddress = normalizeMatchText(req.body.matchDeliveryAddress || req.body.deliveryAddress || '');
+        const candidates = [];
+        for (let i = 1; i < values.length; i++) {
+          const row = values[i];
+          if (!row) continue;
+          if (((row[cols.orderNumIdx] || '').toString().trim()) !== '') continue;
+          if (normalizeDateForMatch(row[cols.dateIdx]) !== matchDate) continue;
+          if (normalizeMatchText(row[cols.nameIdx]) !== matchName) continue;
+          if (normalizeMatchText(row[cols.addressIdx]) !== matchAddress) continue;
+          candidates.push(i + 1);
+        }
+        if (candidates.length === 1) {
+          rowNumber = candidates[0];
+        } else if (candidates.length > 1) {
+          res.status(409).json({ error: 'More than one order on the sheet matches this one and has no order number yet, so which row to update is ambiguous. Add order numbers directly in the sheet to tell them apart, then try again.' });
+          return;
+        }
+      }
+
+      if (rowNumber === -1) {
+        // Include what was actually searched for -- when this fires for an
+        // order matched by date/name/address (no order number involved),
+        // it's almost always because the sheet's own text for one of those
+        // three doesn't look like what was searched for (a hand-typed date
+        // in an unexpected shape, a nickname vs. the sheet's exact name,
+        // etc.) rather than the row having actually vanished, so surfacing
+        // the exact search values here makes that mismatch visible instead
+        // of just "not found".
+        var detail = orderNumber
+          ? ('Looked for order number "' + orderNumber + '".')
+          : ('Looked for delivery date "' + (req.body.matchDeliveryDate || req.body.deliveryDate || '') +
+             '", name "' + (req.body.matchLastName || req.body.lastName || '') +
+             '", address "' + (req.body.matchDeliveryAddress || req.body.deliveryAddress || '') +
+             '" among rows with no order number yet -- none matched exactly.');
+        res.status(404).json({ error: 'Order not found in the sheet — it may have been changed or removed since this page loaded. ' + detail + ' Refresh and try again.' });
+        return;
+      }
+
+      const updateRange = `${tabName}!A${rowNumber}:O${rowNumber}`;
+      const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(updateRange)}?valueInputOption=USER_ENTERED`;
+      const updateResp = await fetch(updateUrl, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ values: [built.row] })
+      });
+
+      if (!updateResp.ok) {
+        const errBody = await updateResp.text();
+        throw new Error(`Google Sheets error: ${updateResp.status} ${errBody}`);
+      }
+
+      res.status(200).json({ success: true, orderNumber });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && req.url.startsWith('/api/products')) {
+    // Serves the known-good SKU list captured after the Aug 30, 2026 SKU
+    // project, baked directly into the code — instant, and immune to
+    // whatever was causing basketsbyblimi.com's variations endpoint to hang
+    // under load. Update KNOWN_PRODUCT_SKUS above whenever products change.
+    //
+    // Add ?live=1 to instead try pulling fresh straight from WooCommerce
+    // (slower, and was timing out on this host as of Aug 30, 2026 — kept
+    // here in case that improves later, but not used by default).
+    if (req.url.includes('live=1')) {
+      try {
+        const wcKey = process.env.WC_CONSUMER_KEY;
+        const wcSecret = process.env.WC_CONSUMER_SECRET;
+        const wcUrl = process.env.WC_STORE_URL || 'https://basketsbyblimi.com';
+        if (!wcKey || !wcSecret) {
+          res.status(400).json({ error: 'WooCommerce API credentials not configured' });
+          return;
+        }
+        const skus = await fetchAllWooCommerceSkus(wcUrl, wcKey, wcSecret);
+        productsCache = { skus, fetchedAt: Date.now() };
+        res.status(200).json({ products: skus, source: 'live' });
+      } catch (error) {
+        res.status(200).json({ products: KNOWN_PRODUCT_SKUS, source: 'static-fallback', liveError: error.message });
+      }
+      return;
+    }
+
+    res.status(200).json({ products: KNOWN_PRODUCT_SKUS, source: 'static' });
+    return;
+  }
+
+  if (req.method === 'GET' && req.url.startsWith('/api/product-prices')) {
+    // Sku -> price map for Add Order's Product Cost auto-fill. Serves the
+    // baked-in KNOWN_PRODUCT_PRICES by default — instant, and immune to
+    // whatever was causing basketsbyblimi.com's variations endpoint to lag
+    // or time out under load (same reasoning as KNOWN_PRODUCT_SKUS for
+    // /api/products above). Update KNOWN_PRODUCT_PRICES whenever prices
+    // change.
+    //
+    // Add ?live=1 to instead pull fresh straight from WooCommerce, in two
+    // steps because firing one variations call per variable product all at
+    // once (the old single-shot approach) is exactly what's timed out on
+    // this store's API before:
+    //   - ?live=1 alone: fast pass over the top-level products list only,
+    //     returns simple-product prices plus the variable-product ids that
+    //     still need their variations fetched.
+    //   - ?variationIds=1,2,3: fetches just that small batch's variations
+    //     (implies live — only meaningful as a follow-up to ?live=1). The
+    //     client (index.html) requests these in small batches so a slow
+    //     response from the store can never blow the whole feature's timeout.
+    const variationIdsMatch = req.url.match(/[?&]variationIds=([^&]+)/);
+    const wantsLive = req.url.includes('live=1') || variationIdsMatch;
+
+    if (!wantsLive) {
+      res.status(200).json({ prices: KNOWN_PRODUCT_PRICES, source: 'static' });
+      return;
+    }
+
+    const wcKey = process.env.WC_CONSUMER_KEY;
+    const wcSecret = process.env.WC_CONSUMER_SECRET;
+    const wcUrl = process.env.WC_STORE_URL || 'https://basketsbyblimi.com';
+    if (!wcKey || !wcSecret) {
+      res.status(200).json({ prices: KNOWN_PRODUCT_PRICES, variableProductIds: [], source: 'static-fallback', error: 'WooCommerce API credentials not configured' });
+      return;
+    }
+
+    if (variationIdsMatch) {
+      const ids = decodeURIComponent(variationIdsMatch[1]).split(',').map(s => parseInt(s, 10)).filter(n => !isNaN(n));
+      const now = Date.now();
+      const prices = {};
+      const idsToFetch = [];
+      ids.forEach(id => {
+        const cached = variationPriceCache[id];
+        if (cached && (now - cached.fetchedAt) < VARIATION_CACHE_TTL_MS) {
+          Object.assign(prices, cached.prices);
+        } else {
+          idsToFetch.push(id);
+        }
+      });
+      if (idsToFetch.length === 0) {
+        res.status(200).json({ prices, source: 'cache' });
+        return;
+      }
+      try {
+        const fetched = await fetchWooCommerceVariationPrices(wcUrl, wcKey, wcSecret, idsToFetch);
+        idsToFetch.forEach(id => { variationPriceCache[id] = { prices: fetched, fetchedAt: now }; });
+        Object.assign(prices, fetched);
+        res.status(200).json({ prices, source: 'live' });
+      } catch (error) {
+        // Whatever we already had cached for this batch still gets served —
+        // just the freshly-requested ids come back empty this round.
+        res.status(200).json({ prices, source: 'partial', error: error.message });
+      }
+      return;
+    }
+
+    if (priceCache && (Date.now() - priceCache.fetchedAt) < PRICE_CACHE_TTL_MS) {
+      res.status(200).json({ prices: priceCache.prices, variableProductIds: priceCache.variableProductIds, source: 'cache' });
+      return;
+    }
+    try {
+      const { prices, variableProductIds } = await fetchSimpleWooCommercePrices(wcUrl, wcKey, wcSecret);
+      priceCache = { prices, variableProductIds, fetchedAt: Date.now() };
+      res.status(200).json({ prices, variableProductIds, source: 'live' });
+    } catch (error) {
+      if (priceCache) {
+        res.status(200).json({ prices: priceCache.prices, variableProductIds: priceCache.variableProductIds, source: 'stale-fallback', liveError: error.message });
+      } else {
+        res.status(200).json({ prices: {}, variableProductIds: [], source: 'unavailable', error: error.message });
+      }
+    }
+    return;
+  }
+
   if (req.url === '/api/health') {
     res.status(200).json({ status: 'ok' });
     return;
