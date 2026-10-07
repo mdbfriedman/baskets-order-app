@@ -704,7 +704,7 @@
           dayOrders.forEach(function(order, orderIdx) {
             html += '<div class="order-item"><div style="display:flex;justify-content:space-between;align-items:start"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#059669;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
             if (order.deliverTo) html += '<div class="order-address">' + order.deliverTo + '</div>';
-            html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div></div></div></div>';
+            html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div></div><button onclick="app.downloadOrder(' + orderIdx + ')" style="background:#2563eb;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📥 Download</button></div>';
             html += '<div class="order-items">';
             if (order.items) {
               order.items.forEach(function(item, idx) {
