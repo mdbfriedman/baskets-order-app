@@ -1,573 +1,315 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Baskets by Blimi</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f3f4f6; color: #111827; }
-    .header { background: white; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-    h1 { font-size: 24px; font-weight: bold; margin-bottom: 5px; }
-    .subtitle { color: #6b7280; font-size: 14px; }
-    .auth-box { background: white; border-radius: 8px; padding: 30px; max-width: 500px; margin: 40px auto; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-    .auth-box h2 { font-size: 20px; margin-bottom: 10px; }
-    textarea { width: 100%; height: 150px; border: 1px solid #d1d5db; border-radius: 6px; padding: 10px; font-family: monospace; font-size: 12px; margin-bottom: 15px; }
-    button { background: #16a34a; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; margin-bottom: 10px; }
-    button:hover { background: #15803d; }
-    button:disabled { background: #d1d5db; cursor: not-allowed; }
-    .error { background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; padding: 12px; border-radius: 6px; margin-bottom: 15px; font-size: 13px; }
-    .date-nav { display: flex; align-items: center; justify-content: center; gap: 20px; margin-bottom: 30px; }
-    .date-nav button { width: 40px; height: 40px; padding: 0; margin: 0; background: #e5e7eb; color: #111827; font-weight: bold; }
-    .date-display { text-align: center; min-width: 250px; }
-    .date-display h2 { font-size: 24px; margin-bottom: 5px; }
-    .date-display p { font-size: 13px; color: #6b7280; }
-    .totals-box { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    .totals-box h3 { font-size: 16px; margin-bottom: 15px; }
-    .totals-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
-    .total-item { background: linear-gradient(135deg, #dbeafe, #ecfdf5); border: 1px solid #86efac; border-radius: 6px; padding: 12px; text-align: center; }
-    .total-number { font-size: 24px; font-weight: bold; color: #16a34a; }
-    .total-label { font-size: 11px; color: #374151; margin-top: 5px; }
-    .action-buttons { display: flex; gap: 10px; margin-bottom: 20px; }
-    .action-buttons button { flex: 1; background: #2563eb; margin: 0; }
-    .action-buttons button:hover { background: #1d4ed8; }
-    .print-btn { background: #16a34a !important; }
-    .print-btn:hover { background: #15803d !important; }
-    .setup-btn { background: #6b7280 !important; font-size: 12px; }
-    .orders-box { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    .order-item { border-bottom: 1px solid #e5e7eb; padding: 20px; }
-    .order-item:last-child { border-bottom: none; }
-    .order-name { font-weight: bold; font-size: 16px; }
-    .order-address { font-size: 13px; color: #6b7280; margin-top: 3px; }
-    .order-items { background: #f9fafb; border-radius: 6px; padding: 12px; font-size: 13px; margin-top: 15px; }
-    .order-items div { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #e5e7eb; }
-    .order-items div:last-child { border-bottom: none; }
-    .order-note { background: #dbeafe; border-left: 3px solid #2563eb; padding: 10px; margin-top: 10px; font-size: 13px; color: #1e40af; }
-    .loading { text-align: center; padding: 20px; color: #6b7280; }
-    .empty-state { text-align: center; padding: 40px; color: #6b7280; }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <div class="container">
-      <h1>Baskets by Blimi</h1>
-      <p class="subtitle">Order Management</p>
-    </div>
-  </div>
-  <div class="container" id="app"></div>
+const crypto = require('crypto');
 
-  <script>
-    var app = {
-      orders: [],
-      products: [],
-      selectedDate: null,
-      isAuthenticated: false,
-      error: '',
-      loading: false,
-      showSetup: false,
-      labelSize: '4x3',
+function parseSheetData(values) {
+  if (!values || values.length < 2) return [];
 
-      checkSetup: async function() {
-        try {
-          var response = await fetch('/api/is-setup');
-          var data = await response.json();
-          
-          if (data.isSetup) {
-            app.isAuthenticated = true;
-            app.loadOrders();
-          } else {
-            app.showSetup = true;
-            app.render();
-          }
-        } catch (e) {
-          app.error = 'Cannot reach server';
-          app.render();
-        }
-      },
+  const headers = values[0].map(h => h.toLowerCase().trim());
+  const orders = [];
 
-      setupKey: function(keyInput) {
-        try {
-          var serviceAccount = JSON.parse(keyInput);
-          app.loading = true;
-          app.render();
-          
-          fetch('/api/setup', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ serviceAccount: serviceAccount })
-          }).then(function(response) {
-            return response.json();
-          }).then(function(data) {
-            if (data.success) {
-              app.isAuthenticated = true;
-              app.showSetup = false;
-              app.loadOrders();
-            } else {
-              app.error = data.error || 'Setup failed';
-              app.loading = false;
-              app.render();
-            }
-          }).catch(function(e) {
-            app.error = 'Error: ' + e.message;
-            app.loading = false;
-            app.render();
-          });
-        } catch (e) {
-          app.error = 'Invalid JSON key';
-          app.render();
-        }
-      },
+  const dateIdx = headers.findIndex(h => h.includes('delivery date'));
+  const nameIdx = headers.findIndex(h => h === 'name' || (h.includes('last name') && !h.includes('delivered')));
+  const itemIdx = headers.findIndex(h => h.includes('line item'));
+  const qtyIdx = headers.findIndex(h => h.includes('quantity') && !h.includes('individual'));
+  const qtyIndividualIdx = headers.findIndex(h => h.includes('individual'));
+  const deliveredToIdx = headers.findIndex(h => h.includes('delivered to'));
+  const addressIdx = headers.findIndex(h => h.includes('delivery address'));
+  const pickupIdx = headers.findIndex(h => h.includes('pickup'));
+  const noteIdx = headers.findIndex(h => h.includes('customer note'));
+  const totalIdx = headers.findIndex(h => h === 'total' || h.includes('total'));
 
-      loadOrders: async function() {
-        try {
-          app.loading = true;
-          app.render();
-          
-          var response = await fetch('/api/load-orders', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({})
-          });
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    if (!row || !row[dateIdx]) continue;
 
-          if (!response.ok) {
-            var data = await response.json();
-            throw new Error(data.error || 'Failed to load');
-          }
+    const itemsStr = row[itemIdx] || '';
+    const qtyStr = row[qtyIdx] || '1';
+    const qtyIndividualStr = row[qtyIndividualIdx] || '';
 
-          var data = await response.json();
-          app.orders = data.orders || [];
+    const items = [];
+    if (itemsStr) {
+      const itemNames = itemsStr.split(',').map(i => i.trim()).filter(i => i);
+      const quantities = qtyStr.split(',').map(q => {
+        const parsed = parseInt(q.trim());
+        return isNaN(parsed) ? 1 : parsed;
+      });
+      const qtyIndividuals = qtyIndividualStr.split(',').map(q => {
+        const parsed = parseInt(q.trim());
+        return isNaN(parsed) ? '' : parsed;
+      });
 
-          if (app.orders.length === 0) {
-            app.error = 'No orders found.';
-            app.loading = false;
-            app.render();
-            return;
-          }
-
-          var productSet = new Set();
-          app.orders.forEach(function(order) {
-            if (order.items) {
-              order.items.forEach(function(item) {
-                productSet.add(item.product);
-              });
-            }
-          });
-          app.products = Array.from(productSet).sort();
-
-          var dates = [... new Set(app.orders.map(function(o) { return o.deliveryDate; }))].sort();
-          
-          // Get today's date in YYYY/MM/DD format
-          var today = new Date();
-          var todayStr = today.getFullYear() + '/' + 
-            String(today.getMonth() + 1).padStart(2, '0') + '/' + 
-            String(today.getDate()).padStart(2, '0');
-          
-          // Try today first; if not found, find first date >= today; if none, use first date
-          if (dates.includes(todayStr)) {
-            app.selectedDate = todayStr;
-          } else {
-            var foundDate = dates.find(function(d) { return d >= todayStr; });
-            app.selectedDate = foundDate || dates[0] || '2026/08/28';
-          }
-          
-          app.loading = false;
-          app.error = '';
-          app.render();
-        } catch (e) {
-          app.error = 'Error: ' + e.message;
-          app.loading = false;
-          app.render();
-        }
-      },
-
-      formatDateDisplay: function(dateStr) {
-        var parts = dateStr.split('/');
-        if (parts.length === 3) {
-          var year = parseInt(parts[0]);
-          var month = parseInt(parts[1]);
-          var day = parseInt(parts[2]);
-          var monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-          var dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-          var d = new Date(year, month - 1, day);
-          var dayName = dayNames[d.getDay()];
-          return dayName + ', ' + monthNames[month - 1] + ' ' + day + ', ' + year;
-        }
-        return dateStr;
-      },
-
-      getOrdersForDate: function(date) {
-        return app.orders.filter(function(o) { return o.deliveryDate === date; });
-      },
-
-      cleanLastName: function(name) {
-        return name.replace(/\d+$/g, '').trim();
-      },
-
-      splitAddress: function(fullAddress) {
-        var njCities = ['Lakewood', 'Jackson', 'Ocean', 'Brick', 'Toms River', 'Manchester', 'Stafford', 'Barnegat', 'Tuckerton', 'Long Beach Island', 'Beach Haven'];
-        var address = fullAddress;
-        var city = '';
-        
-        for (var i = 0; i < njCities.length; i++) {
-          if (fullAddress.includes(njCities[i])) {
-            var idx = fullAddress.indexOf(njCities[i]);
-            address = fullAddress.substring(0, idx).trim();
-            city = fullAddress.substring(idx).trim();
-            break;
-          }
-        }
-        
-        return { address: address, city: city };
-      },
-
-      getProductTotals: function(date) {
-        var dayOrders = app.getOrdersForDate(date);
-        var totals = {};
-        dayOrders.forEach(function(order) {
-          if (order.items) {
-            order.items.forEach(function(item) {
-              totals[item.product] = (totals[item.product] || 0) + item.quantity;
-            });
-          }
+      itemNames.forEach((name, idx) => {
+        items.push({
+          product: name,
+          quantity: quantities[idx] || 1,
+          quantityIndividual: qtyIndividuals[idx] || ''
         });
-        return totals;
+      });
+    }
+
+    if (items.length === 0) {
+      items.push({ product: 'Unknown', quantity: 1, quantityIndividual: '' });
+    }
+
+    orders.push({
+      deliveryDate: (row[dateIdx] || '').trim(),
+      lastName: (row[nameIdx] || 'Unknown').trim(),
+      deliveredTo: (row[deliveredToIdx] || '').trim(),
+      items: items,
+      address: (row[addressIdx] || '').trim(),
+      pickupOrDelivery: (row[pickupIdx] || 'delivery').trim(),
+      customerNote: (row[noteIdx] || '').trim(),
+      total: totalIdx >= 0 ? parseFloat(row[totalIdx] || 0) : 0
+    });
+  }
+
+  return orders.filter(o => o.deliveryDate && o.items.length > 0);
+}
+
+function createJWT(serviceAccount) {
+  const header = {
+    alg: 'RS256',
+    typ: 'JWT'
+  };
+
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    iss: serviceAccount.client_email,
+    scope: 'https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive.file',
+    aud: 'https://oauth2.googleapis.com/token',
+    exp: now + 3600,
+    iat: now
+  };
+
+  function base64url(str) {
+    return Buffer.from(str).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  }
+
+  const headerStr = base64url(JSON.stringify(header));
+  const payloadStr = base64url(JSON.stringify(payload));
+  const signatureInput = `${headerStr}.${payloadStr}`;
+
+  const sign = crypto.createSign('RSA-SHA256');
+  sign.update(signatureInput);
+  const signature = base64url(sign.sign(serviceAccount.private_key));
+
+  return `${signatureInput}.${signature}`;
+}
+
+async function getAccessToken(serviceAccount) {
+  try {
+    const jwt = createJWT(serviceAccount);
+
+    const response = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
       },
+      body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`
+    });
 
-      getAllDates: function() {
-        return [... new Set(app.orders.map(function(o) { return o.deliveryDate; }))].sort();
-      },
+    const data = await response.json();
+    if (!data.access_token) {
+      throw new Error('Failed to get access token: ' + (data.error || 'Unknown error'));
+    }
+    return data.access_token;
+  } catch (error) {
+    throw new Error('Token error: ' + error.message);
+  }
+}
 
-      previousDate: function() {
-        var dates = app.getAllDates();
-        var idx = dates.indexOf(app.selectedDate);
-        if (idx > 0) app.selectedDate = dates[idx - 1];
-        app.render();
-      },
+let storedServiceAccount = null;
 
-      nextDate: function() {
-        var dates = app.getAllDates();
-        var idx = dates.indexOf(app.selectedDate);
-        if (idx < dates.length - 1) app.selectedDate = dates[idx + 1];
-        app.render();
-      },
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
 
-      printPackingList: function() {
-        var dayOrders = app.getOrdersForDate(app.selectedDate);
-        if (dayOrders.length === 0) {
-          alert('No orders for this date');
-          return;
-        }
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
 
-        // Group orders by product
-        var productGroups = {};
-        dayOrders.forEach(function(order) {
-          if (order.items) {
-            order.items.forEach(function(item) {
-              if (!productGroups[item.product]) {
-                productGroups[item.product] = [];
-              }
-              productGroups[item.product].push({
-                name: app.cleanLastName(order.lastName),
-                quantity: item.quantity,
-                quantityIndividual: item.quantityIndividual
-              });
-            });
-          }
-        });
+  // Store key in memory (from frontend)
+  if (req.url === '/api/is-setup') {
+    const isSetup = !!process.env.SERVICE_ACCOUNT || !!storedServiceAccount;
+    res.status(200).json({ isSetup: isSetup });
+    return;
+  }
 
-        // Sort products alphabetically
-        var sortedProducts = Object.keys(productGroups).sort();
-
-        var html = '<html><head><meta charset="utf-8"><title>Packing List</title><style>body{font-family:Arial;margin:20px;background:white}h1{font-size:24px;margin-bottom:5px}h2{font-size:18px;margin:20px 0 10px 0;border-bottom:2px solid #000;padding-bottom:5px;color:#059669}.product-section{margin-bottom:25px;page-break-inside:avoid}.quantity{font-size:16px;font-weight:bold;color:#059669;margin:10px 0}.orders-list{margin-left:20px;font-size:13px}.order-item{margin:5px 0}.total{font-size:18px;font-weight:bold;color:#059669;margin-top:30px;padding-top:20px;border-top:2px solid #000}</style></head><body>';
-
-        html += '<h1>BASKETS BY BLIMI</h1>';
-        html += '<h2>PACKING LIST - ' + app.formatDateDisplay(app.selectedDate) + '</h2>';
-        html += '<p style="font-size:12px">Organized by Product</p>';
-
-        var grandTotal = 0;
-
-        sortedProducts.forEach(function(product) {
-          var orders = productGroups[product];
-          var totalQty = orders.reduce(function(sum, o) { return sum + (parseInt(o.quantity) || 0); }, 0);
-          grandTotal += totalQty;
-
-          html += '<div class="product-section">';
-          html += '<h2>' + product + '</h2>';
-          html += '<div class="quantity">Total to Prepare: <strong>' + totalQty + '</strong></div>';
-          html += '<div class="orders-list">';
-          
-          orders.forEach(function(order) {
-            html += '<div class="order-item">• ' + order.name + ' (qty: ' + order.quantity + ')</div>';
-          });
-
-          html += '</div>';
-          html += '</div>';
-        });
-
-        html += '<div class="total">TOTAL ITEMS: <strong>' + grandTotal + '</strong></div>';
-        html += '</body></html>';
-
-        var w = window.open('', '_blank');
-        w.document.write(html);
-        w.document.close();
-        setTimeout(function() { w.print(); }, 500);
-      },
-
-      printDailyOrders: function() {
-        var dayOrders = app.getOrdersForDate(app.selectedDate);
-        if (dayOrders.length === 0) {
-          alert('No orders for this date');
-          return;
-        }
-
-        var html = '<html><head><meta charset="utf-8"><title>Daily Orders</title><style>body{font-family:Arial;margin:20px;background:white}h1{font-size:24px;margin-bottom:5px}h2{font-size:16px;margin:20px 0 10px 0;border-bottom:2px solid #000;padding-bottom:5px}.order{margin-bottom:20px;padding:15px;border:1px solid #ccc;page-break-inside:avoid}.order-name{font-size:14px;font-weight:bold}.order-address{font-size:12px;color:#666;margin-top:5px}.order-items{margin-top:10px;font-size:12px}.item{margin:5px 0}.total{font-size:18px;font-weight:bold;color:#059669;margin-top:20px;padding-top:20px;border-top:2px solid #000}</style></head><body>';
-
-        html += '<h1>BASKETS BY BLIMI</h1>';
-        html += '<h2>Daily Orders - ' + app.formatDateDisplay(app.selectedDate) + '</h2>';
-        html += '<p style="font-size:14px"><strong>Total Orders: ' + dayOrders.length + '</strong></p>';
-
-        var dayTotal = dayOrders.reduce(function(sum, o) { return sum + (parseFloat(o.total) || 0); }, 0);
-
-        dayOrders.forEach(function(order, idx) {
-          html += '<div class="order">';
-          html += '<div class="order-name">' + (idx + 1) + '. ' + app.cleanLastName(order.lastName) + '</div>';
-          
-          var addressParts = app.splitAddress(order.address);
-          html += '<div class="order-address">' + addressParts.address + ', ' + addressParts.city + '</div>';
-          html += '<div style="font-size:11px;color:#999;margin-top:3px">' + (order.pickupOrDelivery || 'Delivery').toUpperCase() + '</div>';
-          
-          if (order.items) {
-            html += '<div class="order-items">';
-            order.items.forEach(function(item) {
-              html += '<div class="item">• ' + item.product + ' (qty: ' + item.quantity + ')</div>';
-            });
-            html += '</div>';
-          }
-          
-          if (order.total) {
-            html += '<div style="font-weight:bold;font-size:12px;margin-top:8px">$' + parseFloat(order.total).toFixed(2) + '</div>';
-          }
-          
-          if (order.customerNote) {
-            html += '<div style="font-size:11px;color:#d97706;margin-top:8px;font-weight:bold">Note: ' + order.customerNote + '</div>';
-          }
-          
-          html += '</div>';
-        });
-
-        html += '<div class="total">Daily Total: $' + dayTotal.toFixed(2) + '</div>';
-        html += '</body></html>';
-
-        var w = window.open('', '_blank');
-        w.document.write(html);
-        w.document.close();
-        setTimeout(function() { w.print(); }, 500);
-      },
-
-      downloadLabels: function() {
-        var dayOrders = app.getOrdersForDate(app.selectedDate);
-        if (dayOrders.length === 0) {
-          alert('No orders to download');
-          return;
-        }
-
-        var htmlContent = '<html><head><meta charset="utf-8"><title>Baskets by Blimi Labels</title></head><body>';
-        htmlContent += '<h1>BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '</h1>';
-        htmlContent += '<p>Use Word\'s Mail Merge or Labels feature to format for your label printer.</p>';
-        htmlContent += '<hr>';
-        
-        dayOrders.forEach(function(order, orderIdx) {
-          if (order.items) {
-            var cleanName = app.cleanLastName(order.lastName);
-            var addressParts = app.splitAddress(order.address);
-            order.items.forEach(function(item, idx) {
-              htmlContent += '<p style="border:1px solid #000; padding:10px; margin:10px 0; page-break-inside:avoid; position:relative">';
-              htmlContent += '<div style="text-align:right;font-size:9px;color:#999;margin-bottom:8px">Order ' + (idx + 1) + ' of ' + order.items.length + '</div>';
-              htmlContent += '<b>' + cleanName + '</b><br>';
-              var productDisplay = item.product;
-              if (item.quantityIndividual) {
-                productDisplay = item.quantityIndividual + ' ' + item.product;
-              }
-              htmlContent += '<b>' + productDisplay + '</b><br>';
-              htmlContent += addressParts.address + '<br>';
-              htmlContent += addressParts.city + '<br>';
-              if (order.customerNote) {
-                htmlContent += '<br><b>NOTE: ' + order.customerNote + '</b>';
-              }
-              htmlContent += '</p>';
-            });
-          }
-        });
-
-        htmlContent += '</body></html>';
-
-        var blob = new Blob([htmlContent], { type: 'application/msword' });
-        var url = window.URL.createObjectURL(blob);
-        var link = document.createElement('a');
-        link.href = url;
-        link.download = 'BasketsByBlimi_' + app.selectedDate + '_Labels.doc';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
-      },
-
-      downloadOrder: function(orderIdx) {
-        var dayOrders = app.getOrdersForDate(app.selectedDate);
-        if (orderIdx < 0 || orderIdx >= dayOrders.length) {
-          alert('Order not found');
-          return;
-        }
-
-        var order = dayOrders[orderIdx];
-        if (!order.items) {
-          alert('No items in this order');
-          return;
-        }
-
-        var cleanName = app.cleanLastName(order.lastName);
-        var addressParts = app.splitAddress(order.address);
-        
-        var htmlContent = '<html><head><meta charset="utf-8"><title>Order - ' + cleanName + '</title><style>body{font-family:Arial;margin:20px}h1{margin-bottom:5px}.label{border:1px solid #000;padding:10px;margin:10px 0;page-break-inside:avoid}.label-order{text-align:right;font-size:9px;color:#999;margin-bottom:8px}.label-name{font-weight:bold;margin:5px 0}.label-product{font-weight:bold;margin:5px 0}.label-address{margin:5px 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:5px 0}.label-note{font-weight:bold;margin-top:5px;color:#d97706}</style></head><body>';
-        htmlContent += '<h1>BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '</h1>';
-        
-        order.items.forEach(function(item, idx) {
-          htmlContent += '<div class="label">';
-          htmlContent += '<div class="label-order">Order ' + (idx + 1) + ' of ' + order.items.length + '</div>';
-          htmlContent += '<div class="label-name">' + cleanName + '</div>';
-          var productDisplay = item.product;
-          if (item.quantityIndividual) {
-            productDisplay = item.quantityIndividual + ' ' + item.product;
-          }
-          htmlContent += '<div class="label-product">' + productDisplay + '</div>';
-          htmlContent += '<div class="label-address">' + addressParts.address + '<br>' + addressParts.city + '</div>';
-          if (order.customerNote) {
-            htmlContent += '<div class="label-note">NOTE: ' + order.customerNote + '</div>';
-          }
-          htmlContent += '</div>';
-        });
-
-        htmlContent += '</body></html>';
-
-        var blob = new Blob([htmlContent], { type: 'application/msword' });
-        var url = window.URL.createObjectURL(blob);
-        var link = document.createElement('a');
-        link.href = url;
-        link.download = cleanName + '_Order.doc';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
-      },
-
-      printLabels: function() {
-        var dayOrders = app.getOrdersForDate(app.selectedDate);
-        var labelDim = app.labelSize === '4x3' ? '4in' : '3in';
-        var heightDim = app.labelSize === '4x3' ? '3in' : '2in';
-        var html = '<html><head><style>body{font-family:Arial;margin:20px}.label{width:' + labelDim + ';height:' + heightDim + ';border:2px solid #000;padding:15px;margin-bottom:10px;page-break-inside:avoid;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between}.label-header{font-size:10px;font-weight:bold;margin-bottom:8px}.label-name{font-size:12px;font-weight:bold;margin-bottom:10px}.label-product{font-size:14px;font-weight:bold;margin:8px 0}.label-address{font-size:11px;line-height:1.4;margin:5px 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:5px 0}.label-note{font-size:9px;margin-top:5px;border-top:1px solid #000;padding-top:5px}.label-count{font-size:20px;font-weight:bold;text-align:center;margin-top:auto;padding-top:10px}</style></head><body>';
-        dayOrders.forEach(function(order) {
-          if (order.items) {
-            order.items.forEach(function(item, idx) {
-              html += '<div class="label"><div><div class="label-header">BASKETS BY BLIMI</div><div class="label-name">' + order.lastName + '</div><div class="label-product">' + item.product + '</div><div class="label-address">' + order.address + '</div>' + (order.customerNote ? '<div class="label-note"><strong>Note:</strong> ' + order.customerNote + '</div>' : '') + '</div><div class="label-count">' + (idx + 1) + ' of ' + order.items.length + '</div></div>';
-            });
-          }
-        });
-        html += '</body></html>';
-        var w = window.open('', '_blank');
-        w.document.write(html);
-        w.document.close();
-        setTimeout(function() { w.print(); }, 500);
-      },
-
-      printOrder: function(orderIndex) {
-        var dayOrders = app.getOrdersForDate(app.selectedDate);
-        var order = dayOrders[orderIndex];
-        if (!order) return;
-
-        var labelDim = app.labelSize === '4x3' ? '4in' : '3in';
-        var heightDim = app.labelSize === '4x3' ? '3in' : '2in';
-        var html = '<html><head><style>body{font-family:Arial;margin:20px}.label{width:' + labelDim + ';height:' + heightDim + ';border:2px solid #000;padding:15px;margin-bottom:10px;page-break-inside:avoid;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between}.label-header{font-size:10px;font-weight:bold;margin-bottom:8px}.label-name{font-size:12px;font-weight:bold;margin-bottom:10px}.label-product{font-size:14px;font-weight:bold;margin:8px 0}.label-address{font-size:11px;line-height:1.4;margin:5px 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:5px 0}.label-note{font-size:9px;margin-top:5px;border-top:1px solid #000;padding-top:5px}.label-count{font-size:20px;font-weight:bold;text-align:center;margin-top:auto;padding-top:10px}</style></head><body>';
-        
-        if (order.items) {
-          order.items.forEach(function(item, idx) {
-            html += '<div class="label"><div><div class="label-header">BASKETS BY BLIMI</div><div class="label-name">' + order.lastName + '</div><div class="label-product">' + item.product + '</div><div class="label-address">' + order.address + '</div>' + (order.customerNote ? '<div class="label-note"><strong>Note:</strong> ' + order.customerNote + '</div>' : '') + '</div><div class="label-count">' + (idx + 1) + ' of ' + order.items.length + '</div></div>';
-          });
-        }
-        
-        html += '</body></html>';
-        var w = window.open('', '_blank');
-        w.document.write(html);
-        w.document.close();
-        setTimeout(function() { w.print(); }, 500);
-      },
-
-      render: function() {
-        var appDiv = document.getElementById('app');
-        
-        if (app.showSetup) {
-          appDiv.innerHTML = '<div class="auth-box"><h2>Setup</h2><p style="color:#6b7280;margin-bottom:15px">Paste your Google Service Account JSON key once. You won\'t need to paste it again.</p>' + (app.error ? '<div class="error">' + app.error + '</div>' : '') + '<textarea id="keyInput" placeholder="Paste your JSON key..."></textarea><button onclick="app.setupKey(document.getElementById(\'keyInput\').value)">Save Key</button></div>';
-          return;
-        }
-
-        if (app.loading) {
-          appDiv.innerHTML = '<div class="loading">Loading orders...</div>';
-          return;
-        }
-
-        if (!app.isAuthenticated || app.orders.length === 0) {
-          appDiv.innerHTML = '<div class="auth-box"><div class="error">' + (app.error || 'No orders') + '</div><button onclick="app.showSetup=true;app.render()">Setup</button></div>';
-          return;
-        }
-
-        var dayOrders = app.getOrdersForDate(app.selectedDate);
-        var totals = app.getProductTotals(app.selectedDate);
-        var dates = app.getAllDates();
-        var currentIdx = dates.indexOf(app.selectedDate);
-        var dayTotal = dayOrders.reduce(function(sum, o) { return sum + (parseFloat(o.total) || 0); }, 0);
-
-        var html = '<div class="date-nav"><button onclick="app.previousDate()" ' + (currentIdx === 0 ? 'disabled' : '') + '>←</button><div class="date-display"><h2>' + app.formatDateDisplay(app.selectedDate) + '</h2><p>' + dayOrders.length + ' orders</p><p style="font-size:18px;font-weight:bold;color:#059669;margin-top:8px">Total: $' + dayTotal.toFixed(2) + '</p></div><button onclick="app.nextDate()" ' + (currentIdx === dates.length - 1 ? 'disabled' : '') + '>→</button></div>';
-
-        if (Object.keys(totals).length > 0) {
-          html += '<div class="totals-box"><h3>Product Totals</h3><div class="totals-grid">';
-          Object.entries(totals).sort(function(a, b) { return b[1] - a[1]; }).forEach(function(entry) {
-            html += '<div class="total-item"><div class="total-number">' + entry[1] + '</div><div class="total-label">' + entry[0] + '</div></div>';
-          });
-          html += '</div></div>';
-        }
-
-        html += '<div style="margin-bottom:15px"><strong>Label Size:</strong> <button onclick="app.labelSize=\'4x3\';app.render()" style="background:' + (app.labelSize === '4x3' ? '#16a34a' : '#e5e7eb') + ';color:' + (app.labelSize === '4x3' ? 'white' : '#111827') + ';border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;margin-right:5px">4×3</button><button onclick="app.labelSize=\'3x2\';app.render()" style="background:' + (app.labelSize === '3x2' ? '#16a34a' : '#e5e7eb') + ';color:' + (app.labelSize === '3x2' ? 'white' : '#111827') + ';border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;margin-right:5px">3×2</button><button onclick="app.labelSize=\'2.4x3\';app.render()" style="background:' + (app.labelSize === '2.4x3' ? '#16a34a' : '#e5e7eb') + ';color:' + (app.labelSize === '2.4x3' ? 'white' : '#111827') + ';border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px">2.4\" Continuous</button></div>';
-
-        html += '<div class="action-buttons"><button class="print-btn" onclick="app.printPackingList()" ' + (dayOrders.length === 0 ? 'disabled' : '') + '>📋 Packing List</button><button onclick="app.printDailyOrders()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#059669">🖨️ Daily Orders</button><button onclick="app.downloadLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#16a34a">📥 Labels</button><button class="setup-btn" onclick="app.showSetup=true;app.render()">Setup</button></div>';
-
-        if (dayOrders.length === 0) {
-          html += '<div class="empty-state">No orders for this date</div>';
-        } else {
-          html += '<div class="orders-box">';
-          dayOrders.forEach(function(order, orderIdx) {
-            html += '<div class="order-item"><div style="display:flex;justify-content:space-between;align-items:start"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#059669;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
-            if (order.deliverTo) html += '<div class="order-address">' + order.deliverTo + '</div>';
-            html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div></div><button onclick="app.downloadOrder(' + orderIdx + ')" style="background:#2563eb;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📥 Download</button></div>';
-            html += '<div class="order-items">';
-            if (order.items) {
-              order.items.forEach(function(item, idx) {
-                html += '<div><strong>' + item.product + '</strong> <span>qty: ' + item.quantity + ' • <strong>' + (idx + 1) + ' of ' + order.items.length + '</strong></span></div>';
-              });
-            }
-            html += '</div>';
-            if (order.customerNote) {
-              html += '<div class="order-note"><strong>Note:</strong> ' + order.customerNote + '</div>';
-            }
-            html += '</div>';
-          });
-          html += '</div>';
-        }
-
-        appDiv.innerHTML = html;
+  if (req.method === 'POST' && req.url === '/api/setup') {
+    try {
+      const { serviceAccount } = req.body;
+      if (!serviceAccount || !serviceAccount.private_key) {
+        res.status(400).json({ error: 'Missing private_key field in JSON' });
+        return;
       }
-    };
+      storedServiceAccount = serviceAccount;
+      res.status(200).json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+    return;
+  }
 
-    app.checkSetup();
-  </script>
-</body>
-</html>
+  // Load orders from Google Sheets
+  if (req.method === 'POST' && req.url === '/api/load-orders') {
+    try {
+      let serviceAccount = null;
+      
+      // Try: env var → stored in memory → sent in request
+      if (process.env.SERVICE_ACCOUNT) {
+        try {
+          serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT);
+        } catch (e) {
+          // env var is corrupted, skip it
+        }
+      }
+      
+      if (!serviceAccount && storedServiceAccount) {
+        serviceAccount = storedServiceAccount;
+      }
+      
+      if (!serviceAccount && req.body && req.body.serviceAccount) {
+        serviceAccount = req.body.serviceAccount;
+      }
+
+      if (!serviceAccount) {
+        res.status(400).json({ error: 'No service account configured' });
+        return;
+      }
+
+      if (!serviceAccount.private_key) {
+        res.status(400).json({ error: 'Service account missing private_key' });
+        return;
+      }
+
+      const accessToken = await getAccessToken(serviceAccount);
+      const sheetId = '1hW5nnsCyPVxNBXGV1CywgBaE1f9wMQxZEWk-rHu71hM';
+      const range = 'Orders!A:L';
+
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}`;
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Google Sheets error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const orders = parseSheetData(data.values);
+
+      res.status(200).json({ orders });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+    return;
+  }
+
+  // Create Google Doc
+  if (req.url === '/api/create-google-doc' && req.method === 'POST') {
+    try {
+      let serviceAccount = null;
+      
+      if (process.env.SERVICE_ACCOUNT) {
+        try {
+          serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT);
+        } catch (e) {}
+      }
+      
+      if (!serviceAccount && storedServiceAccount) {
+        serviceAccount = storedServiceAccount;
+      }
+      
+      if (!serviceAccount && req.body && req.body.serviceAccount) {
+        serviceAccount = req.body.serviceAccount;
+      }
+
+      if (!serviceAccount || !serviceAccount.private_key) {
+        res.status(400).json({ error: 'Service account not configured' });
+        return;
+      }
+
+      const { title, content, html, date } = req.body;
+      const textContent = content || (html ? html.replace(/<[^>]*>/g, '') : null);
+      const docTitle = title || (date ? `Labels - ${date}` : 'Labels');
+      
+      if (!textContent) {
+        res.status(400).json({ error: 'Content required' });
+        return;
+      }
+
+      const accessToken = await getAccessToken(serviceAccount);
+
+      // Create Google Doc
+      const createResponse = await fetch('https://docs.googleapis.com/v1/documents', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ title: docTitle })
+      });
+
+      if (!createResponse.ok) {
+        throw new Error(`Failed to create Google Doc: ${createResponse.status}`);
+      }
+
+      const docData = await createResponse.json();
+      const docId = docData.documentId;
+
+      // Insert content as text
+      const insertResponse = await fetch(`https://docs.googleapis.com/v1/documents/${docId}:batchUpdate`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          requests: [
+            {
+              insertText: {
+                text: textContent,
+                location: { index: 1 }
+              }
+            }
+          ]
+        })
+      });
+
+      if (!insertResponse.ok) {
+        throw new Error(`Failed to insert content: ${insertResponse.status}`);
+      }
+
+      // Share the doc with "anyone with the link"
+      const shareResponse = await fetch(`https://www.googleapis.com/drive/v3/files/${docId}/permissions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          role: 'reader',
+          type: 'anyone'
+        })
+      });
+
+      const docUrl = `https://docs.google.com/document/d/${docId}/view`;
+      res.status(200).json({ docUrl: docUrl, docId: docId });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+    return;
+  }
+
+  // Health check
+  if (req.url === '/api/health') {
+    res.status(200).json({ status: 'ok' });
+    return;
+  }
+
+  res.status(404).json({ error: 'Not found' });
+}
