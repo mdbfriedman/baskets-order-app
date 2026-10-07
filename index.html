@@ -70,19 +70,6 @@
 
       checkSetup: async function() {
         try {
-          // First check if key is saved in localStorage (on this device)
-          var savedKey = localStorage.getItem('serviceAccount');
-          if (savedKey) {
-            try {
-              app.isAuthenticated = true;
-              app.loadOrders();
-              return;
-            } catch (e) {
-              localStorage.removeItem('serviceAccount');
-            }
-          }
-          
-          // Otherwise check if server has it (env var)
           var response = await fetch('/api/is-setup');
           var data = await response.json();
           
@@ -105,13 +92,27 @@
           app.loading = true;
           app.render();
           
-          // Save to localStorage
-          localStorage.setItem('serviceAccount', JSON.stringify(serviceAccount));
-          
-          // Directly load orders - no need to call /api/setup
-          app.isAuthenticated = true;
-          app.showSetup = false;
-          app.loadOrders();
+          fetch('/api/setup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ serviceAccount: serviceAccount })
+          }).then(function(response) {
+            return response.json();
+          }).then(function(data) {
+            if (data.success) {
+              app.isAuthenticated = true;
+              app.showSetup = false;
+              app.loadOrders();
+            } else {
+              app.error = data.error || 'Setup failed';
+              app.loading = false;
+              app.render();
+            }
+          }).catch(function(e) {
+            app.error = 'Error: ' + e.message;
+            app.loading = false;
+            app.render();
+          });
         } catch (e) {
           app.error = 'Invalid JSON key';
           app.render();
@@ -123,21 +124,10 @@
           app.loading = true;
           app.render();
           
-          // Get saved key from localStorage if available
-          var savedKey = localStorage.getItem('serviceAccount');
-          var body = {};
-          if (savedKey) {
-            try {
-              body.serviceAccount = JSON.parse(savedKey);
-            } catch (e) {
-              localStorage.removeItem('serviceAccount');
-            }
-          }
-          
           var response = await fetch('/api/load-orders', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
+            body: JSON.stringify({})
           });
 
           if (!response.ok) {
@@ -166,17 +156,7 @@
           app.products = Array.from(productSet).sort();
 
           var dates = [... new Set(app.orders.map(function(o) { return o.deliveryDate; }))].sort();
-          
-          // Get today's date in YYYY/MM/DD format
-          var today = new Date();
-          var todayStr = today.getFullYear() + '/' + String(today.getMonth() + 1).padStart(2, '0') + '/' + String(today.getDate()).padStart(2, '0');
-          
-          // Set selectedDate to today if it exists, otherwise first available date
-          if (dates.indexOf(todayStr) !== -1) {
-            app.selectedDate = todayStr;
-          } else {
-            app.selectedDate = dates[0] || '2026/08/28';
-          }
+          app.selectedDate = dates[0] || '2026/08/28';
           
           app.loading = false;
           app.error = '';
@@ -213,62 +193,11 @@
         dayOrders.forEach(function(order) {
           if (order.items) {
             order.items.forEach(function(item) {
-              // Create display key: if individual quantity exists, prepend it to product name
-              var key = item.product;
-              if (item.quantityIndividual) {
-                key = item.quantityIndividual + ' ' + item.product;
-              }
-              totals[key] = (totals[key] || 0) + item.quantity;
+              totals[item.product] = (totals[item.product] || 0) + item.quantity;
             });
           }
         });
         return totals;
-      },
-
-      // Strip numbers from last name (Hager2010 -> Hager)
-      cleanLastName: function(name) {
-        return name.replace(/\d+$/g, '').trim();
-      },
-
-      // Split address and city (handles both "123 Street City" and "123 StreetCity")
-      splitAddress: function(fullAddress) {
-        var parts = fullAddress.trim().split(' ');
-        if (parts.length <= 1) {
-          return { address: fullAddress, city: '' };
-        }
-        
-        // Common NJ cities - add your frequent cities here
-        var njerseyCities = ['Lakewood', 'Newark', 'Jersey', 'Hoboken', 'Trenton', 'Camden', 'Atlantic', 'Princeton', 'Clifton', 'Paterson', 'Elizabeth', 'Bayonne'];
-        
-        // Try to find where city starts by looking for known city names
-        for (var i = parts.length - 1; i > 0; i--) {
-          var potentialCity = parts[i];
-          if (njerseyCities.indexOf(potentialCity) !== -1) {
-            var address = parts.slice(0, i).join(' ');
-            var city = parts.slice(i).join(' ');
-            return { address: address, city: city };
-          }
-        }
-        
-        // If no known city found, use last word (fallback)
-        var city = parts[parts.length - 1];
-        var address = parts.slice(0, -1).join(' ');
-        
-        // Handle case where city is concatenated (e.g., "DriveLakewood")
-        // If city looks like it might have a street word in it, try to split
-        if (city.length > 8) {
-          var streetWords = ['Street', 'Drive', 'Avenue', 'Road', 'Lane', 'Court', 'Terrace', 'Way', 'Place', 'Boulevard', 'Circle'];
-          for (var j = 0; j < streetWords.length; j++) {
-            if (city.indexOf(streetWords[j]) !== -1) {
-              var idx = city.indexOf(streetWords[j]);
-              var streetPart = city.substring(0, idx + streetWords[j].length);
-              var cityPart = city.substring(idx + streetWords[j].length);
-              return { address: address + ' ' + streetPart, city: cityPart };
-            }
-          }
-        }
-        
-        return { address: address, city: city };
       },
 
       getAllDates: function() {
@@ -289,293 +218,15 @@
         app.render();
       },
 
-      downloadAllToGoogleDocs: function() {
-        var dayOrders = app.getOrdersForDate(app.selectedDate);
-        if (dayOrders.length === 0) {
-          alert('No orders to download');
-          return;
-        }
-
-        var content = 'BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '\n\n';
-        
-        dayOrders.forEach(function(order, orderIdx) {
-          if (order.items) {
-            var cleanName = app.cleanLastName(order.lastName);
-            var addressParts = app.splitAddress(order.address);
-            order.items.forEach(function(item, idx) {
-              content += '========================================\n';
-              content += 'Order ' + (idx + 1) + ' of ' + order.items.length + '\n';
-              content += '\n';
-              content += cleanName + '\n';
-              var productDisplay = item.product;
-              if (item.quantityIndividual) {
-                productDisplay = item.quantityIndividual + ' ' + item.product;
-              }
-              content += productDisplay + '\n';
-              content += addressParts.address + '\n';
-              content += addressParts.city + '\n';
-              if (order.customerNote) {
-                content += '\nNOTE: ' + order.customerNote + '\n';
-              }
-              content += '\n';
-            });
-          }
-        });
-
-        var body = {
-          title: 'BasketsByBlimi_' + app.selectedDate + '_AllOrders',
-          content: content
-        };
-
-        var savedKey = localStorage.getItem('serviceAccount');
-        if (savedKey) {
-          body.serviceAccount = JSON.parse(savedKey);
-        }
-
-        fetch('/api/create-google-doc', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
-        })
-        .then(function(res) { return res.json(); })
-        .then(function(data) {
-          if (data.docUrl) {
-            window.open(data.docUrl, '_blank');
-          } else {
-            alert('Error creating Google Doc: ' + (data.error || 'Unknown error'));
-          }
-        })
-        .catch(function(err) {
-          alert('Error: ' + err.message);
-        });
-      },
-
-      downloadLabels: function() {
-        var dayOrders = app.getOrdersForDate(app.selectedDate);
-        if (dayOrders.length === 0) {
-          alert('No orders to download');
-          return;
-        }
-
-        var htmlContent = '<html><head><meta charset="utf-8"><title>Baskets by Blimi Labels</title></head><body>';
-        htmlContent += '<h1>BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '</h1>';
-        htmlContent += '<p>Use Word\'s Mail Merge or Labels feature to format for your label printer.</p>';
-        htmlContent += '<hr>';
-        
-        dayOrders.forEach(function(order, orderIdx) {
-          if (order.items) {
-            var cleanName = app.cleanLastName(order.lastName);
-            var addressParts = app.splitAddress(order.address);
-            order.items.forEach(function(item, idx) {
-              htmlContent += '<p style="border:1px solid #000; padding:10px; margin:10px 0; page-break-inside:avoid; position:relative">';
-              htmlContent += '<div style="text-align:right;font-size:9px;color:#999;margin-bottom:8px">Order ' + (idx + 1) + ' of ' + order.items.length + '</div>';
-              htmlContent += '<b>' + cleanName + '</b><br>';
-              var productDisplay = item.product;
-              if (item.quantityIndividual) {
-                productDisplay = item.quantityIndividual + ' ' + item.product;
-              }
-              htmlContent += '<b>' + productDisplay + '</b><br>';
-              htmlContent += addressParts.address + '<br>';
-              htmlContent += addressParts.city + '<br>';
-              if (order.customerNote) {
-                htmlContent += '<br><b>NOTE: ' + order.customerNote + '</b>';
-              }
-              htmlContent += '</p>';
-            });
-          }
-        });
-
-        htmlContent += '</body></html>';
-
-        var blob = new Blob([htmlContent], { type: 'application/msword' });
-        var url = window.URL.createObjectURL(blob);
-        var link = document.createElement('a');
-        link.href = url;
-        link.download = 'BasketsByBlimi_' + app.selectedDate + '_Labels.doc';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
-      },
-
-      downloadOrder: function(orderIdx) {
-        var dayOrders = app.getOrdersForDate(app.selectedDate);
-        if (orderIdx < 0 || orderIdx >= dayOrders.length) {
-          alert('Order not found');
-          return;
-        }
-
-        var order = dayOrders[orderIdx];
-        if (!order.items) {
-          alert('No items in this order');
-          return;
-        }
-
-        var htmlContent = '<html><head><meta charset="utf-8"><title>Baskets by Blimi Labels</title></head><body>';
-        htmlContent += '<h1>BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '</h1>';
-        htmlContent += '<p>Use Word\'s Mail Merge or Labels feature to format for your label printer.</p>';
-        htmlContent += '<hr>';
-        
-        var cleanName = app.cleanLastName(order.lastName);
-        var addressParts = app.splitAddress(order.address);
-        order.items.forEach(function(item, idx) {
-          htmlContent += '<p style="border:1px solid #000; padding:10px; margin:10px 0; page-break-inside:avoid; position:relative">';
-          htmlContent += '<div style="text-align:right;font-size:9px;color:#999;margin-bottom:8px">Order ' + (idx + 1) + ' of ' + order.items.length + '</div>';
-          htmlContent += '<b>' + cleanName + '</b><br>';
-          var productDisplay = item.product;
-          if (item.quantityIndividual) {
-            productDisplay = item.quantityIndividual + ' ' + item.product;
-          }
-          htmlContent += '<b>' + productDisplay + '</b><br>';
-          htmlContent += addressParts.address + '<br>';
-          htmlContent += addressParts.city + '<br>';
-          if (order.customerNote) {
-            htmlContent += '<br><b>NOTE: ' + order.customerNote + '</b>';
-          }
-          htmlContent += '</p>';
-        });
-
-        htmlContent += '</body></html>';
-
-        var blob = new Blob([htmlContent], { type: 'application/msword' });
-        var url = window.URL.createObjectURL(blob);
-        var link = document.createElement('a');
-        link.href = url;
-        link.download = 'BasketsByBlimi_' + app.selectedDate + '_' + cleanName + '.doc';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
-      },
-
-      downloadOrderToGoogleDocs: function(orderIdx) {
-        var dayOrders = app.getOrdersForDate(app.selectedDate);
-        if (orderIdx < 0 || orderIdx >= dayOrders.length) {
-          alert('Order not found');
-          return;
-        }
-
-        var order = dayOrders[orderIdx];
-        if (!order.items) {
-          alert('No items in this order');
-          return;
-        }
-
-        var cleanName = app.cleanLastName(order.lastName);
-        var addressParts = app.splitAddress(order.address);
-        
-        // Create formatted text content
-        var content = 'BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '\n\n';
-        order.items.forEach(function(item, idx) {
-          content += '========================================\n';
-          content += 'Order ' + (idx + 1) + ' of ' + order.items.length + '\n';
-          content += '\n';
-          content += cleanName + '\n';
-          var productDisplay = item.product;
-          if (item.quantityIndividual) {
-            productDisplay = item.quantityIndividual + ' ' + item.product;
-          }
-          content += productDisplay + '\n';
-          content += addressParts.address + '\n';
-          content += addressParts.city + '\n';
-          if (order.customerNote) {
-            content += '\nNOTE: ' + order.customerNote + '\n';
-          }
-          content += '\n';
-        });
-
-        var body = {
-          title: 'BasketsByBlimi_' + app.selectedDate + '_' + cleanName,
-          content: content
-        };
-
-        var savedKey = localStorage.getItem('serviceAccount');
-        if (savedKey) {
-          body.serviceAccount = JSON.parse(savedKey);
-        }
-
-        fetch('/api/create-google-doc', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
-        })
-        .then(function(res) { return res.json(); })
-        .then(function(data) {
-          if (data.docUrl) {
-            window.open(data.docUrl, '_blank');
-          } else {
-            alert('Error creating Google Doc: ' + (data.error || 'Unknown error'));
-          }
-        })
-        .catch(function(err) {
-          alert('Error: ' + err.message);
-        });
-      },
-
       printLabels: function() {
         var dayOrders = app.getOrdersForDate(app.selectedDate);
-        var labelDim, heightDim, padding, fontSize, headerSize, productSize, addressSize, countSize;
-        
-        if (app.labelSize === '4x3') {
-          labelDim = '4in';
-          heightDim = '3in';
-          padding = '10px';
-          fontSize = '12px';
-          headerSize = '8px';
-          productSize = '12px';
-          addressSize = '10px';
-          countSize = '16px';
-        } else if (app.labelSize === '3x2') {
-          labelDim = '3in';
-          heightDim = '2in';
-          padding = '10px';
-          fontSize = '12px';
-          headerSize = '8px';
-          productSize = '12px';
-          addressSize = '10px';
-          countSize = '16px';
-        } else if (app.labelSize === '2.4x3') {
-          labelDim = '2.4in';
-          heightDim = '3in';
-          padding = '10px';
-          fontSize = '12px';
-          headerSize = '8px';
-          productSize = '12px';
-          addressSize = '10px';
-          countSize = '16px';
-        } else if (app.labelSize === '2x1') {
-          labelDim = '2in';
-          heightDim = '1in';
-          padding = '4px';
-          fontSize = '8px';
-          headerSize = '6px';
-          productSize = '8px';
-          addressSize = '7px';
-          countSize = '10px';
-        }
-        
-        var noteFontSize = Math.ceil(parseInt(fontSize) * 1.5) + 'px';
-        var productSmallSize = Math.ceil(parseInt(headerSize)) + 'px';
-        var html = '<html><head><style>* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + labelDim + ' !important;height:' + heightDim + ' !important;border:2px solid #000;padding:' + padding + ' !important;margin:0 0 5px 0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1.2;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:flex;flex-direction:column;position:relative}.top-row{display:flex;justify-content:space-between;gap:5px;margin-bottom:2px}.left-content{flex:1}.right-content{text-align:right;font-size:' + headerSize + '}.header{font-size:' + headerSize + ';font-weight:bold;display:block;margin:0;padding:0}.name{font-size:' + fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product-small{font-size:' + productSmallSize + ';font-weight:normal;display:block;margin:2px 0 0 0;padding:0;word-break:break-word;color:#333;line-height:1}.address{font-size:' + addressSize + ';line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + noteFontSize + ';font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.count{font-size:' + headerSize + ';font-weight:bold;margin:0;padding:0}</style></head><body>';
+        var labelDim = app.labelSize === '4x3' ? '4in' : '3in';
+        var heightDim = app.labelSize === '4x3' ? '3in' : '2in';
+        var html = '<html><head><style>body{font-family:Arial;margin:20px}.label{width:' + labelDim + ';height:' + heightDim + ';border:2px solid #000;padding:15px;margin-bottom:10px;page-break-inside:avoid;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between}.label-header{font-size:10px;font-weight:bold;margin-bottom:8px}.label-name{font-size:12px;font-weight:bold;margin-bottom:10px}.label-product{font-size:14px;font-weight:bold;margin:8px 0}.label-address{font-size:11px;line-height:1.4;margin:5px 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:5px 0}.label-note{font-size:9px;margin-top:5px;border-top:1px solid #000;padding-top:5px}.label-count{font-size:20px;font-weight:bold;text-align:center;margin-top:auto;padding-top:10px}</style></head><body>';
         dayOrders.forEach(function(order) {
           if (order.items) {
-            var cleanName = app.cleanLastName(order.lastName);
-            var addressParts = app.splitAddress(order.address);
             order.items.forEach(function(item, idx) {
-              html += '<div class="label">' +
-                '<div class="top-row">' +
-                '<div class="left-content">' +
-                '<div class="header">BASKETS BY BLIMI</div>' +
-                '</div>' +
-                '<div class="right-content">' +
-                '<div class="product-small">' + item.product + '</div>' +
-                '<div class="count">' + (idx + 1) + ' of ' + order.items.length + '</div>' +
-                '</div>' +
-                '</div>' +
-                '<div class="name">' + cleanName + '</div>' +
-                '<div class="address">' + addressParts.address + '<br>' + addressParts.city + '</div>' +
-                (order.customerNote ? '<div class="note"><strong>Note:</strong> ' + order.customerNote + '</div>' : '') +
-                '</div>';
+              html += '<div class="label"><div><div class="label-header">BASKETS BY BLIMI</div><div class="label-name">' + order.lastName + '</div><div class="label-product">' + item.product + '</div><div class="label-address">' + order.address + '</div>' + (order.customerNote ? '<div class="label-note"><strong>Note:</strong> ' + order.customerNote + '</div>' : '') + '</div><div class="label-count">' + (idx + 1) + ' of ' + order.items.length + '</div></div>';
             });
           }
         });
@@ -591,68 +242,13 @@
         var order = dayOrders[orderIndex];
         if (!order) return;
 
-        var labelDim, heightDim, padding, fontSize, headerSize, productSize, addressSize, countSize;
-        if (app.labelSize === '4x3') {
-          labelDim = '4in';
-          heightDim = '3in';
-          padding = '10px';
-          fontSize = '12px';
-          headerSize = '8px';
-          productSize = '12px';
-          addressSize = '10px';
-          countSize = '16px';
-        } else if (app.labelSize === '3x2') {
-          labelDim = '3in';
-          heightDim = '2in';
-          padding = '10px';
-          fontSize = '12px';
-          headerSize = '8px';
-          productSize = '12px';
-          addressSize = '10px';
-          countSize = '16px';
-        } else if (app.labelSize === '2.4x3') {
-          labelDim = '2.4in';
-          heightDim = '3in';
-          padding = '10px';
-          fontSize = '12px';
-          headerSize = '8px';
-          productSize = '12px';
-          addressSize = '10px';
-          countSize = '16px';
-        } else if (app.labelSize === '2x1') {
-          labelDim = '2in';
-          heightDim = '1in';
-          padding = '4px';
-          fontSize = '8px';
-          headerSize = '6px';
-          productSize = '8px';
-          addressSize = '7px';
-          countSize = '10px';
-        }
-        
-        var noteFontSize = Math.ceil(parseInt(fontSize) * 1.5) + 'px';
-        var productSmallSize = Math.ceil(parseInt(headerSize)) + 'px';
-        var html = '<html><head><style>* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + labelDim + ' !important;height:' + heightDim + ' !important;border:2px solid #000;padding:' + padding + ' !important;margin:0 0 5px 0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1.2;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:flex;flex-direction:column;position:relative}.top-row{display:flex;justify-content:space-between;gap:5px;margin-bottom:2px}.left-content{flex:1}.right-content{text-align:right;font-size:' + headerSize + '}.header{font-size:' + headerSize + ';font-weight:bold;display:block;margin:0;padding:0}.name{font-size:' + fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product-small{font-size:' + productSmallSize + ';font-weight:normal;display:block;margin:2px 0 0 0;padding:0;word-break:break-word;color:#333;line-height:1}.address{font-size:' + addressSize + ';line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + noteFontSize + ';font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.count{font-size:' + headerSize + ';font-weight:bold;margin:0;padding:0}</style></head><body>';
-        
-        var cleanName = app.cleanLastName(order.lastName);
-        var addressParts = app.splitAddress(order.address);
+        var labelDim = app.labelSize === '4x3' ? '4in' : '3in';
+        var heightDim = app.labelSize === '4x3' ? '3in' : '2in';
+        var html = '<html><head><style>body{font-family:Arial;margin:20px}.label{width:' + labelDim + ';height:' + heightDim + ';border:2px solid #000;padding:15px;margin-bottom:10px;page-break-inside:avoid;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between}.label-header{font-size:10px;font-weight:bold;margin-bottom:8px}.label-name{font-size:12px;font-weight:bold;margin-bottom:10px}.label-product{font-size:14px;font-weight:bold;margin:8px 0}.label-address{font-size:11px;line-height:1.4;margin:5px 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:5px 0}.label-note{font-size:9px;margin-top:5px;border-top:1px solid #000;padding-top:5px}.label-count{font-size:20px;font-weight:bold;text-align:center;margin-top:auto;padding-top:10px}</style></head><body>';
         
         if (order.items) {
           order.items.forEach(function(item, idx) {
-            html += '<div class="label">' +
-              '<div class="top-row">' +
-              '<div class="left-content">' +
-              '<div class="header">BASKETS BY BLIMI</div>' +
-              '</div>' +
-              '<div class="right-content">' +
-              '<div class="product-small">' + item.product + '</div>' +
-              '<div class="count">' + (idx + 1) + ' of ' + order.items.length + '</div>' +
-              '</div>' +
-              '</div>' +
-              '<div class="name">' + cleanName + '</div>' +
-              '<div class="address">' + addressParts.address + '<br>' + addressParts.city + '</div>' +
-              (order.customerNote ? '<div class="note"><strong>Note:</strong> ' + order.customerNote + '</div>' : '') +
-              '</div>';
+            html += '<div class="label"><div><div class="label-header">BASKETS BY BLIMI</div><div class="label-name">' + order.lastName + '</div><div class="label-product">' + item.product + '</div><div class="label-address">' + order.address + '</div>' + (order.customerNote ? '<div class="label-note"><strong>Note:</strong> ' + order.customerNote + '</div>' : '') + '</div><div class="label-count">' + (idx + 1) + ' of ' + order.items.length + '</div></div>';
           });
         }
         
@@ -696,8 +292,9 @@
           html += '</div></div>';
         }
 
-        html += '<div style="margin-bottom:15px"><strong>Label Size:</strong> <button onclick="app.labelSize=\'4x3\';app.render()" style="background:' + (app.labelSize === '4x3' ? '#16a34a' : '#e5e7eb') + ';color:' + (app.labelSize === '4x3' ? 'white' : '#111827') + ';border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;margin-right:5px">4×3</button><button onclick="app.labelSize=\'3x2\';app.render()" style="background:' + (app.labelSize === '3x2' ? '#16a34a' : '#e5e7eb') + ';color:' + (app.labelSize === '3x2' ? 'white' : '#111827') + ';border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;margin-right:5px">3×2</button><button onclick="app.labelSize=\'2.4x3\';app.render()" style="background:' + (app.labelSize === '2.4x3' ? '#16a34a' : '#e5e7eb') + ';color:' + (app.labelSize === '2.4x3' ? 'white' : '#111827') + ';border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px">2.4\" Continuous</button></div>';
-        html += '<div class="action-buttons"><button onclick="app.downloadAllToGoogleDocs()" ' + (dayOrders.length === 0 ? 'disabled' : '') + '>📥 Download All Orders</button><button onclick="app.downloadLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + '>📥 Labels</button></div>';
+        html += '<div style="margin-bottom:15px"><strong>Label Size:</strong> <button onclick="app.labelSize=\'4x3\';app.render()" style="background:' + (app.labelSize === '4x3' ? '#16a34a' : '#e5e7eb') + ';color:' + (app.labelSize === '4x3' ? 'white' : '#111827') + ';border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;margin-right:5px">4×3</button><button onclick="app.labelSize=\'3x2\';app.render()" style="background:' + (app.labelSize === '3x2' ? '#16a34a' : '#e5e7eb') + ';color:' + (app.labelSize === '3x2' ? 'white' : '#111827') + ';border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px">3×2</button></div>';
+
+        html += '<div class="action-buttons"><button class="print-btn" onclick="app.printLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + '>🖨️ Print All Labels</button><button class="setup-btn" onclick="app.showSetup=true;app.render()">Setup</button></div>';
 
         if (dayOrders.length === 0) {
           html += '<div class="empty-state">No orders for this date</div>';
@@ -706,7 +303,7 @@
           dayOrders.forEach(function(order, orderIdx) {
             html += '<div class="order-item"><div style="display:flex;justify-content:space-between;align-items:start"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#059669;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
             if (order.deliverTo) html += '<div class="order-address">' + order.deliverTo + '</div>';
-            html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div></div><button onclick="app.downloadOrder(' + orderIdx + ')" style="background:#2563eb;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📥 Download</button></div>';
+            html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div></div><button onclick="app.printOrder(' + orderIdx + ')" style="background:#16a34a;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;margin-left:10px;height:fit-content">🖨️ Print</button></div>';
             html += '<div class="order-items">';
             if (order.items) {
               order.items.forEach(function(item, idx) {
