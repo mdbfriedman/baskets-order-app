@@ -1870,8 +1870,17 @@
       // popup blockers (the open no longer looks like it's directly inside
       // the click's own call stack once a modal dismiss sits in between).
       notifyRecommendedLabelLength: function(doc) {
-        if (!doc || !doc.__recommendedLengthIn) return;
-        alert('This batch needs up to ' + doc.__recommendedLengthIn.toFixed(1) + '" of label length.\n\nPrinting from Windows: set the Brother driver\'s Length (Printing Preferences → Basic tab) to at least ' + doc.__recommendedLengthIn.toFixed(1) + '" before printing, so nothing gets cut off. This number is recalculated fresh each time from whatever you\'re printing, so re-check it before you print -- a longer product name or note next time can need more.\n\nPrinting via FlashLabel Pro on Android: this doesn\'t apply, it already sizes each label automatically.');
+        // Deliberately does nothing (Oct 2026).
+        // This used to pop a blocking alert on every download telling you
+        // what to set the Brother driver's Length to. It's not needed: the
+        // driver Length is set once to a large fixed value (39") and the
+        // printer trims each label to its real content automatically, so the
+        // per-batch number was never acted on -- it was just a modal to
+        // dismiss every single time.
+        // Kept as a no-op rather than deleted so the call sites in
+        // viewPdfInNewTab/sharePdf stay valid, and so doc.__recommendedLengthIn
+        // (still computed in buildLabelsPdf) has an obvious place to be
+        // surfaced again if a printer ever does need it.
       },
 
       downloadLabels: function() {
