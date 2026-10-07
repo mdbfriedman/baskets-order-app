@@ -7,7 +7,7 @@ function parseSheetData(values) {
   const orders = [];
 
   const dateIdx = headers.findIndex(h => h.includes('delivery date'));
-  const nameIdx = headers.findIndex(h => h.includes('last name') && !h.includes('delivered'));
+  const nameIdx = headers.findIndex(h => h === 'name' || (h.includes('last name') && !h.includes('delivered')));
   const itemIdx = headers.findIndex(h => h.includes('line item'));
   const qtyIdx = headers.findIndex(h => h.includes('quantity') && !h.includes('individual'));
   const qtyIndividualIdx = headers.findIndex(h => h.includes('individual'));
