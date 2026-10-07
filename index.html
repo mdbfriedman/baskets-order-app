@@ -88,7 +88,17 @@
 
       setupKey: function(keyInput) {
         try {
+          if (!keyInput || keyInput.trim().length === 0) {
+            app.error = 'Paste your JSON key first';
+            app.render();
+            return;
+          }
           var serviceAccount = JSON.parse(keyInput);
+          if (!serviceAccount.private_key) {
+            app.error = 'JSON missing private_key field';
+            app.render();
+            return;
+          }
           app.loading = true;
           app.render();
           
@@ -97,6 +107,7 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ serviceAccount: serviceAccount })
           }).then(function(response) {
+            if (!response.ok) throw new Error('Server returned ' + response.status);
             return response.json();
           }).then(function(data) {
             if (data.success) {
@@ -109,12 +120,12 @@
               app.render();
             }
           }).catch(function(e) {
-            app.error = 'Error: ' + e.message;
+            app.error = 'Server error: ' + e.message;
             app.loading = false;
             app.render();
           });
         } catch (e) {
-          app.error = 'Invalid JSON key';
+          app.error = 'Invalid JSON: ' + e.message.split('\n')[0];
           app.render();
         }
       },
@@ -372,45 +383,59 @@
           return;
         }
 
-        var htmlContent = '<html><head><meta charset="utf-8"><title>Baskets by Blimi Labels</title></head><body>';
-        htmlContent += '<h1>BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '</h1>';
-        htmlContent += '<p>Use Word\'s Mail Merge or Labels feature to format for your label printer.</p>';
-        htmlContent += '<hr>';
-        
-        dayOrders.forEach(function(order, orderIdx) {
+        var content = 'BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '\n\n';
+        dayOrders.forEach(function(order) {
           if (order.items) {
             var cleanName = app.cleanLastName(order.lastName);
-            var addressParts = app.splitAddress(order.address);
             order.items.forEach(function(item, idx) {
-              htmlContent += '<p style="border:1px solid #000; padding:10px; margin:10px 0; page-break-inside:avoid; position:relative">';
-              htmlContent += '<div style="text-align:right;font-size:9px;color:#999;margin-bottom:8px">Order ' + (idx + 1) + ' of ' + order.items.length + '</div>';
-              htmlContent += '<b>' + cleanName + '</b><br>';
+              content += '========================================\n';
+              content += 'Order ' + (idx + 1) + ' of ' + order.items.length + '\n\n';
+              content += cleanName + '\n';
               var productDisplay = item.product;
               if (item.quantityIndividual) {
                 productDisplay = item.quantityIndividual + ' ' + item.product;
               }
-              htmlContent += '<b>' + productDisplay + '</b><br>';
-              htmlContent += addressParts.address + '<br>';
-              htmlContent += addressParts.city + '<br>';
+              content += productDisplay + '\n';
+              var addressParts = app.splitAddress(order.address);
+              content += addressParts.address + '\n';
+              content += addressParts.city + '\n';
               if (order.customerNote) {
-                htmlContent += '<br><b>NOTE: ' + order.customerNote + '</b>';
+                content += '\nNOTE: ' + order.customerNote + '\n';
               }
-              htmlContent += '</p>';
+              content += '\n';
             });
           }
         });
 
-        htmlContent += '</body></html>';
+        var body = { title: 'BasketsByBlimi_' + app.selectedDate + '_Labels', content: content };
+        var savedKey = localStorage.getItem('serviceAccount');
+        if (savedKey) {
+          body.serviceAccount = JSON.parse(savedKey);
+        }
 
-        var blob = new Blob([htmlContent], { type: 'application/msword' });
-        var url = window.URL.createObjectURL(blob);
-        var link = document.createElement('a');
-        link.href = url;
-        link.download = 'BasketsByBlimi_' + app.selectedDate + '_Labels.doc';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
+        app.loading = true;
+        app.render();
+
+        fetch('/api/create-google-doc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          app.loading = false;
+          if (data.docUrl) {
+            window.open(data.docUrl, '_blank');
+          } else {
+            alert('Error: ' + (data.error || 'Unknown'));
+          }
+          app.render();
+        })
+        .catch(function(err) {
+          app.loading = false;
+          alert('Error: ' + err.message);
+          app.render();
+        });
       },
 
       downloadOrder: function(orderIdx) {
@@ -450,15 +475,53 @@
 
         htmlContent += '</body></html>';
 
-        var blob = new Blob([htmlContent], { type: 'application/msword' });
-        var url = window.URL.createObjectURL(blob);
-        var link = document.createElement('a');
-        link.href = url;
-        link.download = cleanName + '_Order.doc';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
+        var content = 'BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '\n\n';
+        order.items.forEach(function(item, idx) {
+          content += '========================================\n';
+          content += 'Order ' + (idx + 1) + ' of ' + order.items.length + '\n\n';
+          content += cleanName + '\n';
+          var productDisplay = item.product;
+          if (item.quantityIndividual) {
+            productDisplay = item.quantityIndividual + ' ' + item.product;
+          }
+          content += productDisplay + '\n';
+          content += addressParts.address + '\n';
+          content += addressParts.city + '\n';
+          if (order.customerNote) {
+            content += '\nNOTE: ' + order.customerNote + '\n';
+          }
+          content += '\n';
+        });
+
+        var body = { title: 'BasketsByBlimi_' + app.selectedDate + '_' + cleanName, content: content };
+        var savedKey = localStorage.getItem('serviceAccount');
+        if (savedKey) {
+          body.serviceAccount = JSON.parse(savedKey);
+        }
+
+        app.loading = true;
+        app.render();
+
+        fetch('/api/create-google-doc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          app.loading = false;
+          if (data.docUrl) {
+            window.open(data.docUrl, '_blank');
+          } else {
+            alert('Error: ' + (data.error || 'Unknown'));
+          }
+          app.render();
+        })
+        .catch(function(err) {
+          app.loading = false;
+          alert('Error: ' + err.message);
+          app.render();
+        });
       },
 
       printLabels: function() {
