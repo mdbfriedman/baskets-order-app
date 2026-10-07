@@ -2188,72 +2188,80 @@
         function renderUnit(targetDoc, measuring, item, order, deliveryNameDisplay, addressLines, unitCounter, totalUnits) {
           // cutSafetyTopMm/cutSafetyBottomMm (see getLabelStyleConfig's
           // '2.4-continuous' branch) push content in from the top/bottom
-          // edges of the page -- added after a real printed test showed
-          // the header box's top edge getting clipped by the auto-cutter's
-          // ordinary registration slop when content sat right at the page
-          // boundary. 0 for every other preset (fixed-size labels aren't
-          // cut per-label off a continuous roll the same way), so this is
-          // a no-op there.
-          //
-          // Sep 22 follow-up: after confirming that fix worked, asked to
-          // trim the top margin back down by 1/8in (leaves 0, since 1/8in
-          // is slightly MORE than the 3mm/~0.12in this was set to -- this
-          // removes essentially the entire top safety buffer, back to
-          // roughly where it sat before that fix) and the bottom by a
-          // further 1/4in specifically. bottomTrimMm is clamped in the
-          // final return below so it can reduce the bottom buffer to zero
-          // (flush against the actual content) but never further -- never
-          // cropping into real drawn content (QR code / last text line) no
-          // matter how large a trim is requested. Both ends now carry
-          // little to no cushion, which is a deliberate, explicit
-          // trade-off the user asked for after seeing a real print with
-          // the previous (safer) margins -- worth watching the next real
-          // test print closely for clipping at BOTH edges, not just typing
-          // in this number and assuming it's final.
+          // edges -- added after real prints showed the auto-cutter's
+          // registration slop clipping content sitting at the page
+          // boundary. 0 for every other preset, so a no-op there.
           var cutSafetyTopMm = cfg.cutSafetyTopMm != null ? cfg.cutSafetyTopMm : (cfg.cutSafetyMarginMm || 0);
           var y = padMm + cutSafetyTopMm;
 
-          // Moved up from below (was computed right before the QR draw
-          // call, well after every addWrapped call had already run) so
-          // addWrapped itself can check "have we scrolled past the QR yet"
-          // per field -- see wideTextWidthMm comment above. The QR draw
-          // call further down reuses these same two variables instead of
-          // recomputing them.
-          //
-          // qrTopMm (Sep 22, round 10): previously padMm + 2px + cutSafety
-          // TopMm -- that extra 2px was deliberately added earlier this
-          // session to match where NAME text starts (after the header row
-          // + its rule + the 2px gap), not the header itself, so the QR
-          // ended up level with "Gruber" instead of "BASKETS BY BLIMI" --
-          // exactly what a real preview showed and the user asked to fix
-          // ("QR code higher and even with baskets by blimi"). Now matches
-          // `y`'s own starting value exactly (padMm + cutSafetyTopMm, no
-          // extra offset), so the QR's top edge is level with the header
-          // row's own top instead of the name row's.
           var qrTopMm = padMm + cutSafetyTopMm;
           var qrBottomMm = qrTopMm + qrMm;
+          var qrX = pageWmm - qrMm - rightGapMm;
+          var qrColRightMm = pageWmm - rightGapMm;
+
+          // Right-hand stack (Oct 2026): QR on top, the item name under it,
+          // then "1 of N" under that. The item here is deliberately NOT bold
+          // and a step smaller than the old body productSize -- it reads as a
+          // reference line next to the QR rather than competing with the
+          // delivery name for attention.
+          //
+          // Scoped to autoHeight presets (the Brother continuous roll), which
+          // just grow taller to fit whatever this stack needs. The
+          // fixed-height presets (4x3, 2.25x1.25) have a hard bottom edge
+          // this stack could run past, and their headroom was tuned through
+          // many real prints -- they keep the product in the body text.
+          //
+          // The whole stack is drawn up here, before any body text, because
+          // addWrapped below needs rightStackBottomMm to decide when a field
+          // has cleared the right column and can use the full label width.
+          var itemUnderQr = !!cfg.autoHeight;
+          var productDisplay = item.quantityIndividual ? (item.quantityIndividual + ' ' + item.product) : item.product;
+          var rightStackBottomMm;
+
+          if (itemUnderQr) {
+            // Defaults to three quarters of productSize, floored at 7px so it
+            // stays legible on a thermal print. cfg.qrItemSize overrides it.
+            var qrItemSizePx = cfg.qrItemSize || (Math.max(7, Math.round(parseInt(cfg.productSize, 10) * 0.75)) + 'px');
+            // Column defaults to the QR's own width so the stack reads as one
+            // aligned block. cfg.qrItemWidthMm widens it if long product
+            // names wrap to too many short lines on a real print.
+            var qrColWidthMm = cfg.qrItemWidthMm || qrMm;
+            targetDoc.setFont('FreeSansHebrew', 'normal');
+            targetDoc.setFontSize(app.ptFromPx(qrItemSizePx));
+            var qrItemLines = targetDoc.splitTextToSize(String(productDisplay), qrColWidthMm);
+            var qrItemLineH = app.mmFromPx(qrItemSizePx) * 1.15;
+            var itemY = qrBottomMm + app.mmFromPx('2px');
+            qrItemLines.forEach(function(line) {
+              itemY += qrItemLineH;
+              if (measuring) return;
+              // drawBidiLine, not doc.text -- a product name can carry Hebrew
+              // and must not share a doc.text() call with Latin text.
+              app.drawBidiLine(targetDoc, line, qrColRightMm, itemY, { align: 'right' });
+            });
+            rightStackBottomMm = itemY + app.mmFromPx('3px') + app.mmFromPx(cfg.countSize) * 0.9;
+          } else {
+            rightStackBottomMm = qrBottomMm + app.mmFromPx('3px') + app.mmFromPx(cfg.countSize) * 0.9;
+          }
+
+          if (!measuring) {
+            targetDoc.addImage(app.QR_CODE_DATA_URI, 'PNG', qrX, qrTopMm, qrMm, qrMm);
+            targetDoc.setFont('FreeSansHebrew', 'bold');
+            targetDoc.setFontSize(app.ptFromPx(cfg.countSize));
+            targetDoc.text(unitCounter + ' of ' + totalUnits, qrColRightMm, rightStackBottomMm, { align: 'right' });
+          }
 
           function addWrapped(text, sizePx, style, lineGapFactor) {
             targetDoc.setFont('FreeSansHebrew', style || 'normal');
             targetDoc.setFontSize(app.ptFromPx(sizePx));
-            // Once this field's start position has already cleared the
-            // QR's bottom edge, it's safe to use the full printable width
-            // for the WHOLE field (text only ever flows further down from
-            // here, never back up into the QR's row) -- see
-            // wideTextWidthMm comment above. Header intentionally isn't
-            // routed through here (it's drawn/measured directly, always
-            // centered in the QR-safe textWidthMm column).
-            var useWidthMm = (y >= qrBottomMm) ? wideTextWidthMm : textWidthMm;
-            // Wrap on the ORIGINAL logical text first -- splitTextToSize
-            // needs real reading order to find correct word boundaries --
-            // then draw each already-wrapped line through drawBidiLine (see
-            // the HEBREW_RE/bidiSegments/drawBidiLine comments above) so any
-            // Hebrew run in it never shares a doc.text() call with the
-            // surrounding Latin text. Wrapping AFTER reordering (if this
-            // were done manually) would wrap at the wrong points, since
-            // reordered text's word/space positions no longer match the
-            // logical text's -- wrapping stays on logical text either way,
-            // only the drawing step changes.
+            // Once this field's start position has cleared the bottom of the
+            // whole right-hand stack (not just the QR image -- the item and
+            // count now sit below it), it's safe to use the full printable
+            // width: text only ever flows further down from here.
+            var useWidthMm = (y >= rightStackBottomMm) ? wideTextWidthMm : textWidthMm;
+            // Wrap on the ORIGINAL logical text -- splitTextToSize needs real
+            // reading order to find word boundaries -- then draw each wrapped
+            // line through drawBidiLine so a Hebrew run never shares a
+            // doc.text() call with surrounding Latin text.
             var lines = targetDoc.splitTextToSize(String(text), useWidthMm);
             lines.forEach(function(line) {
               y += app.mmFromPx(sizePx) * (lineGapFactor || 1.15);
@@ -2262,49 +2270,15 @@
             });
           }
 
-          // Header (Sep 22, redesigned): was a bordered box -- tried
-          // thickening its line width from 0.12mm to 0.35mm to fix the top
-          // edge going missing on real prints, and that STILL came back
-          // the same. Rather than keep guessing at that one fragile
-          // element (a box's top edge is the single closest thing on the
-          // whole label to the paper's leading edge, and two different
-          // fixes at it haven't stuck), removing the box entirely and
-          // replacing it with the exact same technique already proven
-          // reliable everywhere else on this label all session: bold
-          // centered text plus a single bold rule underneath, matching the
-          // address block's own already-working separator lines. Nothing
-          // on this label sits any closer to the top edge now than the
-          // text itself does, and bold text has never been reported cut
-          // on this printer -- only thin box/line strokes have.
-          // Shrink-to-fit (Sep 22): a real phone/Mopria print of a 2.4in
-          // continuous label came back with "BASKETS BY BLIMI" missing its
-          // first and last letters -- the header is centered as ONE fixed
-          // string in textWidthMm, and after this session's several
-          // "bigger and bolder" font bumps (headerSize crept from 12px to
-          // 18px) that string simply stopped fitting the ~33mm column this
-          // narrow preset leaves for it, so it overflowed symmetrically
-          // past both edges (off the true left edge on one side, behind
-          // the QR image painted on top on the other -- not a margin bug,
-          // a plain text-overflow bug that any future font bump could
-          // reintroduce). Rather than pick another one-off px value that
-          // only happens to fit today's fonts, measure the real rendered
-          // width via jsPDF's own getTextWidth and step the font down
-          // until "BASKETS BY BLIMI" actually fits textWidthMm -- same
-          // targetDoc/font in both the measuring and real passes (see the
-          // autoHeight comment above), so the header height used to lay
-          // out the rest of the label always matches what actually prints.
-          // Sep 22 follow-up: a real download came back as a full US-Letter
-          // page (612x792pt) with our tiny label content stranded in the
-          // top-left corner -- proof that getTextWidth() below returned
-          // something jsPDF's page-format constructor couldn't use (NaN /
-          // undefined / threw), corrupting thisHmm for the WHOLE label,
-          // not just the header. getTextWidth touching an embedded custom
-          // font's metrics is exactly the kind of call that can behave
-          // differently against the real jsPDF/font than it does in any
-          // mock, and this sandbox can't load real jsPDF to reproduce it.
-          // Wrapped in try/catch now so ANY failure here just keeps the
-          // configured size (no shrink) instead of ever being able to take
-          // the whole label's page size down with it again.
+          // Header: bold centered text plus one rule underneath, rather than
+          // a bordered box -- the box's top edge repeatedly failed to print
+          // on the QL-820NWB even after thickening, while plain bold text and
+          // rules have always printed fine.
+          // Shrink-to-fit: "BASKETS BY BLIMI" is one fixed string centered in
+          // textWidthMm, and font bumps eventually made it overflow both
+          // edges. Measure via getTextWidth and step down until it fits.
+          // Wrapped in try/catch because a getTextWidth failure against the
+          // real embedded font once corrupted the whole page height.
           var headerSizePx = parseInt(cfg.headerSize, 10);
           targetDoc.setFont('FreeSansHebrew', 'bold');
           targetDoc.setFontSize(app.ptFromPx(headerSizePx + 'px'));
@@ -2321,18 +2295,6 @@
             headerSizePx = parseInt(cfg.headerSize, 10);
             targetDoc.setFontSize(app.ptFromPx(headerSizePx + 'px'));
           }
-          // headerH multiplier 1.6->1.3 (Sep 22): user reported too much
-          // blank space before printing even starts. cutSafetyTopMm (9mm)
-          // is left untouched -- that value was specifically hard-won
-          // through several rounds of real reprints to stop this printer's
-          // auto-cutter from clipping the header, and guessing it back down
-          // risks reintroducing that exact bug. This multiplier is a
-          // different, lower-risk knob: it only controls how much padding
-          // sits around the header TEXT inside its own row (unrelated to
-          // cut-line safety), tightened from a fairly generous 1.6x line
-          // height down to 1.3x -- still comfortably clears the text's own
-          // ascender/descender (checked against the baseline formula right
-          // below), just without the extra cushion.
           var headerH = app.mmFromPx(headerSizePx + 'px') * 1.3;
           if (!measuring) {
             targetDoc.text('BASKETS BY BLIMI', leftMm + textWidthMm / 2, y + headerH / 2 + app.mmFromPx(headerSizePx + 'px') * 0.3, { align: 'center' });
@@ -2342,79 +2304,31 @@
           y += app.mmFromPx('2px');
 
           addWrapped(deliveryNameDisplay, cfg.fontSize, 'bold');
-          var productDisplay = item.quantityIndividual ? (item.quantityIndividual + ' ' + item.product) : item.product;
-          addWrapped(productDisplay, cfg.productSize, 'bold');
+          // Product only renders here on fixed-height presets -- on the
+          // continuous roll it's already drawn under the QR above.
+          if (!itemUnderQr) addWrapped(productDisplay, cfg.productSize, 'bold');
           if (item.specialInstructions) addWrapped(item.specialInstructions, cfg.addressSize, 'bolditalic');
 
-          // Address: bold, ruled top and bottom -- matches .address. These
-          // rules now match whichever column width the text next to them
-          // is actually using (see addWrapped's useWidthMm) -- by the time
-          // the address block draws, y has almost always already cleared
-          // qrBottomMm, so a rule staying at the old narrow textWidthMm
-          // would look visually inconsistent (a short line under/over a
-          // now much wider block of text).
+          // Address: bold, ruled top and bottom. The rules match whichever
+          // column width the text beside them is actually using.
           y += app.mmFromPx('2px');
-          if (!measuring) { targetDoc.setLineWidth(0.1); targetDoc.line(leftMm, y, leftMm + (y >= qrBottomMm ? wideTextWidthMm : textWidthMm), y); }
+          if (!measuring) { targetDoc.setLineWidth(0.1); targetDoc.line(leftMm, y, leftMm + (y >= rightStackBottomMm ? wideTextWidthMm : textWidthMm), y); }
           y += app.mmFromPx('2px');
           addressLines.forEach(function(line) { addWrapped(line, cfg.addressSize, 'bold', 1.1); });
           y += app.mmFromPx('2px');
-          if (!measuring) targetDoc.line(leftMm, y, leftMm + (y >= qrBottomMm ? wideTextWidthMm : textWidthMm), y);
+          if (!measuring) targetDoc.line(leftMm, y, leftMm + (y >= rightStackBottomMm ? wideTextWidthMm : textWidthMm), y);
 
           if (order.customerNote) {
             y += app.mmFromPx('2px');
-            // Same per-note length-based sizing as the print/Word path
-            // (see app.pickNoteFontPx) instead of one flat size for the
-            // whole batch, so a long note doesn't overflow just because an
-            // earlier note in the same download was short.
-            // No literal "Note: " label anymore (removed per request) --
-            // as a side effect this also fixes a real bug: gluing the
-            // Latin word "Note: " directly onto a Hebrew-starting note
-            // was what made the FIRST wrapped line garbled (see HEBREW_RE
-            // comment above) -- isInputRtl was applied to the whole line
-            // including that Latin prefix, confusing jsPDF's bidi
-            // reordering right at the script boundary. Every other
-            // addWrapped call (name/product/address) never had an
-            // artificial prefix glued on like this, which is why only
-            // the note's first line was ever reported garbled.
+            // Per-note length-based sizing, so a long note doesn't overflow
+            // just because an earlier note in the same batch was short.
             addWrapped(order.customerNote, app.pickNoteFontPx(cfg, order.customerNote), 'bold');
           }
 
-          // QR + count, top-right -- same corner reservation as print.
-          // qrTopMm/qrBottomMm are computed once near the top of this
-          // function now (see that comment for the round-10 QR-height
-          // history) and reused here rather than recomputed.
-          //
-          // Count text ("1 of 1") 24px -> 11px and repositioned (Sep 22,
-          // round 10): previously sat right at qrBottomMm with barely any
-          // gap, which -- combined with the QR itself sitting lower than
-          // the header before this round's qrTopMm fix -- visually landed
-          // in the middle of the product/address text instead of reading
-          // as its own element below the QR. Shrunk (it's a small
-          // reference number, doesn't need to compete with the header) and
-          // given real breathing room below the QR instead of nearly
-          // touching it.
-          // countBaselineMm used for both the actual draw call below AND
-          // rawBottomMm further down, so the bottom safety buffer always
-          // accounts for wherever the count text really ends up -- now that
-          // it's drawn BELOW qrBottomMm instead of even with it, a very
-          // short label could otherwise clip it at the bottom.
-          var countBaselineMm = qrBottomMm + app.mmFromPx('3px') + app.mmFromPx(cfg.countSize) * 0.9;
-          if (!measuring) {
-            var qrX = pageWmm - qrMm - rightGapMm;
-            targetDoc.addImage(app.QR_CODE_DATA_URI, 'PNG', qrX, qrTopMm, qrMm, qrMm);
-            targetDoc.setFont('FreeSansHebrew', 'bold');
-            targetDoc.setFontSize(app.ptFromPx(cfg.countSize));
-            targetDoc.text(unitCounter + ' of ' + totalUnits, pageWmm - rightGapMm, countBaselineMm, { align: 'right' });
-          }
-
-          // Bottom buffer starts from the same idea as the top (padMm +
-          // cutSafetyBottomMm), then bottomTrimMm shaves additional space
-          // off it on request -- clamped with Math.max so it can shrink
-          // that buffer all the way to zero (content flush against the
-          // bottom cut line) but can never go negative and start eating
-          // into the actual drawn QR code or last text line, no matter how
-          // large a trim is requested.
-          var rawBottomMm = Math.max(y, qrBottomMm, countBaselineMm);
+          // Bottom buffer: padMm + cutSafetyBottomMm, with bottomTrimMm able
+          // to shave it to zero but never negative, so a trim can never crop
+          // into the drawn content itself.
+          var rawBottomMm = Math.max(y, rightStackBottomMm);
           var cutSafetyBottomMm = cfg.cutSafetyBottomMm != null ? cfg.cutSafetyBottomMm : (cfg.cutSafetyMarginMm || 0);
           var bottomBufferMm = Math.max(0, padMm + cutSafetyBottomMm - (cfg.bottomTrimMm || 0));
           return rawBottomMm + bottomBufferMm;
