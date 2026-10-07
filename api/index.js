@@ -178,7 +178,7 @@ export default async function handler(req, res) {
 
       const accessToken = await getAccessToken(serviceAccount);
       const sheetId = '1hW5nnsCyPVxNBXGV1CywgBaE1f9wMQxZEWk-rHu71hM';
-      const range = 'Sheet1!A:L';
+      const range = 'Orders!A:L';
 
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}`;
       const response = await fetch(url, {
