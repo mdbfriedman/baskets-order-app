@@ -3650,12 +3650,14 @@
         // above, print/download that batch, then switch the label size,
         // check off the rest, and print the second batch -- two batches
         // total instead of N individual prints.
-        html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">' +
-          '<span style="font-size:13px;color:#374151">' + selectedCount + ' selected</span>' +
-          '<button onclick="app.selectAllOrders()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#6b7280;color:white;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px">Select All</button>' +
-          '<button onclick="app.clearOrderSelection()" ' + (selectedCount === 0 ? 'disabled' : '') + ' style="background:#6b7280;color:white;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px">Clear</button>' +
-          '</div>';
-        html += '<div class="action-buttons"><button class="print-btn" onclick="app.printSelected()" ' + (selectedCount === 0 ? 'disabled' : '') + ' style="background:#7c3aed">🖨️ Print Selected (' + selectedCount + ')</button><button class="print-btn" onclick="app.downloadSelected()" ' + (selectedCount === 0 ? 'disabled' : '') + ' style="background:#2563eb">📥 Word Selected (' + selectedCount + ')</button><button class="print-btn" onclick="app.downloadSelectedPdf()" ' + (selectedCount === 0 ? 'disabled' : '') + ' title="Correctly label-sized PDF, for printing from your phone (e.g. FlashLabel Pro)" style="background:#0f766e">📄 PDF Selected (' + selectedCount + ')</button><button class="print-btn" onclick="app.shareSelectedPdf()" ' + (selectedCount === 0 ? 'disabled' : '') + ' title="Download this PDF -- then use Android\'s own Share button on the download, or import it directly into a printer app like FlashLabel Pro" style="background:#0f766e">⬇️ Download Selected (' + selectedCount + ')</button></div>';
+        // Batch-selection UI removed (Oct 2026): the checkbox column,
+        // Select All/Clear, and the four 'Selected' batch buttons all
+        // existed to print a day in two passes across two label sizes.
+        // Everything now goes out on the Brother continuous roll via the
+        // per-order Download button, so none of it was being used.
+        // app.printSelected/downloadSelected/downloadSelectedPdf/
+        // shareSelectedPdf and the selection helpers are all still defined
+        // above -- only the UI is gone, so this is easy to restore.
 
         // Export Day moved below the other action buttons (was the very
         // first button on the page, right under the date nav) -- reported
@@ -3663,7 +3665,7 @@
         // up there; grouped down here with the other buttons that were
         // already confirmed working.
         if (categorizedTotals.length > 0) {
-          html += '<div class="action-buttons"><button class="print-btn" onclick="app.downloadDayExportPdf()" title="Categorized, easy-to-scan PDF of this day\'s totals -- fruit platters by size, fruit cups, salads by type & size, smoothies" style="background:#7c3aed">📊 Export Day (PDF)</button><button class="print-btn" onclick="app.shareDayExportPdf()" title="Download this PDF -- then use Android\'s own Share button on the download, or import it directly into a printer app like FlashLabel Pro" style="background:#0f766e">⬇️ Download Export</button><button class="print-btn" id="exportDeliveryListBtn" onclick="app.exportDeliveryList()" title="Writes this day\'s item(s) + delivery address into the \'delivery list\' and \'delivery print\' sheet tabs -- works from your phone, unlike the old script button" style="background:#0369a1">📋 Export Delivery List</button></div>';
+          html += '<div class="action-buttons"><button class="print-btn" onclick="app.downloadDayExportPdf()" title="Categorized PDF of this day&#39;s totals" style="background:#7c3aed">📊 Export Day (PDF)</button></div>';
         }
 
         if (dayOrders.length === 0) {
@@ -3677,7 +3679,7 @@
             // so it's obvious which one you searched for, since a day can
             // have many orders on it. Fades out automatically.
             var isHighlighted = !!app.highlightOrderNumber && order.orderNumber === app.highlightOrderNumber;
-            html += '<div class="order-item" data-order-number="' + order.orderNumber + '" style="' + (isHighlighted ? 'outline:3px solid #f59e0b;outline-offset:-3px;background:#fffbeb;' : (isSelected ? 'outline:2px solid #7c3aed;outline-offset:-2px;' : '')) + '"><div style="display:flex;justify-content:space-between;align-items:start"><div style="display:flex;gap:8px;align-items:start"><input type="checkbox" onchange="app.toggleOrderSelection(' + orderIdx + ')" ' + (isSelected ? 'checked' : '') + ' title="Select for batch print/download" style="margin-top:4px;width:18px;height:18px;flex-shrink:0"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#059669;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
+            html += '<div class="order-item" data-order-number="' + order.orderNumber + '" style="' + (isHighlighted ? 'outline:3px solid #f59e0b;outline-offset:-3px;background:#fffbeb;' : '') + '"><div style="display:flex;justify-content:space-between;align-items:start"><div style="display:flex;gap:8px;align-items:start"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#059669;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
             if (order.deliveredTo) html += '<div class="order-address">Deliver to: ' + order.deliveredTo + '</div>';
             html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div>';
             if (order.total) {
@@ -3693,7 +3695,7 @@
             // unreachable/invisible on some orders. justify-content:
             // flex-end keeps them right-aligned like before when they do
             // fit on one line.
-            html += '</div></div><div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#6b7280;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">✏️ Edit</button><button onclick="app.printOrder(' + orderIdx + ')" title="Print this order\'s label(s) straight to your label printer" style="background:#7c3aed;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">🖨️ Print</button><button onclick="app.downloadOrder(' + orderIdx + ')" style="background:#2563eb;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📥 Word</button><button onclick="app.downloadOrderPdf(' + orderIdx + ')" title="Correctly label-sized PDF, for printing from your phone" style="background:#0f766e;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📄 PDF</button><button onclick="app.shareOrderPdf(' + orderIdx + ')" title="Download this PDF -- then use Android\'s own Share button on the download, or import it directly into a printer app like FlashLabel Pro" style="background:#0f766e;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">⬇️ Download</button></div></div>';
+            html += '</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#6b7280;color:white;border:none;padding:9px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">✏️ Edit</button><button onclick="app.shareOrderPdf(' + orderIdx + ')" title="Download the label PDF for this order" style="background:#0f766e;color:white;border:none;padding:9px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">⬇️ Download</button></div></div>';
             html += '<div class="order-items">';
             if (order.items) {
               // One row per physical UNIT, numbered against the order's
