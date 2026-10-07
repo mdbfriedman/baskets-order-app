@@ -70,7 +70,6 @@
 
       checkSetup: async function() {
         try {
-          // First check if key is saved in localStorage (on this device)
           var savedKey = localStorage.getItem('serviceAccount');
           if (savedKey) {
             try {
@@ -81,11 +80,8 @@
               localStorage.removeItem('serviceAccount');
             }
           }
-          
-          // Otherwise check if server has it (env var)
           var response = await fetch('/api/is-setup');
           var data = await response.json();
-          
           if (data.isSetup) {
             app.isAuthenticated = true;
             app.loadOrders();
@@ -104,31 +100,10 @@
           var serviceAccount = JSON.parse(keyInput);
           app.loading = true;
           app.render();
-          
-          // Save to localStorage
           localStorage.setItem('serviceAccount', JSON.stringify(serviceAccount));
-          
-          fetch('/api/setup', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ serviceAccount: serviceAccount })
-          }).then(function(response) {
-            return response.json();
-          }).then(function(data) {
-            if (data.success) {
-              app.isAuthenticated = true;
-              app.showSetup = false;
-              app.loadOrders();
-            } else {
-              app.error = data.error || 'Setup failed';
-              app.loading = false;
-              app.render();
-            }
-          }).catch(function(e) {
-            app.error = 'Error: ' + e.message;
-            app.loading = false;
-            app.render();
-          });
+          app.isAuthenticated = true;
+          app.showSetup = false;
+          app.loadOrders();
         } catch (e) {
           app.error = 'Invalid JSON key';
           app.render();
@@ -139,8 +114,6 @@
         try {
           app.loading = true;
           app.render();
-          
-          // Get saved key from localStorage if available
           var savedKey = localStorage.getItem('serviceAccount');
           var body = {};
           if (savedKey) {
@@ -150,221 +123,155 @@
               localStorage.removeItem('serviceAccount');
             }
           }
-          
           var response = await fetch('/api/load-orders', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
           });
-
           if (!response.ok) {
             var data = await response.json();
             throw new Error(data.error || 'Failed to load');
           }
-
           var data = await response.json();
           app.orders = data.orders || [];
-
           if (app.orders.length === 0) {
             app.error = 'No orders found.';
             app.loading = false;
             app.render();
             return;
           }
-
           var productSet = new Set();
           app.orders.forEach(function(order) {
             if (order.items) {
               order.items.forEach(function(item) {
-                productSet.add(item.product);
+                var key = item.product;
+                if (item.quantityIndividual) {
+                  key = item.quantityIndividual + ' ' + item.product;
+                }
+                productSet.add(key);
               });
             }
           });
-          app.products = Array.from(productSet).sort();
-
-          var dates = [... new Set(app.orders.map(function(o) { return o.deliveryDate; }))].sort();
-          
-          // Get today's date in YYYY/MM/DD format
-          var today = new Date();
-          var todayStr = today.getFullYear() + '/' + String(today.getMonth() + 1).padStart(2, '0') + '/' + String(today.getDate()).padStart(2, '0');
-          
-          // Set selectedDate to today if it exists, otherwise first available date
-          if (dates.indexOf(todayStr) !== -1) {
-            app.selectedDate = todayStr;
-          } else {
-            app.selectedDate = dates[0] || '2026/08/28';
+          app.products = Array.from(productSet);
+          if (!app.selectedDate) {
+            var today = new Date();
+            var todayStr = today.getFullYear() + '/' + String(today.getMonth() + 1).padStart(2, '0') + '/' + String(today.getDate()).padStart(2, '0');
+            var dates = app.getAllDates();
+            if (dates.indexOf(todayStr) !== -1) {
+              app.selectedDate = todayStr;
+            } else {
+              app.selectedDate = dates[0] || '2026/08/28';
+            }
           }
-          
           app.loading = false;
-          app.error = '';
           app.render();
-        } catch (e) {
-          app.error = 'Error: ' + e.message;
+        } catch (error) {
+          app.error = error.message;
           app.loading = false;
           app.render();
         }
       },
 
-      formatDateDisplay: function(dateStr) {
-        var parts = dateStr.split('/');
-        if (parts.length === 3) {
-          var year = parseInt(parts[0]);
-          var month = parseInt(parts[1]);
-          var day = parseInt(parts[2]);
-          var monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-          var dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-          var d = new Date(year, month - 1, day);
-          var dayName = dayNames[d.getDay()];
-          return dayName + ', ' + monthNames[month - 1] + ' ' + day + ', ' + year;
-        }
-        return dateStr;
+      getAllDates: function() {
+        var dateSet = new Set();
+        app.orders.forEach(function(order) {
+          if (order.deliveryDate) {
+            dateSet.add(order.deliveryDate);
+          }
+        });
+        var dates = Array.from(dateSet).sort();
+        return dates;
       },
 
       getOrdersForDate: function(date) {
-        return app.orders.filter(function(o) { return o.deliveryDate === date; });
+        return app.orders.filter(function(order) {
+          return order.deliveryDate === date;
+        });
       },
 
       getProductTotals: function(date) {
-        var dayOrders = app.getOrdersForDate(date);
         var totals = {};
-        dayOrders.forEach(function(order) {
+        var orders = app.getOrdersForDate(date);
+        orders.forEach(function(order) {
           if (order.items) {
             order.items.forEach(function(item) {
-              // Create display key: if individual quantity exists, prepend it to product name
               var key = item.product;
               if (item.quantityIndividual) {
                 key = item.quantityIndividual + ' ' + item.product;
               }
-              totals[key] = (totals[key] || 0) + item.quantity;
+              if (!totals[key]) {
+                totals[key] = 0;
+              }
+              totals[key] += item.quantity;
             });
           }
         });
         return totals;
       },
 
-      // Strip numbers from last name (Hager2010 -> Hager)
-      cleanLastName: function(name) {
-        return name.replace(/\d+$/g, '').trim();
-      },
-
-      // Split address and city (handles both "123 Street City" and "123 StreetCity")
-      splitAddress: function(fullAddress) {
-        var parts = fullAddress.trim().split(' ');
-        if (parts.length <= 1) {
-          return { address: fullAddress, city: '' };
-        }
-        
-        // Common NJ cities - add your frequent cities here
-        var njerseyCities = ['Lakewood', 'Newark', 'Jersey', 'Hoboken', 'Trenton', 'Camden', 'Atlantic', 'Princeton', 'Clifton', 'Paterson', 'Elizabeth', 'Bayonne'];
-        
-        // Try to find where city starts by looking for known city names
-        for (var i = parts.length - 1; i > 0; i--) {
-          var potentialCity = parts[i];
-          if (njerseyCities.indexOf(potentialCity) !== -1) {
-            var address = parts.slice(0, i).join(' ');
-            var city = parts.slice(i).join(' ');
-            return { address: address, city: city };
-          }
-        }
-        
-        // If no known city found, use last word (fallback)
-        var city = parts[parts.length - 1];
-        var address = parts.slice(0, -1).join(' ');
-        
-        // Handle case where city is concatenated (e.g., "DriveLakewood")
-        // If city looks like it might have a street word in it, try to split
-        if (city.length > 8) {
-          var streetWords = ['Street', 'Drive', 'Avenue', 'Road', 'Lane', 'Court', 'Terrace', 'Way', 'Place', 'Boulevard', 'Circle'];
-          for (var j = 0; j < streetWords.length; j++) {
-            if (city.indexOf(streetWords[j]) !== -1) {
-              var idx = city.indexOf(streetWords[j]);
-              var streetPart = city.substring(0, idx + streetWords[j].length);
-              var cityPart = city.substring(idx + streetWords[j].length);
-              return { address: address + ' ' + streetPart, city: cityPart };
-            }
-          }
-        }
-        
-        return { address: address, city: city };
-      },
-
-      getAllDates: function() {
-        return [... new Set(app.orders.map(function(o) { return o.deliveryDate; }))].sort();
+      formatDateDisplay: function(dateStr) {
+        if (!dateStr) return '';
+        var parts = dateStr.split('/');
+        if (parts.length !== 3) return dateStr;
+        var year = parseInt(parts[0]);
+        var month = parseInt(parts[1]) - 1;
+        var day = parseInt(parts[2]);
+        var date = new Date(year, month, day);
+        var options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+        return date.toLocaleDateString('en-US', options);
       },
 
       previousDate: function() {
         var dates = app.getAllDates();
         var idx = dates.indexOf(app.selectedDate);
-        if (idx > 0) app.selectedDate = dates[idx - 1];
-        app.render();
+        if (idx > 0) {
+          app.selectedDate = dates[idx - 1];
+          app.render();
+        }
       },
 
       nextDate: function() {
         var dates = app.getAllDates();
         var idx = dates.indexOf(app.selectedDate);
-        if (idx < dates.length - 1) app.selectedDate = dates[idx + 1];
-        app.render();
+        if (idx < dates.length - 1) {
+          app.selectedDate = dates[idx + 1];
+          app.render();
+        }
       },
 
-      downloadAllToGoogleDocs: function() {
-        var dayOrders = app.getOrdersForDate(app.selectedDate);
-        if (dayOrders.length === 0) {
-          alert('No orders to download');
-          return;
-        }
+      cleanLastName: function(name) {
+        if (!name) return '';
+        return name.replace(/\d+$/g, '').trim();
+      },
 
-        var content = 'BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '\n\n';
-        
-        dayOrders.forEach(function(order, orderIdx) {
-          if (order.items) {
-            var cleanName = app.cleanLastName(order.lastName);
-            var addressParts = app.splitAddress(order.address);
-            order.items.forEach(function(item, idx) {
-              content += '========================================\n';
-              content += 'Order ' + (idx + 1) + ' of ' + order.items.length + '\n';
-              content += '\n';
-              content += cleanName + '\n';
-              var productDisplay = item.product;
-              if (item.quantityIndividual) {
-                productDisplay = item.quantityIndividual + ' ' + item.product;
-              }
-              content += productDisplay + '\n';
-              content += addressParts.address + '\n';
-              content += addressParts.city + '\n';
-              if (order.customerNote) {
-                content += '\nNOTE: ' + order.customerNote + '\n';
-              }
-              content += '\n';
-            });
+      splitAddress: function(address) {
+        if (!address) return { address: '', city: '' };
+        var njCities = ['Lakewood', 'Newark', 'Hoboken', 'Jersey City', 'Trenton', 'Atlantic City', 'Camden', 'Paterson', 'Elizabeth', 'Irvington', 'Clifton', 'East Orange', 'Union', 'Passaic', 'Vineland', 'Princeton', 'Montclair', 'South Orange', 'West Orange', 'Englewood'];
+        var parts = address.split(',').map(function(p) { return p.trim(); });
+        if (parts.length === 1) {
+          var words = parts[0].split(' ');
+          for (var i = words.length - 1; i >= 0; i--) {
+            if (njCities.indexOf(words[i]) !== -1) {
+              var addr = words.slice(0, i).join(' ');
+              var city = words.slice(i).join(' ');
+              return { address: addr, city: city };
+            }
           }
-        });
-
-        var body = {
-          title: 'BasketsByBlimi_' + app.selectedDate + '_AllOrders',
-          content: content
-        };
-
-        var savedKey = localStorage.getItem('serviceAccount');
-        if (savedKey) {
-          body.serviceAccount = JSON.parse(savedKey);
-        }
-
-        fetch('/api/create-google-doc', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
-        })
-        .then(function(res) { return res.json(); })
-        .then(function(data) {
-          if (data.docUrl) {
-            window.open(data.docUrl, '_blank');
-          } else {
-            alert('Error creating Google Doc: ' + (data.error || 'Unknown error'));
+          for (var i = words.length - 1; i > 0; i--) {
+            var potentialCity = words[i];
+            if (potentialCity.match(/^[A-Z][a-z]+$/)) {
+              var addr = words.slice(0, i).join(' ');
+              var city = words.slice(i).join(' ');
+              for (var w = i - 1; w >= 0; w--) {
+                if (words[w].match(/Street|Avenue|Road|Drive|Lane|Court|Place|Boulevard|Way|Circle|Park|Plaza/i)) {
+                  return { address: addr, city: city };
+                }
+              }
+            }
           }
-        })
-        .catch(function(err) {
-          alert('Error: ' + err.message);
-        });
+          return { address: parts[0], city: '' };
+        }
+        return { address: parts.slice(0, parts.length - 1).join(', '), city: parts[parts.length - 1] };
       },
 
       downloadLabels: function() {
@@ -373,12 +280,10 @@
           alert('No orders to download');
           return;
         }
-
         var htmlContent = '<html><head><meta charset="utf-8"><title>Baskets by Blimi Labels</title></head><body>';
         htmlContent += '<h1>BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '</h1>';
         htmlContent += '<p>Use Word\'s Mail Merge or Labels feature to format for your label printer.</p>';
         htmlContent += '<hr>';
-        
         dayOrders.forEach(function(order, orderIdx) {
           if (order.items) {
             var cleanName = app.cleanLastName(order.lastName);
@@ -401,9 +306,7 @@
             });
           }
         });
-
         htmlContent += '</body></html>';
-
         var blob = new Blob([htmlContent], { type: 'application/msword' });
         var url = window.URL.createObjectURL(blob);
         var link = document.createElement('a');
@@ -417,314 +320,4 @@
 
       downloadOrder: function(orderIdx) {
         var dayOrders = app.getOrdersForDate(app.selectedDate);
-        if (orderIdx < 0 || orderIdx >= dayOrders.length) {
-          alert('Order not found');
-          return;
-        }
-
-        var order = dayOrders[orderIdx];
-        if (!order.items) {
-          alert('No items in this order');
-          return;
-        }
-
-        var htmlContent = '<html><head><meta charset="utf-8"><title>Baskets by Blimi Labels</title></head><body>';
-        htmlContent += '<h1>BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '</h1>';
-        htmlContent += '<p>Use Word\'s Mail Merge or Labels feature to format for your label printer.</p>';
-        htmlContent += '<hr>';
-        
-        var cleanName = app.cleanLastName(order.lastName);
-        var addressParts = app.splitAddress(order.address);
-        order.items.forEach(function(item, idx) {
-          htmlContent += '<p style="border:1px solid #000; padding:10px; margin:10px 0; page-break-inside:avoid; position:relative">';
-          htmlContent += '<div style="text-align:right;font-size:9px;color:#999;margin-bottom:8px">Order ' + (idx + 1) + ' of ' + order.items.length + '</div>';
-          htmlContent += '<b>' + cleanName + '</b><br>';
-          var productDisplay = item.product;
-          if (item.quantityIndividual) {
-            productDisplay = item.quantityIndividual + ' ' + item.product;
-          }
-          htmlContent += '<b>' + productDisplay + '</b><br>';
-          htmlContent += addressParts.address + '<br>';
-          htmlContent += addressParts.city + '<br>';
-          if (order.customerNote) {
-            htmlContent += '<br><b>NOTE: ' + order.customerNote + '</b>';
-          }
-          htmlContent += '</p>';
-        });
-
-        htmlContent += '</body></html>';
-
-        var blob = new Blob([htmlContent], { type: 'application/msword' });
-        var url = window.URL.createObjectURL(blob);
-        var link = document.createElement('a');
-        link.href = url;
-        link.download = 'BasketsByBlimi_' + app.selectedDate + '_' + cleanName + '.doc';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
-      },
-
-      downloadOrderToGoogleDocs: function(orderIdx) {
-        var dayOrders = app.getOrdersForDate(app.selectedDate);
-        if (orderIdx < 0 || orderIdx >= dayOrders.length) {
-          alert('Order not found');
-          return;
-        }
-
-        var order = dayOrders[orderIdx];
-        if (!order.items) {
-          alert('No items in this order');
-          return;
-        }
-
-        var cleanName = app.cleanLastName(order.lastName);
-        var addressParts = app.splitAddress(order.address);
-        
-        // Create formatted text content
-        var content = 'BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '\n\n';
-        order.items.forEach(function(item, idx) {
-          content += '========================================\n';
-          content += 'Order ' + (idx + 1) + ' of ' + order.items.length + '\n';
-          content += '\n';
-          content += cleanName + '\n';
-          var productDisplay = item.product;
-          if (item.quantityIndividual) {
-            productDisplay = item.quantityIndividual + ' ' + item.product;
-          }
-          content += productDisplay + '\n';
-          content += addressParts.address + '\n';
-          content += addressParts.city + '\n';
-          if (order.customerNote) {
-            content += '\nNOTE: ' + order.customerNote + '\n';
-          }
-          content += '\n';
-        });
-
-        var body = {
-          title: 'BasketsByBlimi_' + app.selectedDate + '_' + cleanName,
-          content: content
-        };
-
-        var savedKey = localStorage.getItem('serviceAccount');
-        if (savedKey) {
-          body.serviceAccount = JSON.parse(savedKey);
-        }
-
-        fetch('/api/create-google-doc', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
-        })
-        .then(function(res) { return res.json(); })
-        .then(function(data) {
-          if (data.docUrl) {
-            window.open(data.docUrl, '_blank');
-          } else {
-            alert('Error creating Google Doc: ' + (data.error || 'Unknown error'));
-          }
-        })
-        .catch(function(err) {
-          alert('Error: ' + err.message);
-        });
-      },
-
-      printLabels: function() {
-        var dayOrders = app.getOrdersForDate(app.selectedDate);
-        var labelDim, heightDim, padding, fontSize, headerSize, productSize, addressSize, countSize;
-        
-        if (app.labelSize === '4x3') {
-          labelDim = '4in';
-          heightDim = '3in';
-          padding = '10px';
-          fontSize = '12px';
-          headerSize = '8px';
-          productSize = '12px';
-          addressSize = '10px';
-          countSize = '16px';
-        } else if (app.labelSize === '3x2') {
-          labelDim = '3in';
-          heightDim = '2in';
-          padding = '10px';
-          fontSize = '12px';
-          headerSize = '8px';
-          productSize = '12px';
-          addressSize = '10px';
-          countSize = '16px';
-        } else if (app.labelSize === '2x1') {
-          labelDim = '2in';
-          heightDim = '1in';
-          padding = '4px';
-          fontSize = '8px';
-          headerSize = '6px';
-          productSize = '8px';
-          addressSize = '7px';
-          countSize = '10px';
-        }
-        
-        var noteFontSize = Math.ceil(parseInt(fontSize) * 1.5) + 'px';
-        var productSmallSize = Math.ceil(parseInt(headerSize)) + 'px';
-        var html = '<html><head><style>* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + labelDim + ' !important;height:' + heightDim + ' !important;border:2px solid #000;padding:' + padding + ' !important;margin:0 0 5px 0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1.2;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:flex;flex-direction:column;position:relative}.top-row{display:flex;justify-content:space-between;gap:5px;margin-bottom:2px}.left-content{flex:1}.right-content{text-align:right;font-size:' + headerSize + '}.header{font-size:' + headerSize + ';font-weight:bold;display:block;margin:0;padding:0}.name{font-size:' + fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product-small{font-size:' + productSmallSize + ';font-weight:normal;display:block;margin:2px 0 0 0;padding:0;word-break:break-word;color:#333;line-height:1}.address{font-size:' + addressSize + ';line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + noteFontSize + ';font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.count{font-size:' + headerSize + ';font-weight:bold;margin:0;padding:0}</style></head><body>';
-        dayOrders.forEach(function(order) {
-          if (order.items) {
-            var cleanName = app.cleanLastName(order.lastName);
-            var addressParts = app.splitAddress(order.address);
-            order.items.forEach(function(item, idx) {
-              html += '<div class="label">' +
-                '<div class="top-row">' +
-                '<div class="left-content">' +
-                '<div class="header">BASKETS BY BLIMI</div>' +
-                '</div>' +
-                '<div class="right-content">' +
-                '<div class="product-small">' + item.product + '</div>' +
-                '<div class="count">' + (idx + 1) + ' of ' + order.items.length + '</div>' +
-                '</div>' +
-                '</div>' +
-                '<div class="name">' + cleanName + '</div>' +
-                '<div class="address">' + addressParts.address + '<br>' + addressParts.city + '</div>' +
-                (order.customerNote ? '<div class="note"><strong>Note:</strong> ' + order.customerNote + '</div>' : '') +
-                '</div>';
-            });
-          }
-        });
-        html += '</body></html>';
-        var w = window.open('', '_blank');
-        w.document.write(html);
-        w.document.close();
-        setTimeout(function() { w.print(); }, 500);
-      },
-
-      printOrder: function(orderIndex) {
-        var dayOrders = app.getOrdersForDate(app.selectedDate);
-        var order = dayOrders[orderIndex];
-        if (!order) return;
-
-        var labelDim, heightDim, padding, fontSize, headerSize, productSize, addressSize, countSize;
-        if (app.labelSize === '4x3') {
-          labelDim = '4in';
-          heightDim = '3in';
-          padding = '10px';
-          fontSize = '12px';
-          headerSize = '8px';
-          productSize = '12px';
-          addressSize = '10px';
-          countSize = '16px';
-        } else if (app.labelSize === '3x2') {
-          labelDim = '3in';
-          heightDim = '2in';
-          padding = '10px';
-          fontSize = '12px';
-          headerSize = '8px';
-          productSize = '12px';
-          addressSize = '10px';
-          countSize = '16px';
-        } else if (app.labelSize === '2x1') {
-          labelDim = '2in';
-          heightDim = '1in';
-          padding = '4px';
-          fontSize = '8px';
-          headerSize = '6px';
-          productSize = '8px';
-          addressSize = '7px';
-          countSize = '10px';
-        }
-        
-        var noteFontSize = Math.ceil(parseInt(fontSize) * 1.5) + 'px';
-        var productSmallSize = Math.ceil(parseInt(headerSize)) + 'px';
-        var html = '<html><head><style>* { margin: 0; padding: 0; }body{font-family:Arial;margin:0;padding:0}@page{margin:0;padding:0}@media print{body{margin:0;padding:0}}html{margin:0;padding:0}.label{width:' + labelDim + ' !important;height:' + heightDim + ' !important;border:2px solid #000;padding:' + padding + ' !important;margin:0 0 5px 0 !important;page-break-inside:avoid;box-sizing:border-box;line-height:1.2;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word;display:flex;flex-direction:column;position:relative}.top-row{display:flex;justify-content:space-between;gap:5px;margin-bottom:2px}.left-content{flex:1}.right-content{text-align:right;font-size:' + headerSize + '}.header{font-size:' + headerSize + ';font-weight:bold;display:block;margin:0;padding:0}.name{font-size:' + fontSize + ';font-weight:bold;display:block;margin:2px 0 0 0;padding:0;word-break:break-word}.product-small{font-size:' + productSmallSize + ';font-weight:normal;display:block;margin:2px 0 0 0;padding:0;word-break:break-word;color:#333;line-height:1}.address{font-size:' + addressSize + ';line-height:1.1;margin:2px 0 0 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;display:block;word-break:break-word}.note{font-size:' + noteFontSize + ';font-weight:bold;margin:2px 0 0 0;border-top:1px solid #000;padding-top:2px;display:block;word-break:break-word}.count{font-size:' + headerSize + ';font-weight:bold;margin:0;padding:0}</style></head><body>';
-        
-        var cleanName = app.cleanLastName(order.lastName);
-        var addressParts = app.splitAddress(order.address);
-        
-        if (order.items) {
-          order.items.forEach(function(item, idx) {
-            html += '<div class="label">' +
-              '<div class="top-row">' +
-              '<div class="left-content">' +
-              '<div class="header">BASKETS BY BLIMI</div>' +
-              '</div>' +
-              '<div class="right-content">' +
-              '<div class="product-small">' + item.product + '</div>' +
-              '<div class="count">' + (idx + 1) + ' of ' + order.items.length + '</div>' +
-              '</div>' +
-              '</div>' +
-              '<div class="name">' + cleanName + '</div>' +
-              '<div class="address">' + addressParts.address + '<br>' + addressParts.city + '</div>' +
-              (order.customerNote ? '<div class="note"><strong>Note:</strong> ' + order.customerNote + '</div>' : '') +
-              '</div>';
-          });
-        }
-        
-        html += '</body></html>';
-        var w = window.open('', '_blank');
-        w.document.write(html);
-        w.document.close();
-        setTimeout(function() { w.print(); }, 500);
-      },
-
-      render: function() {
-        var appDiv = document.getElementById('app');
-        
-        if (app.showSetup) {
-          appDiv.innerHTML = '<div class="auth-box"><h2>Setup</h2><p style="color:#6b7280;margin-bottom:15px">Paste your Google Service Account JSON key once. You won\'t need to paste it again.</p>' + (app.error ? '<div class="error">' + app.error + '</div>' : '') + '<textarea id="keyInput" placeholder="Paste your JSON key..."></textarea><button onclick="app.setupKey(document.getElementById(\'keyInput\').value)">Save Key</button></div>';
-          return;
-        }
-
-        if (app.loading) {
-          appDiv.innerHTML = '<div class="loading">Loading orders...</div>';
-          return;
-        }
-
-        if (!app.isAuthenticated || app.orders.length === 0) {
-          appDiv.innerHTML = '<div class="auth-box"><div class="error">' + (app.error || 'No orders') + '</div><button onclick="app.showSetup=true;app.render()">Setup</button></div>';
-          return;
-        }
-
-        var dayOrders = app.getOrdersForDate(app.selectedDate);
-        var totals = app.getProductTotals(app.selectedDate);
-        var dates = app.getAllDates();
-        var currentIdx = dates.indexOf(app.selectedDate);
-
-        var html = '<div class="date-nav"><button onclick="app.previousDate()" ' + (currentIdx === 0 ? 'disabled' : '') + '>←</button><div class="date-display"><h2>' + app.formatDateDisplay(app.selectedDate) + '</h2><p>' + dayOrders.length + ' orders</p></div><button onclick="app.nextDate()" ' + (currentIdx === dates.length - 1 ? 'disabled' : '') + '>→</button></div>';
-
-        if (Object.keys(totals).length > 0) {
-          html += '<div class="totals-box"><h3>Product Totals</h3><div class="totals-grid">';
-          Object.entries(totals).sort(function(a, b) { return b[1] - a[1]; }).forEach(function(entry) {
-            html += '<div class="total-item"><div class="total-number">' + entry[1] + '</div><div class="total-label">' + entry[0] + '</div></div>';
-          });
-          html += '</div></div>';
-        }
-
-        html += '<div class="action-buttons"><button onclick="app.downloadLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + '>📥 Download</button></div>';
-
-        if (dayOrders.length === 0) {
-          html += '<div class="empty-state">No orders for this date</div>';
-        } else {
-          html += '<div class="orders-box">';
-          dayOrders.forEach(function(order, orderIdx) {
-            html += '<div class="order-item"><div style="display:flex;justify-content:space-between;align-items:start"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#059669;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
-            if (order.deliverTo) html += '<div class="order-address">' + order.deliverTo + '</div>';
-            html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div></div><button onclick="app.downloadOrder(' + orderIdx + ')" style="background:#2563eb;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;height:fit-content">📥 Download</button></div>';
-            html += '<div class="order-items">';
-            if (order.items) {
-              order.items.forEach(function(item, idx) {
-                html += '<div><strong>' + item.product + '</strong> <span>qty: ' + item.quantity + ' • <strong>' + (idx + 1) + ' of ' + order.items.length + '</strong></span></div>';
-              });
-            }
-            html += '</div>';
-            if (order.customerNote) {
-              html += '<div class="order-note"><strong>Note:</strong> ' + order.customerNote + '</div>';
-            }
-            html += '</div>';
-          });
-          html += '</div>';
-        }
-
-        appDiv.innerHTML = html;
-      }
-    };
-
-    app.checkSetup();
-  </script>
-</body>
-</html>
+        if (orderIdx < 0
