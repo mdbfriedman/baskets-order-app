@@ -225,21 +225,25 @@ export default async function handler(req, res) {
         return;
       }
 
-      const { title, content } = req.body;
-      if (!title || !content) {
-        res.status(400).json({ error: 'Title and content required' });
+      const { title, content, html, date } = req.body;
+      const textContent = content || (html ? html.replace(/<[^>]*>/g, '') : null);
+      const docTitle = title || (date ? `Labels - ${date}` : 'Labels');
+      
+      if (!textContent) {
+        res.status(400).json({ error: 'Content required' });
         return;
       }
 
       const accessToken = await getAccessToken(serviceAccount);
 
+      // Create Google Doc
       const createResponse = await fetch('https://docs.googleapis.com/v1/documents', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ title: title })
+        body: JSON.stringify({ title: docTitle })
       });
 
       if (!createResponse.ok) {
@@ -249,6 +253,7 @@ export default async function handler(req, res) {
       const docData = await createResponse.json();
       const docId = docData.documentId;
 
+      // Insert content as text
       const insertResponse = await fetch(`https://docs.googleapis.com/v1/documents/${docId}:batchUpdate`, {
         method: 'POST',
         headers: {
@@ -259,7 +264,7 @@ export default async function handler(req, res) {
           requests: [
             {
               insertText: {
-                text: content,
+                text: textContent,
                 location: { index: 1 }
               }
             }
@@ -271,8 +276,21 @@ export default async function handler(req, res) {
         throw new Error(`Failed to insert content: ${insertResponse.status}`);
       }
 
+      // Share the doc with "anyone with the link"
+      const shareResponse = await fetch(`https://www.googleapis.com/drive/v3/files/${docId}/permissions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          role: 'reader',
+          type: 'anyone'
+        })
+      });
+
       const docUrl = `https://docs.google.com/document/d/${docId}/edit`;
-      res.status(200).json({ success: true, docUrl: docUrl, docId: docId });
+      res.status(200).json({ docUrl: docUrl, docId: docId });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
