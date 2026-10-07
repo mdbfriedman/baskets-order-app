@@ -698,6 +698,15 @@ async function fetchAllWooCommerceSkus(baseUrl, consumerKey, consumerSecret) {
 // whitespace, trims, lowercases. Guards against a stray double space or
 // case difference (e.g. sheet has "19 Arosa Hill", something sends "19
 // arosa  hill") being treated as a non-match.
+// Converts a column letter ("A", "O", "AB") to its 1-based index. Used by
+// the misaligned-append correction in /api/add-order to work out how far
+// past column O a shifted append spilled.
+function colToIndex(letters) {
+  let n = 0;
+  for (let i = 0; i < letters.length; i++) n = n * 26 + (letters.charCodeAt(i) - 64);
+  return n;
+}
+
 function normalizeMatchText(s) {
   return (s || '').toString().trim().toLowerCase().replace(/\s+/g, ' ');
 }
@@ -1329,7 +1338,66 @@ export default async function handler(req, res) {
         throw new Error(`Google Sheets error: ${response.status} ${errBody}`);
       }
 
-      res.status(200).json({ success: true, orderNumber });
+      // Self-correct a misaligned append (Oct 2026). Real bug: a manually
+      // added order landed two columns right across the board -- delivery
+      // date in C, order number in D, name in E, product in F, total in L.
+      // built.row was correct; the cause is :append itself. Sheets searches
+      // the given range for a "table" and appends starting at THAT table's
+      // first column, so one stray partially-filled row whose leftmost
+      // value sits in column C is enough to shift every later append two
+      // columns right. The range here is already A:O, so widening or
+      // renaming it cannot fix this.
+      //
+      // Deliberately NOT reverting to read-then-write-at-a-computed-row
+      // (see the NOTE above this append) -- that reintroduces the
+      // non-atomic race this code already rejected once, where two
+      // near-simultaneous adds compute the same target row and the second
+      // silently overwrites the first. Instead: let the atomic :append
+      // happen, then check where it actually landed. The response reports
+      // the real written range (e.g. "Orders!C42:Q42"). If it did not
+      // start at column A, rewrite that same row correctly at A:O and
+      // clear the overspill past O. The row number is known exactly from
+      // the response, so nothing is guessed and no second row is created.
+      const appendData = await response.json();
+      const writtenRange = (appendData.updates && appendData.updates.updatedRange) || '';
+      const rangeMatch = writtenRange.match(/!([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
+      let realigned = false;
+
+      if (rangeMatch && rangeMatch[1] !== 'A') {
+        const rowNum = rangeMatch[2];
+        const endColLetter = rangeMatch[3];
+
+        const fixRange = `${tabName}!A${rowNum}:O${rowNum}`;
+        const fixUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(fixRange)}?valueInputOption=USER_ENTERED`;
+        const fixResp = await fetch(fixUrl, {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ values: [built.row] })
+        });
+        if (!fixResp.ok) {
+          const errBody = await fixResp.text();
+          throw new Error(`The order saved but landed in the wrong columns, and realigning it failed: ${fixResp.status} ${errBody}`);
+        }
+
+        // Anything the misaligned append wrote past column O is now a
+        // leftover duplicate of the row's last values -- clear just those
+        // cells, never the row itself.
+        if (colToIndex(endColLetter) > colToIndex('O')) {
+          const clearRange = `${tabName}!P${rowNum}:${endColLetter}${rowNum}`;
+          const clearUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(clearRange)}:clear`;
+          await fetch(clearUrl, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+            body: '{}'
+          });
+        }
+        realigned = true;
+      }
+
+      res.status(200).json({ success: true, orderNumber, realigned });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
