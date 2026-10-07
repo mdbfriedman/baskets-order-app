@@ -187,6 +187,27 @@
         return app.orders.filter(function(o) { return o.deliveryDate === date; });
       },
 
+      cleanLastName: function(name) {
+        return name.replace(/\d+$/g, '').trim();
+      },
+
+      splitAddress: function(fullAddress) {
+        var njCities = ['Lakewood', 'Jackson', 'Ocean', 'Brick', 'Toms River', 'Manchester', 'Stafford', 'Barnegat', 'Tuckerton', 'Long Beach Island', 'Beach Haven'];
+        var address = fullAddress;
+        var city = '';
+        
+        for (var i = 0; i < njCities.length; i++) {
+          if (fullAddress.includes(njCities[i])) {
+            var idx = fullAddress.indexOf(njCities[i]);
+            address = fullAddress.substring(0, idx).trim();
+            city = fullAddress.substring(idx).trim();
+            break;
+          }
+        }
+        
+        return { address: address, city: city };
+      },
+
       getProductTotals: function(date) {
         var dayOrders = app.getOrdersForDate(date);
         var totals = {};
