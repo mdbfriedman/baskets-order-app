@@ -359,36 +359,58 @@
           return;
         }
 
-        var htmlContent = '<html><head><meta charset="utf-8"><title>Baskets by Blimi Labels</title><style>body{font-family:Arial;margin:20px}h1{margin-bottom:5px}.label{border:1px solid #000;padding:10px;margin:10px 0;page-break-inside:avoid}.label-order{text-align:right;font-size:9px;color:#999;margin-bottom:8px}.label-name{font-weight:bold;margin:5px 0}.label-product{font-weight:bold;margin:5px 0}.label-address{margin:5px 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:5px 0}.label-note{font-weight:bold;margin-top:5px;color:#d97706}</style></head><body>';
-        htmlContent += '<h1>BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '</h1>';
+        var content = 'BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '\n\n';
         
         dayOrders.forEach(function(order, orderIdx) {
           if (order.items) {
             var cleanName = app.cleanLastName(order.lastName);
             var addressParts = app.splitAddress(order.address);
             order.items.forEach(function(item, idx) {
-              htmlContent += '<div class="label">';
-              htmlContent += '<div class="label-order">Order ' + (idx + 1) + ' of ' + order.items.length + '</div>';
-              htmlContent += '<div class="label-name">' + cleanName + '</div>';
+              content += '========================================\n';
+              content += 'Order ' + (idx + 1) + ' of ' + order.items.length + '\n';
+              content += '\n';
+              content += cleanName + '\n';
               var productDisplay = item.product;
               if (item.quantityIndividual) {
                 productDisplay = item.quantityIndividual + ' ' + item.product;
               }
-              htmlContent += '<div class="label-product">' + productDisplay + '</div>';
-              htmlContent += '<div class="label-address">' + addressParts.address + '<br>' + addressParts.city + '</div>';
+              content += productDisplay + '\n';
+              content += addressParts.address + '\n';
+              content += addressParts.city + '\n';
               if (order.customerNote) {
-                htmlContent += '<div class="label-note">NOTE: ' + order.customerNote + '</div>';
+                content += '\nNOTE: ' + order.customerNote + '\n';
               }
-              htmlContent += '</div>';
+              content += '\n';
             });
           }
         });
 
-        htmlContent += '</body></html>';
+        var body = {
+          title: 'BasketsByBlimi_' + app.selectedDate + '_Labels',
+          content: content
+        };
 
-        var w = window.open('', '_blank');
-        w.document.write(htmlContent);
-        w.document.close();
+        var savedKey = localStorage.getItem('serviceAccount');
+        if (savedKey) {
+          body.serviceAccount = JSON.parse(savedKey);
+        }
+
+        fetch('/api/create-google-doc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (data.docUrl) {
+            window.open(data.docUrl, '_blank');
+          } else {
+            alert('Error: ' + (data.error || 'Unknown error'));
+          }
+        })
+        .catch(function(err) {
+          alert('Error: ' + err.message);
+        });
       },
 
       downloadOrder: function(orderIdx) {
@@ -407,30 +429,51 @@
         var cleanName = app.cleanLastName(order.lastName);
         var addressParts = app.splitAddress(order.address);
         
-        var htmlContent = '<html><head><meta charset="utf-8"><title>Order - ' + cleanName + '</title><style>body{font-family:Arial;margin:20px}h1{margin-bottom:5px}.label{border:1px solid #000;padding:10px;margin:10px 0;page-break-inside:avoid}.label-order{text-align:right;font-size:9px;color:#999;margin-bottom:8px}.label-name{font-weight:bold;margin:5px 0}.label-product{font-weight:bold;margin:5px 0}.label-address{margin:5px 0;border-top:1px solid #000;border-bottom:1px solid #000;padding:5px 0}.label-note{font-weight:bold;margin-top:5px;color:#d97706}</style></head><body>';
-        htmlContent += '<h1>BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '</h1>';
-        
+        var content = 'BASKETS BY BLIMI - ' + app.formatDateDisplay(app.selectedDate) + '\n\n';
         order.items.forEach(function(item, idx) {
-          htmlContent += '<div class="label">';
-          htmlContent += '<div class="label-order">Order ' + (idx + 1) + ' of ' + order.items.length + '</div>';
-          htmlContent += '<div class="label-name">' + cleanName + '</div>';
+          content += '========================================\n';
+          content += 'Order ' + (idx + 1) + ' of ' + order.items.length + '\n';
+          content += '\n';
+          content += cleanName + '\n';
           var productDisplay = item.product;
           if (item.quantityIndividual) {
             productDisplay = item.quantityIndividual + ' ' + item.product;
           }
-          htmlContent += '<div class="label-product">' + productDisplay + '</div>';
-          htmlContent += '<div class="label-address">' + addressParts.address + '<br>' + addressParts.city + '</div>';
+          content += productDisplay + '\n';
+          content += addressParts.address + '\n';
+          content += addressParts.city + '\n';
           if (order.customerNote) {
-            htmlContent += '<div class="label-note">NOTE: ' + order.customerNote + '</div>';
+            content += '\nNOTE: ' + order.customerNote + '\n';
           }
-          htmlContent += '</div>';
+          content += '\n';
         });
 
-        htmlContent += '</body></html>';
+        var body = {
+          title: 'BasketsByBlimi_' + app.selectedDate + '_' + cleanName,
+          content: content
+        };
 
-        var w = window.open('', '_blank');
-        w.document.write(htmlContent);
-        w.document.close();
+        var savedKey = localStorage.getItem('serviceAccount');
+        if (savedKey) {
+          body.serviceAccount = JSON.parse(savedKey);
+        }
+
+        fetch('/api/create-google-doc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (data.docUrl) {
+            window.open(data.docUrl, '_blank');
+          } else {
+            alert('Error: ' + (data.error || 'Unknown error'));
+          }
+        })
+        .catch(function(err) {
+          alert('Error: ' + err.message);
+        });
       },
 
       printLabels: function() {
