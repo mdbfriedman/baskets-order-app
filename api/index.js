@@ -15,6 +15,7 @@ function parseSheetData(values) {
   const addressIdx = headers.findIndex(h => h.includes('delivery address'));
   const pickupIdx = headers.findIndex(h => h.includes('pickup'));
   const noteIdx = headers.findIndex(h => h.includes('customer note'));
+  const totalIdx = headers.findIndex(h => h === 'total' || h.includes('total'));
 
   for (let i = 1; i < values.length; i++) {
     const row = values[i];
@@ -56,7 +57,8 @@ function parseSheetData(values) {
       items: items,
       address: (row[addressIdx] || '').trim(),
       pickupOrDelivery: (row[pickupIdx] || 'delivery').trim(),
-      customerNote: (row[noteIdx] || '').trim()
+      customerNote: (row[noteIdx] || '').trim(),
+      total: totalIdx >= 0 ? parseFloat(row[totalIdx] || 0) : 0
     });
   }
 
@@ -129,6 +131,12 @@ export default async function handler(req, res) {
   }
 
   // Store key in memory (from frontend)
+  if (req.url === '/api/is-setup') {
+    const isSetup = !!process.env.SERVICE_ACCOUNT || !!storedServiceAccount;
+    res.status(200).json({ isSetup: isSetup });
+    return;
+  }
+
   if (req.method === 'POST' && req.url === '/api/setup') {
     try {
       const { serviceAccount } = req.body;
@@ -289,7 +297,7 @@ export default async function handler(req, res) {
         })
       });
 
-      const docUrl = `https://docs.google.com/document/d/${docId}/edit`;
+      const docUrl = `https://docs.google.com/document/d/${docId}/view`;
       res.status(200).json({ docUrl: docUrl, docId: docId });
     } catch (error) {
       res.status(500).json({ error: error.message });
