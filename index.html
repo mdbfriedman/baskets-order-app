@@ -534,6 +534,15 @@
           productSize = '12px';
           addressSize = '10px';
           countSize = '16px';
+        } else if (app.labelSize === '2.4x3') {
+          labelDim = '2.4in';
+          heightDim = '3in';
+          padding = '10px';
+          fontSize = '12px';
+          headerSize = '8px';
+          productSize = '12px';
+          addressSize = '10px';
+          countSize = '16px';
         } else if (app.labelSize === '2x1') {
           labelDim = '2in';
           heightDim = '1in';
@@ -595,6 +604,15 @@
         } else if (app.labelSize === '3x2') {
           labelDim = '3in';
           heightDim = '2in';
+          padding = '10px';
+          fontSize = '12px';
+          headerSize = '8px';
+          productSize = '12px';
+          addressSize = '10px';
+          countSize = '16px';
+        } else if (app.labelSize === '2.4x3') {
+          labelDim = '2.4in';
+          heightDim = '3in';
           padding = '10px';
           fontSize = '12px';
           headerSize = '8px';
@@ -678,7 +696,8 @@
           html += '</div></div>';
         }
 
-        html += '<div class="action-buttons"><button onclick="app.downloadLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + '>📥 Download</button></div>';
+        html += '<div style="margin-bottom:15px"><strong>Label Size:</strong> <button onclick="app.labelSize=\'4x3\';app.render()" style="background:' + (app.labelSize === '4x3' ? '#16a34a' : '#e5e7eb') + ';color:' + (app.labelSize === '4x3' ? 'white' : '#111827') + ';border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;margin-right:5px">4×3</button><button onclick="app.labelSize=\'3x2\';app.render()" style="background:' + (app.labelSize === '3x2' ? '#16a34a' : '#e5e7eb') + ';color:' + (app.labelSize === '3x2' ? 'white' : '#111827') + ';border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;margin-right:5px">3×2</button><button onclick="app.labelSize=\'2.4x3\';app.render()" style="background:' + (app.labelSize === '2.4x3' ? '#16a34a' : '#e5e7eb') + ';color:' + (app.labelSize === '2.4x3' ? 'white' : '#111827') + ';border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px">2.4\" Continuous</button></div>';
+        html += '<div class="action-buttons"><button onclick="app.downloadAllToGoogleDocs()" ' + (dayOrders.length === 0 ? 'disabled' : '') + '>📥 Download All Orders</button><button onclick="app.downloadLabels()" ' + (dayOrders.length === 0 ? 'disabled' : '') + '>📥 Labels</button></div>';
 
         if (dayOrders.length === 0) {
           html += '<div class="empty-state">No orders for this date</div>';
