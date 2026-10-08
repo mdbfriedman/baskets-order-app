@@ -3642,22 +3642,25 @@
 
         html += '<div class="action-buttons"><button class="print-btn" onclick="app.openAddOrder()" style="background:#16a34a">+ Add Order</button></div>';
 
-        // Batch printing by checkbox selection, replacing the old "print
-        // everything for the day" buttons -- a day's orders are usually a
-        // mix of both label sizes, so "print all" meant either printing the
-        // wrong size for half the orders or printing them one at a time.
-        // Check off just the orders going out on whichever size is picked
-        // above, print/download that batch, then switch the label size,
-        // check off the rest, and print the second batch -- two batches
-        // total instead of N individual prints.
-        // Batch-selection UI removed (Oct 2026): the checkbox column,
-        // Select All/Clear, and the four 'Selected' batch buttons all
-        // existed to print a day in two passes across two label sizes.
-        // Everything now goes out on the Brother continuous roll via the
-        // per-order Download button, so none of it was being used.
-        // app.printSelected/downloadSelected/downloadSelectedPdf/
-        // shareSelectedPdf and the selection helpers are all still defined
-        // above -- only the UI is gone, so this is easy to restore.
+        // Batch selection + Download Selected (restored Oct 8, 2026).
+        // Removed on Oct 7 when the dashboard was trimmed, then asked for
+        // again: checking off several orders and downloading one PDF of
+        // their labels is faster than tapping Download on each order.
+        // Only Download Selected is restored -- the Print/Word/PDF Selected
+        // buttons that used to sit beside it are still defined above
+        // (printSelected/downloadSelected/downloadSelectedPdf) but stay out
+        // of the UI, same as their per-order counterparts.
+        // Calls shareSelectedPdf, NOT downloadSelectedPdf: shareSelectedPdf
+        // routes through downloadViaBlob (a real file download, the path
+        // that works inside the installed Android app), while
+        // downloadSelectedPdf only opens the PDF in a viewer tab. The
+        // per-order Download button uses the same shareOrderPdf path.
+        html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
+          '<span style="font-size:13px;color:#374151;font-weight:bold">' + selectedCount + ' selected</span>' +
+          '<button onclick="app.selectAllOrders()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#6b7280;color:white;border:none;padding:7px 12px;border-radius:6px;cursor:pointer;font-size:12px;width:auto;margin:0">Select All</button>' +
+          '<button onclick="app.clearOrderSelection()" ' + (selectedCount === 0 ? 'disabled' : '') + ' style="background:#6b7280;color:white;border:none;padding:7px 12px;border-radius:6px;cursor:pointer;font-size:12px;width:auto;margin:0">Clear</button>' +
+          '</div>';
+        html += '<div class="action-buttons"><button class="print-btn" onclick="app.shareSelectedPdf()" ' + (selectedCount === 0 ? 'disabled' : '') + ' title="Download one label PDF for every checked order" style="background:#0f766e">\u2B07\uFE0F Download Selected (' + selectedCount + ')</button></div>';
 
         // Export Day moved below the other action buttons (was the very
         // first button on the page, right under the date nav) -- reported
@@ -3679,7 +3682,7 @@
             // so it's obvious which one you searched for, since a day can
             // have many orders on it. Fades out automatically.
             var isHighlighted = !!app.highlightOrderNumber && order.orderNumber === app.highlightOrderNumber;
-            html += '<div class="order-item" data-order-number="' + order.orderNumber + '" style="' + (isHighlighted ? 'outline:3px solid #f59e0b;outline-offset:-3px;background:#fffbeb;' : '') + '"><div style="display:flex;justify-content:space-between;align-items:start"><div style="display:flex;gap:8px;align-items:start"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#059669;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
+            html += '<div class="order-item" data-order-number="' + order.orderNumber + '" style="' + (isHighlighted ? 'outline:3px solid #f59e0b;outline-offset:-3px;background:#fffbeb;' : (isSelected ? 'outline:2px solid #0f766e;outline-offset:-2px;' : '')) + '"><div style="display:flex;justify-content:space-between;align-items:start"><div style="display:flex;gap:10px;align-items:start"><input type="checkbox" onchange="app.toggleOrderSelection(' + orderIdx + ')" ' + (isSelected ? 'checked' : '') + ' title="Select for Download Selected" style="margin-top:5px;width:20px;height:20px;flex-shrink:0"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#059669;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
             if (order.deliveredTo) html += '<div class="order-address">Deliver to: ' + order.deliveredTo + '</div>';
             html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div>';
             if (order.total) {
