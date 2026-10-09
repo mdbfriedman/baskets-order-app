@@ -285,7 +285,16 @@ const KNOWN_PRODUCT_SKUS = [
   "plastic salad cups - 12 - Mango",
   "plastic salad cups - 12 - Mushroom",
   "plastic salad cups - 12 - Nish Nosh",
-  "plastic salad cups - 12 - Quinoa"
+  "plastic salad cups - 12 - Quinoa",
+  // Oct 2026: added so these show up in Add Order's product suggestions
+  // instead of having to be typed in as miscellaneous items each time.
+  // They also have matching entries in EXPORT_CATEGORY_SECTIONS'
+  // "Other Fruit Items" section in index.html -- neither name contains
+  // "fruit"/"exotic"/"layered", so without that they'd fall through to the
+  // Export Day PDF's generic "Other" bucket. No price is set for either
+  // below in KNOWN_PRODUCT_PRICES, so Product Cost stays manual for them.
+  "pan mango",
+  "pan kiwi"
 ];
 
 // Known-good sku -> price map, captured from the same Aug 31, 2026 product
