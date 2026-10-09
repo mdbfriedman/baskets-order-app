@@ -2542,6 +2542,19 @@
         var marginX = 15;
         var topMargin = 15;
         var bottomMargin = 15;
+        // Quantity-first layout (Oct 2026). Originally the product name sat
+        // at the left margin with its quantity right-aligned at the right
+        // edge, leaving ~180mm of empty page between them -- hard to pair a
+        // name with its number by eye. Now the quantity leads: a narrow
+        // right-aligned column at the left margin (right-aligned so the
+        // ones digits line up in a column, which is what makes a list of
+        // numbers scannable), with the product name immediately to its
+        // right. Reads as "6 x Cubed Fruit", the order you actually work
+        // in when picking.
+        // qtyColWidthMm is the width of that number column -- widen it if
+        // a day ever has quantities in the hundreds.
+        var qtyColWidthMm = 12;
+        var itemIndentMm = qtyColWidthMm + 6;
         var y = topMargin;
         var rowH = 6.2;
 
@@ -2601,7 +2614,7 @@
           cat.sections.forEach(function(sect) {
             ensureSpace(11);
             setText(11, 'bold', 70);
-            drawText(sect.section, marginX, y + 2);
+            drawText(sect.section, marginX + itemIndentMm, y + 2);
             y += 6.5;
 
             sect.rows.forEach(function(row, rowIdx) {
@@ -2610,10 +2623,10 @@
                 doc.setFillColor(246, 246, 249);
                 doc.rect(marginX, y - rowH + 2.4, pageWmm - 2 * marginX, rowH, 'F');
               }
-              setText(10, 'normal', 20);
-              drawText(row.label, marginX + 2, y);
               setText(10, 'bold', 20);
-              drawText(String(row.qty), pageWmm - marginX - 2, y, { align: 'right' });
+              drawText(String(row.qty), marginX + qtyColWidthMm, y, { align: 'right' });
+              setText(10, 'normal', 20);
+              drawText(row.label, marginX + itemIndentMm, y);
               catTotal += row.qty;
               y += rowH;
             });
