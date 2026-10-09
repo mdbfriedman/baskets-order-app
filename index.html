@@ -2669,7 +2669,39 @@
           return doc;
         }
 
+        // Keep a category whole on one page (Oct 2026). Previously the
+        // export just flowed: whenever a page filled up it broke wherever
+        // it happened to be, so Salads could end up half on sheet 1 and
+        // half on sheet 2 -- no use to someone picking salads. Now each
+        // category's full height is measured first, and if it won't fit in
+        // what's left of the current page it starts a fresh one. If the
+        // whole day fits on a single sheet nothing changes and it stays on
+        // one sheet.
+        // Mirrors the drawing loop's own y arithmetic exactly; if that
+        // spacing is ever changed, change this to match or categories will
+        // break in the wrong places again.
+        function categoryHeightMm(cat, catIdx) {
+          var hMm = (catIdx > 0 ? 4 : 0) + 10;   // gap above + heading & rule
+          cat.sections.forEach(function(sect) {
+            hMm += 6.5;                          // section heading
+            hMm += sect.rows.length * rowH;      // one line per product
+            hMm += 2;                            // gap after the section
+          });
+          hMm += 7;                              // "Total <category>: n" line
+          return hMm;
+        }
+        var usablePageMm = pageHmm - topMargin - bottomMargin;
+
         categories.forEach(function(cat, catIdx) {
+          // A category too tall for a single page still has to split, but it
+          // starts at the top of a fresh sheet either way, so it at least
+          // begins cleanly instead of picking up halfway down a page behind
+          // the previous category. usablePageMm is kept for that reasoning.
+          var catMm = categoryHeightMm(cat, catIdx);
+          if (catIdx > 0 && (y + Math.min(catMm, usablePageMm)) > (pageHmm - bottomMargin)) {
+            doc.addPage('letter', 'p');
+            y = topMargin;
+          }
           ensureSpace(14);
           if (catIdx > 0) y += 4;
           // Category heading with a colored rule underneath.
