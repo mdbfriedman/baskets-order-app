@@ -3791,7 +3791,7 @@
         // up there; grouped down here with the other buttons that were
         // already confirmed working.
         if (categorizedTotals.length > 0) {
-          html += '<div class="action-buttons"><button class="print-btn" onclick="app.shareDayExportPdf()" title="Categorized PDF of this day&#39;s totals" style="background:#7D8C4C">📊 Export Day (PDF)</button></div>';
+          html += '<div class="action-buttons"><button class="print-btn" onclick="app.shareDayExportPdf()" title="Categorized PDF of this day&#39;s totals" style="background:#7D8C4C">↓ Export Day (PDF)</button></div>';
         }
 
         if (dayOrders.length === 0) {
@@ -3805,14 +3805,14 @@
             // so it's obvious which one you searched for, since a day can
             // have many orders on it. Fades out automatically.
             var isHighlighted = !!app.highlightOrderNumber && order.orderNumber === app.highlightOrderNumber;
-            html += '<div class="order-item" data-order-number="' + order.orderNumber + '" style="' + (isHighlighted ? 'outline:3px solid #f59e0b;outline-offset:-3px;background:#fffbeb;' : (isSelected ? 'outline:2px solid #0f766e;outline-offset:-2px;' : '')) + '"><div style="display:flex;justify-content:space-between;align-items:start"><div style="display:flex;gap:10px;align-items:start"><input type="checkbox" onchange="app.toggleOrderSelection(' + orderIdx + ')" ' + (isSelected ? 'checked' : '') + ' title="Select for Download Selected" style="margin-top:5px;width:20px;height:20px;flex-shrink:0"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#7D8C4C;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
+            html += '<div class="order-item" data-order-number="' + order.orderNumber + '" style="' + (isHighlighted ? 'outline:3px solid #f59e0b;outline-offset:-3px;background:#fffbeb;' : (isSelected ? 'outline:2px solid #C76A45;outline-offset:-2px;' : '')) + '"><div style="display:flex;justify-content:space-between;align-items:start"><div style="display:flex;gap:10px;align-items:start"><input type="checkbox" onchange="app.toggleOrderSelection(' + orderIdx + ')" ' + (isSelected ? 'checked' : '') + ' title="Select for Download Selected" style="margin-top:5px;width:20px;height:20px;flex-shrink:0;accent-color:#C76A45"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#2B241F;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
             if (order.deliveredTo) html += '<div class="order-address">Deliver to: ' + order.deliveredTo + '</div>';
             html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#8A7A68;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div>';
             if (order.total) {
               // Sheet cell may or may not already include a "$" depending on
               // how it was typed/formatted there — don't double it up.
               var totalDisplay = /^\$/.test(order.total) ? order.total : ('$' + order.total);
-              html += '<div style="font-size:14px;color:#7D8C4C;font-weight:bold;margin-top:5px">Total: ' + totalDisplay + '</div>';
+              html += '<div style="font-size:14px;color:#2B241F;font-weight:bold;margin-top:5px">Total: ' + totalDisplay + '</div>';
             }
             // flex-wrap:wrap (Sept 2026): this row never wrapped, so on a
             // narrow phone screen the 4th button (PDF, teal-green) got
