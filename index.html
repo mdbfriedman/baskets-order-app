@@ -3727,7 +3727,7 @@
           '</div>';
         html += '<div id="searchResultsContainer">' + app.buildSearchResultsHtml() + '</div>';
 
-        html += '<div class="date-nav"><button onclick="app.previousDate()" ' + (currentIdx === 0 ? 'disabled' : '') + '>←</button><div class="date-display"><h2>' + app.formatDateDisplay(app.selectedDate) + '</h2><p>' + dayOrders.length + ' orders</p>' + (dayRevenue > 0 ? '<p style="color:#16a34a;font-weight:bold;font-size:15px;margin-top:2px">$' + dayRevenue.toFixed(2) + ' total</p>' : '') + '</div><button onclick="app.nextDate()" ' + (currentIdx === dates.length - 1 ? 'disabled' : '') + '>→</button></div>';
+        html += '<div class="date-nav"><button onclick="app.previousDate()" ' + (currentIdx === 0 ? 'disabled' : '') + '>←</button><div class="date-display"><h2>' + app.formatDateDisplay(app.selectedDate) + '</h2><p>' + dayOrders.length + ' orders</p>' + (dayRevenue > 0 ? '<p style="color:#2B241F;font-weight:bold;font-size:15px;margin-top:2px">$' + dayRevenue.toFixed(2) + ' total</p>' : '') + '</div><button onclick="app.nextDate()" ' + (currentIdx === dates.length - 1 ? 'disabled' : '') + '>→</button></div>';
 
         // Product Totals box now groups by the same Fruit/Salad/Smoothies
         // categories (and their sections) as the Export Day PDF, instead of
@@ -3737,7 +3737,7 @@
         if (categorizedTotals.length > 0) {
           html += '<div class="totals-box"><h3>Product Totals</h3>';
           categorizedTotals.forEach(function(cat) {
-            html += '<div style="margin-top:14px"><h4 style="font-size:13px;color:#7c3aed;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 8px;border-bottom:2px solid #ede9fe;padding-bottom:4px">' + cat.category + '</h4>';
+            html += '<div style="margin-top:14px"><h4 style="font-size:13px;color:#C76A45;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 8px;border-bottom:2px solid #ECDFCD;padding-bottom:4px">' + cat.category + '</h4>';
             cat.sections.forEach(function(sect) {
               if (cat.sections.length > 1) {
                 html += '<div style="font-size:12px;color:#6b7280;font-weight:bold;margin:8px 0 4px">' + sect.section + '</div>';
@@ -3783,7 +3783,7 @@
           '<button onclick="app.selectAllOrders()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#FFFDF9;color:#4A3E33;border:1px solid #ECDFCD;padding:7px 12px;border-radius:999px;cursor:pointer;font-size:12px;width:auto;margin:0">Select All</button>' +
           '<button onclick="app.clearOrderSelection()" ' + (selectedCount === 0 ? 'disabled' : '') + ' style="background:#FFFDF9;color:#4A3E33;border:1px solid #ECDFCD;padding:7px 12px;border-radius:999px;cursor:pointer;font-size:12px;width:auto;margin:0">Clear</button>' +
           '</div>';
-        html += '<div class="action-buttons"><button onclick="app.shareSelectedPdf()" ' + (selectedCount === 0 ? 'disabled' : '') + ' title="Download one label PDF for every checked order" style="background:#FFFDF9;color:#4A3E33;border:1px solid #ECDFCD">\u2B07\uFE0F Download Selected (' + selectedCount + ')</button></div>';
+        html += '<div class="action-buttons"><button onclick="app.shareSelectedPdf()" ' + (selectedCount === 0 ? 'disabled' : '') + ' title="Download one label PDF for every checked order" style="background:#7D8C4C;color:#FFFDF9;border:none">\u2B07\uFE0F Download Selected (' + selectedCount + ')</button></div>';
 
         // Export Day moved below the other action buttons (was the very
         // first button on the page, right under the date nav) -- reported
@@ -3821,7 +3821,7 @@
             // unreachable/invisible on some orders. justify-content:
             // flex-end keeps them right-aligned like before when they do
             // fit on one line.
-            html += '</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#FFFDF9;color:#4A3E33;border:1px solid #ECDFCD;padding:9px 16px;border-radius:999px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">✏️ Edit</button><button onclick="app.shareOrderPdf(' + orderIdx + ')" title="Download the label PDF for this order" style="background:#2B241F;color:#FFFDF9;border:none;padding:9px 16px;border-radius:999px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">⬇️ Download</button></div></div>';
+            html += '</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#FFFDF9;color:#4A3E33;border:1px solid #ECDFCD;padding:7px 14px;border-radius:999px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">✏️ Edit</button><button onclick="app.shareOrderPdf(' + orderIdx + ')" title="Download the label PDF for this order" style="background:#C76A45;color:#FFFDF9;border:none;padding:7px 14px;border-radius:999px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">⬇️ Download</button></div></div>';
             html += '<div class="order-items">';
             if (order.items) {
               // One row per physical UNIT, numbered against the order's
