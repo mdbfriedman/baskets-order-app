@@ -756,6 +756,13 @@
                  (o.deliveredTo && o.deliveredTo.toLowerCase().indexOf(q) !== -1) ||
                  (o.address && o.address.toLowerCase().indexOf(q) !== -1);
         });
+        // Most recent delivery date first (was unsorted / oldest-first from
+        // the sheet) -- so a broad match surfaces the current/upcoming
+        // order first, and isn't at risk of being cut off by the 20-result
+        // cap below in favor of an old one.
+        results.sort(function(a, b) {
+          return (b.deliveryDate || '').localeCompare(a.deliveryDate || '');
+        });
         return results.slice(0, 20);
       },
 
