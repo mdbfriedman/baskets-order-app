@@ -17,7 +17,9 @@
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" href="/favicon.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <meta name="theme-color" content="#7c3aed">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Spectral:wght@400;500;600&family=Karla:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <meta name="theme-color" content="#C76A45">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -34,46 +36,46 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f3f4f6; color: #111827; }
-    .header { background: white; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    body { font-family: 'Karla', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FBF3E7; color: #2B241F; }
+    .header { background: #FFFDF9; padding: 20px; border-bottom: 1px solid #ECDFCD; box-shadow: none; }
     .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-    h1 { font-size: 24px; font-weight: bold; margin-bottom: 5px; }
-    .subtitle { color: #6b7280; font-size: 14px; }
-    .auth-box { background: white; border-radius: 8px; padding: 30px; max-width: 500px; margin: 40px auto; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-    .auth-box h2 { font-size: 20px; margin-bottom: 10px; }
-    textarea { width: 100%; height: 150px; border: 1px solid #d1d5db; border-radius: 6px; padding: 10px; font-family: monospace; font-size: 12px; margin-bottom: 15px; }
-    button { background: #16a34a; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; margin-bottom: 10px; }
-    button:hover { background: #15803d; }
-    button:disabled { background: #d1d5db; cursor: not-allowed; }
-    .error { background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; padding: 12px; border-radius: 6px; margin-bottom: 15px; font-size: 13px; }
+    h1 { font-family: 'Spectral', serif; font-size: 24px; font-weight: 600; margin-bottom: 5px; }
+    .subtitle { color: #8A7A68; font-size: 14px; }
+    .auth-box { background: #FFFDF9; border: 1px solid #ECDFCD; border-radius: 14px; padding: 30px; max-width: 500px; margin: 40px auto; box-shadow: none; }
+    .auth-box h2 { font-family: 'Spectral', serif; font-size: 20px; margin-bottom: 10px; }
+    textarea { width: 100%; height: 150px; border: 1px solid #ECDFCD; border-radius: 10px; padding: 10px; font-family: monospace; font-size: 12px; margin-bottom: 15px; background: #FFFDF9; color: #2B241F; }
+    button { background: #C76A45; color: white; border: none; padding: 10px 20px; border-radius: 999px; cursor: pointer; font-weight: 600; width: 100%; margin-bottom: 10px; font-family: 'Karla', sans-serif; }
+    button:hover { background: #A95633; }
+    button:disabled { background: #D8CBB8; cursor: not-allowed; }
+    .error { background: #FBEDE6; border: 1px solid #E2B49C; color: #96442A; padding: 12px; border-radius: 10px; margin-bottom: 15px; font-size: 13px; }
     .date-nav { display: flex; align-items: center; justify-content: center; gap: 20px; margin-bottom: 30px; }
-    .date-nav button { width: 40px; height: 40px; padding: 0; margin: 0; background: #e5e7eb; color: #111827; font-weight: bold; }
+    .date-nav button { width: 40px; height: 40px; padding: 0; margin: 0; background: #FFFDF9; color: #6B5C4E; font-weight: bold; border: 1px solid #ECDFCD; border-radius: 999px; }
     .date-display { text-align: center; min-width: 250px; }
-    .date-display h2 { font-size: 24px; margin-bottom: 5px; }
-    .date-display p { font-size: 13px; color: #6b7280; }
-    .totals-box { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    .totals-box h3 { font-size: 16px; margin-bottom: 15px; }
+    .date-display h2 { font-family: 'Spectral', serif; font-size: 24px; margin-bottom: 5px; }
+    .date-display p { font-size: 13px; color: #8A7A68; }
+    .totals-box { background: #FFFDF9; border: 1px solid #ECDFCD; border-radius: 14px; padding: 20px; margin-bottom: 20px; box-shadow: none; }
+    .totals-box h3 { font-family: 'Spectral', serif; font-size: 16px; margin-bottom: 15px; }
     .totals-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
-    .total-item { background: linear-gradient(135deg, #dbeafe, #ecfdf5); border: 1px solid #86efac; border-radius: 6px; padding: 12px; text-align: center; }
-    .total-number { font-size: 24px; font-weight: bold; color: #16a34a; }
-    .total-label { font-size: 11px; color: #374151; margin-top: 5px; }
+    .total-item { background: #FBF3E7; border: 1px solid #ECDFCD; border-radius: 10px; padding: 12px; text-align: center; }
+    .total-number { font-family: 'Spectral', serif; font-size: 24px; font-weight: 600; color: #C76A45; }
+    .total-label { font-size: 11px; color: #6B5C4E; margin-top: 5px; }
     .action-buttons { display: flex; gap: 10px; margin-bottom: 20px; }
-    .action-buttons button { flex: 1; background: #2563eb; margin: 0; }
-    .action-buttons button:hover { background: #1d4ed8; }
-    .print-btn { background: #16a34a !important; }
-    .print-btn:hover { background: #15803d !important; }
-    .setup-btn { background: #6b7280 !important; font-size: 12px; }
-    .orders-box { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    .order-item { border-bottom: 1px solid #e5e7eb; padding: 20px; }
+    .action-buttons button { flex: 1; background: #7D8C4C; margin: 0; }
+    .action-buttons button:hover { background: #677539; }
+    .print-btn { background: #C76A45 !important; }
+    .print-btn:hover { background: #A95633 !important; }
+    .setup-btn { background: #FFFDF9 !important; color: #4A3E33 !important; border: 1px solid #ECDFCD !important; font-size: 12px; }
+    .orders-box { background: #FFFDF9; border: 1px solid #ECDFCD; border-radius: 14px; overflow: hidden; box-shadow: none; }
+    .order-item { border-bottom: 1px solid #ECDFCD; padding: 20px; }
     .order-item:last-child { border-bottom: none; }
-    .order-name { font-weight: bold; font-size: 16px; }
-    .order-address { font-size: 13px; color: #6b7280; margin-top: 3px; }
-    .order-items { background: #f9fafb; border-radius: 6px; padding: 12px; font-size: 13px; margin-top: 15px; }
-    .order-items div { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #e5e7eb; }
+    .order-name { font-weight: 600; font-size: 16px; }
+    .order-address { font-size: 13px; color: #8A7A68; margin-top: 3px; }
+    .order-items { background: #FBF3E7; border-radius: 10px; padding: 12px; font-size: 13px; margin-top: 15px; }
+    .order-items div { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #ECDFCD; }
     .order-items div:last-child { border-bottom: none; }
-    .order-note { background: #dbeafe; border-left: 3px solid #2563eb; padding: 10px; margin-top: 10px; font-size: 13px; color: #1e40af; }
-    .loading { text-align: center; padding: 20px; color: #6b7280; }
-    .empty-state { text-align: center; padding: 40px; color: #6b7280; }
+    .order-note { background: #FBF3E7; border-left: 3px solid #C76A45; padding: 10px; margin-top: 10px; font-size: 13px; color: #4A3E33; border-radius: 6px; }
+    .loading { text-align: center; padding: 20px; color: #8A7A68; }
+    .empty-state { text-align: center; padding: 40px; color: #8A7A68; }
   </style>
 </head>
 <body>
@@ -3761,7 +3763,7 @@
           '<option value="2.4-continuous"' + (app.labelSize === '2.4-continuous' ? ' selected' : '') + '>2.4in continuous roll (Brother)</option>' +
           '</select></div>';
 
-        html += '<div class="action-buttons"><button class="print-btn" onclick="app.openAddOrder()" style="background:#16a34a">+ Add Order</button></div>';
+        html += '<div class="action-buttons"><button class="print-btn" onclick="app.openAddOrder()" style="background:#C76A45">+ Add Order</button></div>';
 
         // Batch selection + Download Selected (restored Oct 8, 2026).
         // Removed on Oct 7 when the dashboard was trimmed, then asked for
@@ -3778,10 +3780,10 @@
         // per-order Download button uses the same shareOrderPdf path.
         html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
           '<span style="font-size:13px;color:#374151;font-weight:bold">' + selectedCount + ' selected</span>' +
-          '<button onclick="app.selectAllOrders()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#6b7280;color:white;border:none;padding:7px 12px;border-radius:6px;cursor:pointer;font-size:12px;width:auto;margin:0">Select All</button>' +
-          '<button onclick="app.clearOrderSelection()" ' + (selectedCount === 0 ? 'disabled' : '') + ' style="background:#6b7280;color:white;border:none;padding:7px 12px;border-radius:6px;cursor:pointer;font-size:12px;width:auto;margin:0">Clear</button>' +
+          '<button onclick="app.selectAllOrders()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#FFFDF9;color:#4A3E33;border:1px solid #ECDFCD;padding:7px 12px;border-radius:999px;cursor:pointer;font-size:12px;width:auto;margin:0">Select All</button>' +
+          '<button onclick="app.clearOrderSelection()" ' + (selectedCount === 0 ? 'disabled' : '') + ' style="background:#FFFDF9;color:#4A3E33;border:1px solid #ECDFCD;padding:7px 12px;border-radius:999px;cursor:pointer;font-size:12px;width:auto;margin:0">Clear</button>' +
           '</div>';
-        html += '<div class="action-buttons"><button class="print-btn" onclick="app.shareSelectedPdf()" ' + (selectedCount === 0 ? 'disabled' : '') + ' title="Download one label PDF for every checked order" style="background:#0f766e">\u2B07\uFE0F Download Selected (' + selectedCount + ')</button></div>';
+        html += '<div class="action-buttons"><button onclick="app.shareSelectedPdf()" ' + (selectedCount === 0 ? 'disabled' : '') + ' title="Download one label PDF for every checked order" style="background:#FFFDF9;color:#4A3E33;border:1px solid #ECDFCD">\u2B07\uFE0F Download Selected (' + selectedCount + ')</button></div>';
 
         // Export Day moved below the other action buttons (was the very
         // first button on the page, right under the date nav) -- reported
@@ -3789,7 +3791,7 @@
         // up there; grouped down here with the other buttons that were
         // already confirmed working.
         if (categorizedTotals.length > 0) {
-          html += '<div class="action-buttons"><button class="print-btn" onclick="app.shareDayExportPdf()" title="Categorized PDF of this day&#39;s totals" style="background:#7c3aed">📊 Export Day (PDF)</button></div>';
+          html += '<div class="action-buttons"><button class="print-btn" onclick="app.shareDayExportPdf()" title="Categorized PDF of this day&#39;s totals" style="background:#7D8C4C">📊 Export Day (PDF)</button></div>';
         }
 
         if (dayOrders.length === 0) {
@@ -3803,14 +3805,14 @@
             // so it's obvious which one you searched for, since a day can
             // have many orders on it. Fades out automatically.
             var isHighlighted = !!app.highlightOrderNumber && order.orderNumber === app.highlightOrderNumber;
-            html += '<div class="order-item" data-order-number="' + order.orderNumber + '" style="' + (isHighlighted ? 'outline:3px solid #f59e0b;outline-offset:-3px;background:#fffbeb;' : (isSelected ? 'outline:2px solid #0f766e;outline-offset:-2px;' : '')) + '"><div style="display:flex;justify-content:space-between;align-items:start"><div style="display:flex;gap:10px;align-items:start"><input type="checkbox" onchange="app.toggleOrderSelection(' + orderIdx + ')" ' + (isSelected ? 'checked' : '') + ' title="Select for Download Selected" style="margin-top:5px;width:20px;height:20px;flex-shrink:0"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#059669;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
+            html += '<div class="order-item" data-order-number="' + order.orderNumber + '" style="' + (isHighlighted ? 'outline:3px solid #f59e0b;outline-offset:-3px;background:#fffbeb;' : (isSelected ? 'outline:2px solid #0f766e;outline-offset:-2px;' : '')) + '"><div style="display:flex;justify-content:space-between;align-items:start"><div style="display:flex;gap:10px;align-items:start"><input type="checkbox" onchange="app.toggleOrderSelection(' + orderIdx + ')" ' + (isSelected ? 'checked' : '') + ' title="Select for Download Selected" style="margin-top:5px;width:20px;height:20px;flex-shrink:0"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#7D8C4C;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
             if (order.deliveredTo) html += '<div class="order-address">Deliver to: ' + order.deliveredTo + '</div>';
-            html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div>';
+            html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#8A7A68;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div>';
             if (order.total) {
               // Sheet cell may or may not already include a "$" depending on
               // how it was typed/formatted there — don't double it up.
               var totalDisplay = /^\$/.test(order.total) ? order.total : ('$' + order.total);
-              html += '<div style="font-size:14px;color:#16a34a;font-weight:bold;margin-top:5px">Total: ' + totalDisplay + '</div>';
+              html += '<div style="font-size:14px;color:#7D8C4C;font-weight:bold;margin-top:5px">Total: ' + totalDisplay + '</div>';
             }
             // flex-wrap:wrap (Sept 2026): this row never wrapped, so on a
             // narrow phone screen the 4th button (PDF, teal-green) got
@@ -3819,7 +3821,7 @@
             // unreachable/invisible on some orders. justify-content:
             // flex-end keeps them right-aligned like before when they do
             // fit on one line.
-            html += '</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#6b7280;color:white;border:none;padding:9px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">✏️ Edit</button><button onclick="app.shareOrderPdf(' + orderIdx + ')" title="Download the label PDF for this order" style="background:#0f766e;color:white;border:none;padding:9px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">⬇️ Download</button></div></div>';
+            html += '</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#FFFDF9;color:#4A3E33;border:1px solid #ECDFCD;padding:9px 16px;border-radius:999px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">✏️ Edit</button><button onclick="app.shareOrderPdf(' + orderIdx + ')" title="Download the label PDF for this order" style="background:#2B241F;color:#FFFDF9;border:none;padding:9px 16px;border-radius:999px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">⬇️ Download</button></div></div>';
             html += '<div class="order-items">';
             if (order.items) {
               // One row per physical UNIT, numbered against the order's
