@@ -1887,7 +1887,7 @@
           var safeUrlAttr = url.replace(/"/g, '&quot;');
           statusEl.innerHTML =
             '<div style="margin-bottom:8px">' + safeFilename + ' is ready.</div>' +
-            '<a href="' + safeIntentAttr + '" style="display:inline-block;background:#0f766e;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:bold">⬇️ Tap to download</a>' +
+            '<a href="' + safeIntentAttr + '" style="display:inline-block;background:#C76A45;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:bold">↓ Tap to download</a>' +
             '<div style="margin-top:8px;font-size:12px">Trouble downloading? <a href="' + safeUrlAttr + '" style="color:#93c5fd">Try this link instead.</a> <button type="button" onclick="document.getElementById(\'blob-download-status\').remove()" style="margin-left:8px;background:#374151;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer">&times;</button></div>';
         }).catch(function(e) {
           statusEl.innerHTML = 'Couldn’t prepare the download: ' + (e && e.message ? e.message.replace(/</g, '&lt;') : 'unknown error') + ' <button type="button" onclick="document.getElementById(\'blob-download-status\').remove()" style="margin-left:8px;background:#374151;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer">&times;</button>';
@@ -3783,7 +3783,7 @@
           '<button onclick="app.selectAllOrders()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#FFFDF9;color:#4A3E33;border:1px solid #ECDFCD;padding:7px 12px;border-radius:999px;cursor:pointer;font-size:12px;width:auto;margin:0">Select All</button>' +
           '<button onclick="app.clearOrderSelection()" ' + (selectedCount === 0 ? 'disabled' : '') + ' style="background:#FFFDF9;color:#4A3E33;border:1px solid #ECDFCD;padding:7px 12px;border-radius:999px;cursor:pointer;font-size:12px;width:auto;margin:0">Clear</button>' +
           '</div>';
-        html += '<div class="action-buttons"><button onclick="app.shareSelectedPdf()" ' + (selectedCount === 0 ? 'disabled' : '') + ' title="Download one label PDF for every checked order" style="background:#7D8C4C;color:#FFFDF9;border:none">\u2B07\uFE0F Download Selected (' + selectedCount + ')</button></div>';
+        html += '<div class="action-buttons"><button onclick="app.shareSelectedPdf()" ' + (selectedCount === 0 ? 'disabled' : '') + ' title="Download one label PDF for every checked order" style="background:#C76A45;color:#FFFDF9;border:none">\u2193 Download Selected (' + selectedCount + ')</button></div>';
 
         // Export Day moved below the other action buttons (was the very
         // first button on the page, right under the date nav) -- reported
@@ -3821,7 +3821,7 @@
             // unreachable/invisible on some orders. justify-content:
             // flex-end keeps them right-aligned like before when they do
             // fit on one line.
-            html += '</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#FFFDF9;color:#4A3E33;border:1px solid #ECDFCD;padding:7px 14px;border-radius:999px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">✏️ Edit</button><button onclick="app.shareOrderPdf(' + orderIdx + ')" title="Download the label PDF for this order" style="background:#C76A45;color:#FFFDF9;border:none;padding:7px 14px;border-radius:999px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">⬇️ Download</button></div></div>';
+            html += '</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#FFFDF9;color:#4A3E33;border:1px solid #ECDFCD;padding:7px 14px;border-radius:999px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">✏️ Edit</button><button onclick="app.shareOrderPdf(' + orderIdx + ')" title="Download the label PDF for this order" style="background:#C76A45;color:#FFFDF9;border:none;padding:7px 14px;border-radius:999px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">↓ Download</button></div></div>';
             html += '<div class="order-items">';
             if (order.items) {
               // One row per physical UNIT, numbered against the order's
