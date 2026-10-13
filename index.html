@@ -1327,12 +1327,37 @@
       // in the catalog (a rental, a custom gift add-on, a special request)
       // is always one tap away instead of only surfacing after typing
       // something that comes up empty.
+      //
+      // Ranked, shorthand first (Oct 2026): results used to keep
+      // KNOWN_PRODUCT_SKUS' own array order, so typing a short, specific
+      // query like "24" buried every short order-entry name starting with
+      // it (24 cups, 24 Kiwi, 24 Mango...) below every long full
+      // WooCommerce name that merely contains "24" somewhere in the middle
+      // (e.g. "2 oz Fruit Cups - Kiwi - 24") -- with only 8 results shown,
+      // the short name you actually wanted could scroll past the visible
+      // box or get cut off the list entirely. Sorted in three passes: (1)
+      // a recognized short name (any key in PRODUCT_ALIASES above) always
+      // ranks above a plain catalog name, full stop -- not just usually,
+      // by construction; (2) within each of those two groups, an
+      // earlier/closer-to-the-start match ranks higher; (3) shorter name
+      // breaks a remaining tie.
       filterProductSuggestions: function(idx, query) {
         var box = document.getElementById('noItemSuggestions_' + idx);
         if (!box) return;
         if (app.newOrder && app.newOrder.items[idx]) app.newOrder.items[idx].product = query;
         var q = (query || '').trim().toLowerCase();
-        var matches = q ? app.products.filter(function(p) { return p.toLowerCase().indexOf(q) !== -1; }).slice(0, 8) : [];
+        var matches = q ? app.products.filter(function(p) { return p.toLowerCase().indexOf(q) !== -1; })
+          .sort(function(a, b) {
+            var aShort = PRODUCT_ALIASES.hasOwnProperty(a.toLowerCase()) ? 0 : 1;
+            var bShort = PRODUCT_ALIASES.hasOwnProperty(b.toLowerCase()) ? 0 : 1;
+            if (aShort !== bShort) return aShort - bShort;
+            var aIdx = a.toLowerCase().indexOf(q);
+            var bIdx = b.toLowerCase().indexOf(q);
+            if (aIdx !== bIdx) return aIdx - bIdx;
+            if (a.length !== b.length) return a.length - b.length;
+            return a < b ? -1 : (a > b ? 1 : 0);
+          })
+          .slice(0, 8) : [];
         var customCall = "app.pickCustomItem(" + idx + ")";
         // Same touchstart/touchend dance as the real suggestions below --
         // see the comment there for why a plain click/tap isn't enough.
