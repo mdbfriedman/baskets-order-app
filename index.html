@@ -17,9 +17,7 @@
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" href="/favicon.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Spectral:wght@400;500;600&family=Karla:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <meta name="theme-color" content="#C76A45">
+  <meta name="theme-color" content="#7c3aed">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -36,46 +34,46 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Karla', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FBF3E7; color: #2B241F; }
-    .header { background: #FFFDF9; padding: 20px; border-bottom: 1px solid #ECDFCD; box-shadow: none; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f3f4f6; color: #111827; }
+    .header { background: white; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
     .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-    h1 { font-family: 'Spectral', serif; font-size: 24px; font-weight: 600; margin-bottom: 5px; }
-    .subtitle { color: #8A7A68; font-size: 14px; }
-    .auth-box { background: #FFFDF9; border: 1px solid #ECDFCD; border-radius: 14px; padding: 30px; max-width: 500px; margin: 40px auto; box-shadow: none; }
-    .auth-box h2 { font-family: 'Spectral', serif; font-size: 20px; margin-bottom: 10px; }
-    textarea { width: 100%; height: 150px; border: 1px solid #ECDFCD; border-radius: 10px; padding: 10px; font-family: monospace; font-size: 12px; margin-bottom: 15px; background: #FFFDF9; color: #2B241F; }
-    button { background: #C76A45; color: white; border: none; padding: 10px 20px; border-radius: 999px; cursor: pointer; font-weight: 600; width: 100%; margin-bottom: 10px; font-family: 'Karla', sans-serif; }
-    button:hover { background: #A95633; }
-    button:disabled { background: #D8CBB8; cursor: not-allowed; }
-    .error { background: #FBEDE6; border: 1px solid #E2B49C; color: #96442A; padding: 12px; border-radius: 10px; margin-bottom: 15px; font-size: 13px; }
+    h1 { font-size: 24px; font-weight: bold; margin-bottom: 5px; }
+    .subtitle { color: #6b7280; font-size: 14px; }
+    .auth-box { background: white; border-radius: 8px; padding: 30px; max-width: 500px; margin: 40px auto; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    .auth-box h2 { font-size: 20px; margin-bottom: 10px; }
+    textarea { width: 100%; height: 150px; border: 1px solid #d1d5db; border-radius: 6px; padding: 10px; font-family: monospace; font-size: 12px; margin-bottom: 15px; }
+    button { background: #16a34a; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; margin-bottom: 10px; }
+    button:hover { background: #15803d; }
+    button:disabled { background: #d1d5db; cursor: not-allowed; }
+    .error { background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; padding: 12px; border-radius: 6px; margin-bottom: 15px; font-size: 13px; }
     .date-nav { display: flex; align-items: center; justify-content: center; gap: 20px; margin-bottom: 30px; }
-    .date-nav button { width: 40px; height: 40px; padding: 0; margin: 0; background: #FFFDF9; color: #6B5C4E; font-weight: bold; border: 1px solid #ECDFCD; border-radius: 999px; }
+    .date-nav button { width: 40px; height: 40px; padding: 0; margin: 0; background: #e5e7eb; color: #111827; font-weight: bold; }
     .date-display { text-align: center; min-width: 250px; }
-    .date-display h2 { font-family: 'Spectral', serif; font-size: 24px; margin-bottom: 5px; }
-    .date-display p { font-size: 13px; color: #8A7A68; }
-    .totals-box { background: #FFFDF9; border: 1px solid #ECDFCD; border-radius: 14px; padding: 20px; margin-bottom: 20px; box-shadow: none; }
-    .totals-box h3 { font-family: 'Spectral', serif; font-size: 16px; margin-bottom: 15px; }
+    .date-display h2 { font-size: 24px; margin-bottom: 5px; }
+    .date-display p { font-size: 13px; color: #6b7280; }
+    .totals-box { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .totals-box h3 { font-size: 16px; margin-bottom: 15px; }
     .totals-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
-    .total-item { background: #FBF3E7; border: 1px solid #ECDFCD; border-radius: 10px; padding: 12px; text-align: center; }
-    .total-number { font-family: 'Spectral', serif; font-size: 24px; font-weight: 600; color: #C76A45; }
-    .total-label { font-size: 11px; color: #6B5C4E; margin-top: 5px; }
+    .total-item { background: linear-gradient(135deg, #dbeafe, #ecfdf5); border: 1px solid #86efac; border-radius: 6px; padding: 12px; text-align: center; }
+    .total-number { font-size: 24px; font-weight: bold; color: #16a34a; }
+    .total-label { font-size: 11px; color: #374151; margin-top: 5px; }
     .action-buttons { display: flex; gap: 10px; margin-bottom: 20px; }
-    .action-buttons button { flex: 1; background: #7D8C4C; margin: 0; }
-    .action-buttons button:hover { background: #677539; }
-    .print-btn { background: #C76A45 !important; }
-    .print-btn:hover { background: #A95633 !important; }
-    .setup-btn { background: #FFFDF9 !important; color: #4A3E33 !important; border: 1px solid #ECDFCD !important; font-size: 12px; }
-    .orders-box { background: #FFFDF9; border: 1px solid #ECDFCD; border-radius: 14px; overflow: hidden; box-shadow: none; }
-    .order-item { border-bottom: 1px solid #ECDFCD; padding: 20px; }
+    .action-buttons button { flex: 1; background: #2563eb; margin: 0; }
+    .action-buttons button:hover { background: #1d4ed8; }
+    .print-btn { background: #16a34a !important; }
+    .print-btn:hover { background: #15803d !important; }
+    .setup-btn { background: #6b7280 !important; font-size: 12px; }
+    .orders-box { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .order-item { border-bottom: 1px solid #e5e7eb; padding: 20px; }
     .order-item:last-child { border-bottom: none; }
-    .order-name { font-weight: 600; font-size: 16px; }
-    .order-address { font-size: 13px; color: #8A7A68; margin-top: 3px; }
-    .order-items { background: #FBF3E7; border-radius: 10px; padding: 12px; font-size: 13px; margin-top: 15px; }
-    .order-items div { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #ECDFCD; }
+    .order-name { font-weight: bold; font-size: 16px; }
+    .order-address { font-size: 13px; color: #6b7280; margin-top: 3px; }
+    .order-items { background: #f9fafb; border-radius: 6px; padding: 12px; font-size: 13px; margin-top: 15px; }
+    .order-items div { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #e5e7eb; }
     .order-items div:last-child { border-bottom: none; }
-    .order-note { background: #FBF3E7; border-left: 3px solid #C76A45; padding: 10px; margin-top: 10px; font-size: 13px; color: #4A3E33; border-radius: 6px; }
-    .loading { text-align: center; padding: 20px; color: #8A7A68; }
-    .empty-state { text-align: center; padding: 40px; color: #8A7A68; }
+    .order-note { background: #dbeafe; border-left: 3px solid #2563eb; padding: 10px; margin-top: 10px; font-size: 13px; color: #1e40af; }
+    .loading { text-align: center; padding: 20px; color: #6b7280; }
+    .empty-state { text-align: center; padding: 40px; color: #6b7280; }
   </style>
 </head>
 <body>
@@ -361,7 +359,108 @@
       // Only the bare, no-flavor-specified phrase -- "mango glass
       // smoothies" or similar won't exact-match this key, so a typed
       // flavor is left alone rather than getting silently overwritten.
-      'glass smoothies': 'Smoothies in Glass cups - Assorted'
+      'glass smoothies': 'Smoothies in Glass cups - Assorted',
+
+      // Order-entry short names (Oct 2026): Mordechai's own abbreviated
+      // names for fast manual order entry, read off his hand-filled Product
+      // Name Review sheet and confirmed against the live "Product Names"
+      // Google Sheet (https://docs.google.com/spreadsheets/d/1XOOnze-LfqsSYk9PcF-3JVxRyw2uD-M4kZqRE3Rh2C4).
+      // Each key is one product's short name exactly as written there,
+      // trimmed and lowercased to match resolveProductAlias()'s own key
+      // normalization. Keeps the website's full WooCommerce names and
+      // these short names resolving to the SAME product everywhere
+      // (labels, Product Totals, the Export Day PDF) instead of showing up
+      // as separate, duplicate line items. Two sheet rows were flagged
+      // "REMOVE (no price)" and are intentionally left out here: Shechaynu
+      // Platter, 16" sliced platter - Grand. Most Salads-category products
+      // (Caesar, Broccoli, Citrus, Greek, Hearts of Palm, Mango
+      // Pomegranate, Nish Nosh, Onion Caesar, Portabella, Quinoa, Ramen
+      // Sesame, Sushi, Sweet Potato, Feta, Barbeque Corn Nut) don't have a
+      // short name on the sheet yet and so aren't listed below -- re-run
+      // this generation once those are filled in.
+      // Fruit Cups & Smoothies – 2 oz Fruit Cups
+      '12 cups': '2 oz Fruit Cups - Assorted Melons and Pineapple - 12',
+      '16 cups': '2 oz Fruit Cups - Assorted Melons and Pineapple - 16',
+      '24 cups': '2 oz Fruit Cups - Assorted Melons and Pineapple - 24',
+      '32 cups': '2 oz Fruit Cups - Assorted Melons and Pineapple - 32',
+      '36 cups': '2 oz Fruit Cups - Assorted Melons and Pineapple - 36',
+      '40 cups': '2 oz Fruit Cups - Assorted Melons and Pineapple - 40',
+      '48 cups': '2 oz Fruit Cups - Assorted Melons and Pineapple - 48',
+      '12 kiwi': '2 oz Fruit Cups - Kiwi - 12',
+      '24 kiwi': '2 oz Fruit Cups - Kiwi - 24',
+      '12 mango': '2 oz Fruit Cups - Mango - 12',
+      '24 mango': '2 oz Fruit Cups - Mango - 24',
+      // Fruit Cups & Smoothies – 2 oz glass cups
+      '24 glass melon': '2 oz glass cups - Assorted Melons and Pineapple - 24',
+      '36 glass melon': '2 oz glass cups - Assorted Melons and Pineapple - 36',
+      '48 glass melon': '2 oz glass cups - Assorted Melons and Pineapple - 48',
+      '12-glass kiwi': '2 oz glass cups - Kiwi - 12',
+      '12-glass mango': '2 oz glass cups - Mango - 12',
+      // Fruit Cups & Smoothies – 3 oz covered cups
+      '12-3oz cups': '3 oz covered cups - Assorted Melons and Pineapple - 12',
+      '24-3oz cups': '3 oz covered cups - Assorted Melons and Pineapple - 24',
+      '36-3oz cups': '3 oz covered cups - Assorted Melons and Pineapple - 36',
+      '48-3oz cups': '3 oz covered cups - Assorted Melons and Pineapple - 48',
+      '12-3oz kiwi': '3 oz covered cups - Kiwi - 12',
+      '12-3oz mango': '3 oz covered cups - Mango - 12',
+      // Fruit Cups & Smoothies – 8 oz glass cups
+      '8oz glass': '8 oz glass cups - Assorted Melons and Pineapple - 12',
+      '8oz glass kiwi': '8 oz glass cups - Kiwi - 12',
+      '8oz glass mango': '8 oz glass cups - Mango - 12',
+      // Fruit Cups & Smoothies – Glass Salad Cups
+      'mini glass salad-12 cabbage': 'Glass Salad Cups - 12 - Cabbage',
+      'mini glass salad-12 caesar': 'Glass Salad Cups - 12 - Ceasar',
+      'mini glass salad-12 citrus': 'Glass Salad Cups - 12 - Citrus',
+      'mini glass salad-12 greek': 'Glass Salad Cups - 12 - Greek',
+      'mini glass salad-12 mango': 'Glass Salad Cups - 12 - Mango',
+      'mini glass salad-12 mushroom': 'Glass Salad Cups - 12 - Mushroom',
+      'mini glass salad-12 nish nosh': 'Glass Salad Cups - 12 - Nish Nosh',
+      'mini glass salad-12 quinoa': 'Glass Salad Cups - 12 - Quinoa',
+      // Fruit Cups & Smoothies – Smoothies
+      '15 smoothies': 'Smoothies - Assorted - 15',
+      '24 smoothies': 'Smoothies - Assorted - 24',
+      '30 smoothies': 'Smoothies - Assorted - 30',
+      '36 smoothies': 'Smoothies - Assorted - 36',
+      // Fruit Cups & Smoothies – Smoothies in Glass cups
+      '24 glass smoothies': 'Smoothies in Glass cups - Assorted - 24',
+      '36 glass smoothies': 'Smoothies in Glass cups - Assorted - 36',
+      // Fruit Cups & Smoothies – salad cups
+      'mini salad cups-12 cabbage': 'salad cups - 12 - Cabbage',
+      'mini salad cups-12 caesar': 'salad cups - 12 - Ceasar',
+      'mini salad cups-12 citrus': 'salad cups - 12 - Citrus',
+      'mini salad cups-12 greek': 'salad cups - 12 - Greek',
+      'mini salad cups-12 mango': 'salad cups - 12 - Mango',
+      'mini salad cups-12 mushroom': 'salad cups - 12 - Mushroom',
+      'mini salad cups-12 nish nosh': 'salad cups - 12 - Nish Nosh',
+      'mini salad cups-12 quinoa': 'salad cups - 12 - Quinoa',
+      // Salads – Purple Cabbage Salad
+      'cabbage-lg pan': 'Purple Cabbage Salad - Large - Pan',
+      'cabbage-lg tray': 'Purple Cabbage Salad - Large - Tray',
+      'cabbage-med pan': 'Purple Cabbage Salad - Medium - Pan',
+      'cabbage-med tray': 'Purple Cabbage Salad - Medium - Tray',
+      'cabbage-sm': 'Purple Cabbage Salad - Small - Rosebowl',
+      // Fruit platters – Decorative Cubed Platter
+      '16x16 cubed platter': 'Decorative Cubed Platter - Extra Large',
+      '14x14 cubed platter': 'Decorative Cubed Platter - Large',
+      '12x12 cubed platter': 'Decorative Cubed Platter - Medium',
+      '9x13 cubed': 'Decorative Cubed Platter - Small',
+      // Cubed Fruit – Cubed Fruit
+      '2lb-ca': 'Cubed Fruit - 2 lb container - Canteloupe - Bite Sized',
+      '2lb-ca diced': 'Cubed Fruit - 2 lb container - Canteloupe - Diced',
+      '2lb-hd': 'Cubed Fruit - 2 lb container - Honeydew - Bite Sized',
+      '2lb-hd diced': 'Cubed Fruit - 2 lb container - Honeydew - Diced',
+      '2lb mango': 'Cubed Fruit - 2 lb container - Mango - Bite Sized',
+      '2lb ma diced': 'Cubed Fruit - 2 lb container - Mango - Diced',
+      '2lb-pa': 'Cubed Fruit - 2 lb container - Pineapple - Bite Sized',
+      '2lb-pa diced': 'Cubed Fruit - 2 lb container - Pineapple - Diced',
+      '2lb-wa': 'Cubed Fruit - 2 lb container - Watermelon - Bite Sized',
+      '2lb-wa diced': 'Cubed Fruit - 2 lb container - Watermelon - Diced',
+      '9x13-2pans 4 colors': 'Cubed Fruit - 9x13 pan - 2 pans- 4 melons - Bite Sized',
+      '9x13 ca': 'Cubed Fruit - 9x13 pan - Canteloupe - Bite Sized',
+      '9x13 hd': 'Cubed Fruit - 9x13 pan - Honeydew - Bite Sized',
+      '9x13 mango diced': 'Cubed Fruit - 9x13 pan - Mango - Diced',
+      '9x13 pa': 'Cubed Fruit - 9x13 pan - Pineapple - Bite Sized',
+      '9x13 wa': 'Cubed Fruit - 9x13 pan - Watermelon - Bite Sized',
     };
     function resolveProductAlias(product) {
       var raw = (product || '').trim();
@@ -672,18 +771,14 @@
           var today = new Date();
           var todayStr = today.getFullYear() + '/' + String(today.getMonth() + 1).padStart(2, '0') + '/' + String(today.getDate()).padStart(2, '0');
           
-          // Set selectedDate to today if it exists, otherwise the NEXT
-          // upcoming date that has orders (e.g. today is Saturday with no
-          // orders, Sunday has one -- open on Sunday). dates is sorted
-          // ascending, so the first entry greater than today is the
-          // nearest upcoming one. If there's no upcoming order at all,
-          // fall back to the most recent past date so the screen isn't
-          // empty.
+          // Set selectedDate to today if it exists, otherwise the most
+          // recent (last) date that actually has orders -- not the very
+          // first date ever in the sheet. dates is sorted ascending, so
+          // the last entry is the most recent one.
           if (dates.indexOf(todayStr) !== -1) {
             app.selectedDate = todayStr;
           } else {
-            var upcomingDates = dates.filter(function(d) { return d > todayStr; });
-            app.selectedDate = upcomingDates[0] || dates[dates.length - 1] || '2026/08/28';
+            app.selectedDate = dates[dates.length - 1] || '2026/08/28';
           }
           
           app.loading = false;
@@ -755,13 +850,6 @@
           return (o.lastName && o.lastName.toLowerCase().indexOf(q) !== -1) ||
                  (o.deliveredTo && o.deliveredTo.toLowerCase().indexOf(q) !== -1) ||
                  (o.address && o.address.toLowerCase().indexOf(q) !== -1);
-        });
-        // Most recent delivery date first (was unsorted / oldest-first from
-        // the sheet) -- so a broad match surfaces the current/upcoming
-        // order first, and isn't at risk of being cut off by the 20-result
-        // cap below in favor of an old one.
-        results.sort(function(a, b) {
-          return (b.deliveryDate || '').localeCompare(a.deliveryDate || '');
         });
         return results.slice(0, 20);
       },
@@ -1894,7 +1982,7 @@
           var safeUrlAttr = url.replace(/"/g, '&quot;');
           statusEl.innerHTML =
             '<div style="margin-bottom:8px">' + safeFilename + ' is ready.</div>' +
-            '<a href="' + safeIntentAttr + '" style="display:inline-block;background:#C76A45;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:bold">↓ Tap to download</a>' +
+            '<a href="' + safeIntentAttr + '" style="display:inline-block;background:#0f766e;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:bold">⬇️ Tap to download</a>' +
             '<div style="margin-top:8px;font-size:12px">Trouble downloading? <a href="' + safeUrlAttr + '" style="color:#93c5fd">Try this link instead.</a> <button type="button" onclick="document.getElementById(\'blob-download-status\').remove()" style="margin-left:8px;background:#374151;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer">&times;</button></div>';
         }).catch(function(e) {
           statusEl.innerHTML = 'Couldn’t prepare the download: ' + (e && e.message ? e.message.replace(/</g, '&lt;') : 'unknown error') + ' <button type="button" onclick="document.getElementById(\'blob-download-status\').remove()" style="margin-left:8px;background:#374151;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer">&times;</button>';
@@ -3734,7 +3822,7 @@
           '</div>';
         html += '<div id="searchResultsContainer">' + app.buildSearchResultsHtml() + '</div>';
 
-        html += '<div class="date-nav"><button onclick="app.previousDate()" ' + (currentIdx === 0 ? 'disabled' : '') + '>←</button><div class="date-display"><h2>' + app.formatDateDisplay(app.selectedDate) + '</h2><p>' + dayOrders.length + ' orders</p>' + (dayRevenue > 0 ? '<p style="color:#2B241F;font-weight:bold;font-size:15px;margin-top:2px">$' + dayRevenue.toFixed(2) + ' total</p>' : '') + '</div><button onclick="app.nextDate()" ' + (currentIdx === dates.length - 1 ? 'disabled' : '') + '>→</button></div>';
+        html += '<div class="date-nav"><button onclick="app.previousDate()" ' + (currentIdx === 0 ? 'disabled' : '') + '>←</button><div class="date-display"><h2>' + app.formatDateDisplay(app.selectedDate) + '</h2><p>' + dayOrders.length + ' orders</p>' + (dayRevenue > 0 ? '<p style="color:#16a34a;font-weight:bold;font-size:15px;margin-top:2px">$' + dayRevenue.toFixed(2) + ' total</p>' : '') + '</div><button onclick="app.nextDate()" ' + (currentIdx === dates.length - 1 ? 'disabled' : '') + '>→</button></div>';
 
         // Product Totals box now groups by the same Fruit/Salad/Smoothies
         // categories (and their sections) as the Export Day PDF, instead of
@@ -3744,7 +3832,7 @@
         if (categorizedTotals.length > 0) {
           html += '<div class="totals-box"><h3>Product Totals</h3>';
           categorizedTotals.forEach(function(cat) {
-            html += '<div style="margin-top:14px"><h4 style="font-size:13px;color:#C76A45;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 8px;border-bottom:2px solid #ECDFCD;padding-bottom:4px">' + cat.category + '</h4>';
+            html += '<div style="margin-top:14px"><h4 style="font-size:13px;color:#7c3aed;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 8px;border-bottom:2px solid #ede9fe;padding-bottom:4px">' + cat.category + '</h4>';
             cat.sections.forEach(function(sect) {
               if (cat.sections.length > 1) {
                 html += '<div style="font-size:12px;color:#6b7280;font-weight:bold;margin:8px 0 4px">' + sect.section + '</div>';
@@ -3770,7 +3858,7 @@
           '<option value="2.4-continuous"' + (app.labelSize === '2.4-continuous' ? ' selected' : '') + '>2.4in continuous roll (Brother)</option>' +
           '</select></div>';
 
-        html += '<div class="action-buttons"><button class="print-btn" onclick="app.openAddOrder()" style="background:#C76A45">+ Add Order</button></div>';
+        html += '<div class="action-buttons"><button class="print-btn" onclick="app.openAddOrder()" style="background:#16a34a">+ Add Order</button></div>';
 
         // Batch selection + Download Selected (restored Oct 8, 2026).
         // Removed on Oct 7 when the dashboard was trimmed, then asked for
@@ -3787,10 +3875,10 @@
         // per-order Download button uses the same shareOrderPdf path.
         html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
           '<span style="font-size:13px;color:#374151;font-weight:bold">' + selectedCount + ' selected</span>' +
-          '<button onclick="app.selectAllOrders()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#FFFDF9;color:#4A3E33;border:1px solid #ECDFCD;padding:7px 12px;border-radius:999px;cursor:pointer;font-size:12px;width:auto;margin:0">Select All</button>' +
-          '<button onclick="app.clearOrderSelection()" ' + (selectedCount === 0 ? 'disabled' : '') + ' style="background:#FFFDF9;color:#4A3E33;border:1px solid #ECDFCD;padding:7px 12px;border-radius:999px;cursor:pointer;font-size:12px;width:auto;margin:0">Clear</button>' +
+          '<button onclick="app.selectAllOrders()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#6b7280;color:white;border:none;padding:7px 12px;border-radius:6px;cursor:pointer;font-size:12px;width:auto;margin:0">Select All</button>' +
+          '<button onclick="app.clearOrderSelection()" ' + (selectedCount === 0 ? 'disabled' : '') + ' style="background:#6b7280;color:white;border:none;padding:7px 12px;border-radius:6px;cursor:pointer;font-size:12px;width:auto;margin:0">Clear</button>' +
           '</div>';
-        html += '<div class="action-buttons"><button onclick="app.shareSelectedPdf()" ' + (selectedCount === 0 ? 'disabled' : '') + ' title="Download one label PDF for every checked order" style="background:#C76A45;color:#FFFDF9;border:none">\u2193 Download Selected (' + selectedCount + ')</button></div>';
+        html += '<div class="action-buttons"><button class="print-btn" onclick="app.shareSelectedPdf()" ' + (selectedCount === 0 ? 'disabled' : '') + ' title="Download one label PDF for every checked order" style="background:#0f766e">\u2B07\uFE0F Download Selected (' + selectedCount + ')</button></div>';
 
         // Export Day moved below the other action buttons (was the very
         // first button on the page, right under the date nav) -- reported
@@ -3798,7 +3886,7 @@
         // up there; grouped down here with the other buttons that were
         // already confirmed working.
         if (categorizedTotals.length > 0) {
-          html += '<div class="action-buttons"><button class="print-btn" onclick="app.shareDayExportPdf()" title="Categorized PDF of this day&#39;s totals" style="background:#7D8C4C">↓ Export Day (PDF)</button></div>';
+          html += '<div class="action-buttons"><button class="print-btn" onclick="app.shareDayExportPdf()" title="Categorized PDF of this day&#39;s totals" style="background:#7c3aed">📊 Export Day (PDF)</button></div>';
         }
 
         if (dayOrders.length === 0) {
@@ -3812,14 +3900,14 @@
             // so it's obvious which one you searched for, since a day can
             // have many orders on it. Fades out automatically.
             var isHighlighted = !!app.highlightOrderNumber && order.orderNumber === app.highlightOrderNumber;
-            html += '<div class="order-item" data-order-number="' + order.orderNumber + '" style="' + (isHighlighted ? 'outline:3px solid #f59e0b;outline-offset:-3px;background:#fffbeb;' : (isSelected ? 'outline:2px solid #C76A45;outline-offset:-2px;' : '')) + '"><div style="display:flex;justify-content:space-between;align-items:start"><div style="display:flex;gap:10px;align-items:start"><input type="checkbox" onchange="app.toggleOrderSelection(' + orderIdx + ')" ' + (isSelected ? 'checked' : '') + ' title="Select for Download Selected" style="margin-top:5px;width:20px;height:20px;flex-shrink:0;accent-color:#C76A45"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#2B241F;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
+            html += '<div class="order-item" data-order-number="' + order.orderNumber + '" style="' + (isHighlighted ? 'outline:3px solid #f59e0b;outline-offset:-3px;background:#fffbeb;' : (isSelected ? 'outline:2px solid #0f766e;outline-offset:-2px;' : '')) + '"><div style="display:flex;justify-content:space-between;align-items:start"><div style="display:flex;gap:10px;align-items:start"><input type="checkbox" onchange="app.toggleOrderSelection(' + orderIdx + ')" ' + (isSelected ? 'checked' : '') + ' title="Select for Download Selected" style="margin-top:5px;width:20px;height:20px;flex-shrink:0"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#059669;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
             if (order.deliveredTo) html += '<div class="order-address">Deliver to: ' + order.deliveredTo + '</div>';
-            html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#8A7A68;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div>';
+            html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div>';
             if (order.total) {
               // Sheet cell may or may not already include a "$" depending on
               // how it was typed/formatted there — don't double it up.
               var totalDisplay = /^\$/.test(order.total) ? order.total : ('$' + order.total);
-              html += '<div style="font-size:14px;color:#2B241F;font-weight:bold;margin-top:5px">Total: ' + totalDisplay + '</div>';
+              html += '<div style="font-size:14px;color:#16a34a;font-weight:bold;margin-top:5px">Total: ' + totalDisplay + '</div>';
             }
             // flex-wrap:wrap (Sept 2026): this row never wrapped, so on a
             // narrow phone screen the 4th button (PDF, teal-green) got
@@ -3828,7 +3916,7 @@
             // unreachable/invisible on some orders. justify-content:
             // flex-end keeps them right-aligned like before when they do
             // fit on one line.
-            html += '</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#FFFDF9;color:#4A3E33;border:1px solid #ECDFCD;padding:7px 14px;border-radius:999px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">✏️ Edit</button><button onclick="app.shareOrderPdf(' + orderIdx + ')" title="Download the label PDF for this order" style="background:#C76A45;color:#FFFDF9;border:none;padding:7px 14px;border-radius:999px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">↓ Download</button></div></div>';
+            html += '</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#6b7280;color:white;border:none;padding:9px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">✏️ Edit</button><button onclick="app.shareOrderPdf(' + orderIdx + ')" title="Download the label PDF for this order" style="background:#0f766e;color:white;border:none;padding:9px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">⬇️ Download</button></div></div>';
             html += '<div class="order-items">';
             if (order.items) {
               // One row per physical UNIT, numbered against the order's
