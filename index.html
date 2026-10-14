@@ -1117,7 +1117,7 @@
           total: '',
           productCostAutoValue: null, // last value we auto-filled, so we can tell a manual edit apart from our own fill
           totalAutoValue: null, // same idea for Total, which auto-derives from Product Cost + Delivery Cost
-          items: [{ product: '', quantity: 1, specialInstructions: '', isCustom: false, customPrice: '', addedDuringEdit: true }]
+          items: [{ product: '', quantity: 1, specialInstructions: '', isCustom: false, customPrice: '', priceOverride: '', addedDuringEdit: true }]
         };
         app.isEditingOrder = false;
         app.addOrderError = '';
@@ -1193,9 +1193,9 @@
                 // actually keeps that promise now that Product Cost auto-
                 // updates for NEW items: see recalcProductCost.
                 var isCustom = app.products.length > 0 && app.products.indexOf(i.product) === -1;
-                return { product: i.product, quantity: i.quantity || 1, specialInstructions: i.specialInstructions || '', isCustom: isCustom, customPrice: '', addedDuringEdit: false };
+                return { product: i.product, quantity: i.quantity || 1, specialInstructions: i.specialInstructions || '', isCustom: isCustom, customPrice: '', priceOverride: '', addedDuringEdit: false };
               })
-            : [{ product: '', quantity: 1, specialInstructions: '', isCustom: false, customPrice: '', addedDuringEdit: false }]
+            : [{ product: '', quantity: 1, specialInstructions: '', isCustom: false, customPrice: '', priceOverride: '', addedDuringEdit: false }]
         };
         app.isEditingOrder = true;
         app.addOrderError = '';
@@ -1245,7 +1245,7 @@
         // addedDuringEdit: true -- see recalcProductCost. Matters only in
         // edit mode (a brand new order has no "pre-existing" items to
         // distinguish from), but set unconditionally for consistency.
-        app.newOrder.items.push({ product: '', quantity: 1, specialInstructions: '', isCustom: false, customPrice: '', addedDuringEdit: true });
+        app.newOrder.items.push({ product: '', quantity: 1, specialInstructions: '', isCustom: false, customPrice: '', priceOverride: '', addedDuringEdit: true });
         app.render();
       },
 
@@ -1253,7 +1253,7 @@
         app.syncNewOrderFromDom();
         app.newOrder.items.splice(idx, 1);
         if (app.newOrder.items.length === 0) {
-          app.newOrder.items.push({ product: '', quantity: 1, specialInstructions: '', isCustom: false, customPrice: '', addedDuringEdit: true });
+          app.newOrder.items.push({ product: '', quantity: 1, specialInstructions: '', isCustom: false, customPrice: '', priceOverride: '', addedDuringEdit: true });
         }
         app.render();
         // The removed item's price (if any) needs to come back out of
@@ -1430,6 +1430,7 @@
         if (app.newOrder && app.newOrder.items[idx]) app.newOrder.items[idx].product = value;
         var box = document.getElementById('noItemSuggestions_' + idx);
         if (box) box.innerHTML = '';
+        app.updateItemLineDisplay(idx);
         app.recalcProductCost();
       },
 
@@ -1524,8 +1525,18 @@
             any = true;
             return;
           }
-          var price = app.productPrices[(item.product || '').trim()];
-          if (price == null) return;
+          // A hand-typed Price each (see renderAddOrderForm/updateItemLineDisplay)
+          // wins over the catalog lookup for this one line, same way customPrice
+          // already does for a Miscellaneous item above.
+          var hasOverride = item.priceOverride !== undefined && item.priceOverride !== null && item.priceOverride !== '';
+          var price;
+          if (hasOverride) {
+            price = parseFloat(item.priceOverride);
+            if (isNaN(price) || price < 0) return;
+          } else {
+            price = app.productPrices[(item.product || '').trim()];
+            if (price == null) return;
+          }
           sum += price * qty;
           any = true;
         });
@@ -1534,6 +1545,35 @@
         app.newOrder.productCostAutoValue = formatted;
         app.updateNoPriceWarning();
         app.recalcOrderTotal();
+      },
+
+      // Keeps one item row's "Price each" field and "= $X.XX" line total in
+      // sync without a full app.render() -- a re-render would wipe out
+      // whatever's mid-flight in the suggestions box / input focus. Called
+      // whenever the product, quantity, or the price-each field itself
+      // changes. If the person hasn't hand-typed a price for this line, the
+      // field keeps showing (and recalcProductCost keeps using) the catalog
+      // price automatically, same as Product Cost already does overall --
+      // this just makes that same number visible per line, and editable
+      // per line, instead of only visible as one combined total.
+      updateItemLineDisplay: function(idx) {
+        if (!app.newOrder || !app.newOrder.items[idx]) return;
+        var item = app.newOrder.items[idx];
+        if (item.isCustom) return;
+        var priceInput = document.getElementById('noItemPriceEach_' + idx);
+        var totalSpan = document.getElementById('noItemLineTotal_' + idx);
+        if (!priceInput && !totalSpan) return;
+        var hasOverride = item.priceOverride !== undefined && item.priceOverride !== null && item.priceOverride !== '';
+        var catalogPrice = app.productPrices[(item.product || '').trim()];
+        if (priceInput && !hasOverride) {
+          priceInput.value = (catalogPrice != null) ? catalogPrice.toFixed(2) : '';
+        }
+        var unitPrice = hasOverride ? parseFloat(item.priceOverride) : catalogPrice;
+        var qty = parseInt(item.quantity, 10);
+        if (isNaN(qty) || qty < 1) qty = 1;
+        if (totalSpan) {
+          totalSpan.textContent = (unitPrice != null && !isNaN(unitPrice)) ? ('= $' + (unitPrice * qty).toFixed(2)) : '';
+        }
       },
 
       // Total = Product Cost + Delivery Cost, recalculated live whenever
@@ -1568,7 +1608,7 @@
                 'style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #000;border-radius:6px;background:#FBF3E7">' +
                 '<div style="font-size:11px;margin-top:2px"><a href="#" onclick="app.useProductListForItem(' + idx + '); return false;" style="color:#2563eb">&larr; pick from product list instead</a></div>')
             : ('<input type="text" autocomplete="off" id="noItemProduct_' + idx + '" placeholder="Start typing a product..." value="' + (item.product || '').replace(/"/g, '&quot;') + '" ' +
-                'oninput="app.filterProductSuggestions(' + idx + ', this.value); app.recalcProductCost();" ' +
+                'oninput="app.filterProductSuggestions(' + idx + ', this.value); app.updateItemLineDisplay(' + idx + '); app.recalcProductCost();" ' +
                 'onfocus="app.filterProductSuggestions(' + idx + ', this.value)" ' +
                 'onblur="setTimeout(function(){ var b=document.getElementById(\'noItemSuggestions_' + idx + '\'); if(b) b.innerHTML=\'\'; }, 300)" ' +
                 'style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #d1d5db;border-radius:6px">');
@@ -1583,6 +1623,31 @@
                 'oninput="if (app.newOrder && app.newOrder.items[' + idx + ']) { app.newOrder.items[' + idx + '].customPrice = this.value; } app.recalcProductCost();" ' +
                 'style="flex:0 1 90px;min-width:80px;padding:8px;border:1px solid #000;border-radius:6px">')
             : '';
+
+          // Visible per-line price (catalog items only -- a Miscellaneous
+          // item already shows its price inline above, in the flex row
+          // itself). Pre-fills from the catalog price the moment a product
+          // is picked, same number Product Cost uses, but shown and
+          // editable per line instead of only as one combined total --
+          // requested so it's clear how the Product Cost total is built up,
+          // and so one line's price can be adjusted without hand-editing
+          // the combined total and losing track of which item it came from.
+          var lineHtml = isCustom ? '' : (function() {
+            var catalogPrice = app.productPrices[(item.product || '').trim()];
+            var hasOverride = item.priceOverride !== undefined && item.priceOverride !== null && item.priceOverride !== '';
+            var unitPrice = hasOverride ? parseFloat(item.priceOverride) : catalogPrice;
+            var qtyNum = parseInt(item.quantity, 10);
+            if (isNaN(qtyNum) || qtyNum < 1) qtyNum = 1;
+            var lineTotalText = (unitPrice != null && !isNaN(unitPrice)) ? ('= $' + (unitPrice * qtyNum).toFixed(2)) : '';
+            var priceValueAttr = hasOverride ? item.priceOverride.toString().replace(/"/g, '&quot;') : (catalogPrice != null ? catalogPrice.toFixed(2) : '');
+            return '<div style="display:flex;align-items:center;gap:6px;margin-top:4px;font-size:12px;color:#4A3E33">' +
+              '<label for="noItemPriceEach_' + idx + '">Price each: $</label>' +
+              '<input type="number" step="0.01" min="0" inputmode="decimal" id="noItemPriceEach_' + idx + '" value="' + priceValueAttr + '" placeholder="auto" onwheel="this.blur()" ' +
+              'oninput="if (app.newOrder && app.newOrder.items[' + idx + ']) { app.newOrder.items[' + idx + '].priceOverride = this.value; } app.updateItemLineDisplay(' + idx + '); app.recalcProductCost();" ' +
+              'style="width:70px;padding:4px 6px;border:1px solid #ECDFCD;border-radius:4px;background:#FFFDF9">' +
+              '<span id="noItemLineTotal_' + idx + '" style="font-weight:bold;color:#2B241F">' + lineTotalText + '</span>' +
+              '</div>';
+          })();
 
           return '<div style="margin-bottom:8px;position:relative;z-index:' + (100 - idx) + '">' +
             '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start">' +
@@ -1601,7 +1666,7 @@
             // scroll the page again, like every other input on the form.
             '<input type="number" min="1" id="noItemQty_' + idx + '" value="' + (item.quantity || 1) + '" ' +
             'onwheel="this.blur()" ' +
-            'oninput="if (app.newOrder && app.newOrder.items[' + idx + ']) { app.newOrder.items[' + idx + '].quantity = parseInt(this.value, 10) || 1; app.recalcProductCost(); }" ' +
+            'oninput="if (app.newOrder && app.newOrder.items[' + idx + ']) { app.newOrder.items[' + idx + '].quantity = parseInt(this.value, 10) || 1; } app.updateItemLineDisplay(' + idx + '); app.recalcProductCost();" ' +
             'style="flex:0 1 70px;min-width:60px;padding:8px;border:1px solid #d1d5db;border-radius:6px">' +
             (o.items.length > 1 ? '<button type="button" onclick="app.removeOrderItemRow(' + idx + ')" style="background:#ef4444;width:36px;padding:8px 0;margin:0">✕</button>' : '<span style="width:36px"></span>') +
             // Positioned against the whole row (not just the narrower product
@@ -1609,6 +1674,7 @@
             // A custom row has no suggestions box at all (nothing to suggest).
             (isCustom ? '' : '<div id="noItemSuggestions_' + idx + '" style="position:absolute;top:100%;left:0;right:0;z-index:1000;max-height:200px;overflow-y:auto;background:white;box-shadow:0 4px 10px rgba(0,0,0,0.15);border-radius:0 0 6px 6px"></div>') +
             '</div>' +
+            lineHtml +
             // Per-item special instructions -- e.g. "no nuts" on just this
             // item, not the whole order (that's the separate Customer Note
             // field below). Direct-mutates app.newOrder.items[idx] on every
