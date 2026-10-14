@@ -773,14 +773,23 @@
           var today = new Date();
           var todayStr = today.getFullYear() + '/' + String(today.getMonth() + 1).padStart(2, '0') + '/' + String(today.getDate()).padStart(2, '0');
           
-          // Set selectedDate to today if it exists, otherwise the most
-          // recent (last) date that actually has orders -- not the very
-          // first date ever in the sheet. dates is sorted ascending, so
-          // the last entry is the most recent one.
+          // Set selectedDate to today if it exists, otherwise the NEAREST
+          // UPCOMING date that actually has orders (e.g. today is Thursday
+          // with no orders yet, but Friday does -- open on Friday, not
+          // whatever date happens to sort last across the whole sheet).
+          // dates is sorted ascending, so the first entry greater than
+          // today is the closest one coming up. Only when there's nothing
+          // upcoming at all (every order on file is in the past) do we
+          // fall back to the most recent (last) date, so the view still
+          // shows something instead of coming up empty.
           if (dates.indexOf(todayStr) !== -1) {
             app.selectedDate = todayStr;
           } else {
-            app.selectedDate = dates[dates.length - 1] || '2026/08/28';
+            var nextUpcoming = null;
+            for (var di = 0; di < dates.length; di++) {
+              if (dates[di] > todayStr) { nextUpcoming = dates[di]; break; }
+            }
+            app.selectedDate = nextUpcoming || dates[dates.length - 1] || '2026/08/28';
           }
           
           app.loading = false;
@@ -1113,7 +1122,12 @@
           customerNote: '',
           paymentMethod: '',
           productCost: '',
-          deliveryCost: '',
+          // Delivery defaults to $15 the standard charge -- Pickup or
+          // Delivery starts on 'delivery' above, so a brand-new order
+          // should already show it instead of making you type it every
+          // time. updateDeliveryFieldsState() keeps it in sync if the
+          // Pickup/Delivery dropdown gets changed afterward.
+          deliveryCost: '15.00',
           total: '',
           productCostAutoValue: null, // last value we auto-filled, so we can tell a manual edit apart from our own fill
           totalAutoValue: null, // same idea for Total, which auto-derives from Product Cost + Delivery Cost
@@ -1124,6 +1138,7 @@
         app.addOrderSaving = false;
         app.showAddOrder = true;
         app.render();
+        app.recalcOrderTotal();
       },
 
       // Opens the same form pre-filled with an existing order's data, for
@@ -1891,6 +1906,24 @@
         var addrInput = document.getElementById('noDeliveryAddress');
         if (nameInput) nameInput.disabled = isPickup;
         if (addrInput) addrInput.disabled = isPickup;
+
+        // Delivery Cost follows the Pickup/Delivery toggle: switching to
+        // Pickup clears the $15 delivery charge automatically (a pickup
+        // order has none), and switching back to Delivery re-fills the
+        // standard $15 if the field's sitting empty. A delivery charge
+        // that's been hand-typed to something else stays put -- this only
+        // ever fills in an EMPTY field, never overwrites one that already
+        // has a value.
+        var dcInput = document.getElementById('noDeliveryCost');
+        if (dcInput) {
+          if (isPickup) {
+            dcInput.value = '';
+          } else if (!dcInput.value) {
+            dcInput.value = '15.00';
+          }
+          if (app.newOrder) app.newOrder.deliveryCost = dcInput.value;
+          app.recalcOrderTotal();
+        }
       },
 
       getAllDates: function() {
