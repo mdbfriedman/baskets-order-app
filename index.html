@@ -484,6 +484,38 @@
       return product;
     }
 
+    // Reverse of PRODUCT_ALIASES (full catalog name -> short name), built
+    // once from the same map above (Oct 2026). Used ONLY to decide what to
+    // DISPLAY on the dashboard and the Export Day PDF -- matching,
+    // categorization (matchExportGroup) and pricing all still run against
+    // the full catalog name via resolveProductAlias, never against this.
+    // Lets the short names Mordechai actually types show back to him on
+    // the dashboard/export instead of the much longer full catalog name,
+    // while there's still only one real product under the hood either way.
+    var SHORT_DISPLAY_NAMES = {};
+    Object.keys(PRODUCT_ALIASES).forEach(function(shortName) {
+      SHORT_DISPLAY_NAMES[PRODUCT_ALIASES[shortName].toLowerCase()] = shortName;
+    });
+    function toShortDisplayName(product) {
+      var raw = (product || '').trim();
+      var key = raw.toLowerCase();
+      if (SHORT_DISPLAY_NAMES.hasOwnProperty(key)) return SHORT_DISPLAY_NAMES[key];
+
+      // Mirrors resolveProductAlias's own count-suffix handling, in
+      // reverse: a couple of aliases (e.g. "fruit cups") store the bare,
+      // no-count product as their value, with the count re-appended at
+      // resolve time (see the " - " + m[1] line above) rather than baked
+      // into the stored value. Strip a trailing " - N" here and re-check
+      // the remainder, so the count isn't lost going back the other way.
+      var m = /^(.+)\s-\s(\d+)$/.exec(raw);
+      if (m && SHORT_DISPLAY_NAMES.hasOwnProperty(m[1].trim().toLowerCase())) {
+        return SHORT_DISPLAY_NAMES[m[1].trim().toLowerCase()] + ' ' + m[2];
+      }
+      // No short name on file for this product (yet) -- show the full
+      // catalog name unchanged rather than hide it.
+      return product;
+    }
+
     var app = {
       orders: [],
       products: [],
@@ -508,6 +540,18 @@
       passwordGate: false,
       passwordError: '',
       appPassword: '',
+
+      // Kitchen Mode (Oct 2026): a device-local, no-password view for a
+      // shared kitchen tablet -- hides dollar amounts and the Add/Edit
+      // controls so kitchen staff can see what to pack without seeing
+      // prices or being able to change an order. Deliberately NOT a
+      // security boundary -- there's no second password, nothing stops
+      // someone from clearing this device's storage to flip it back.
+      // It's meant for a tablet you keep physical control of in the
+      // kitchen, not for individual worker logins (see toggleKitchenMode
+      // below, and the small link at the bottom of the dashboard that
+      // calls it).
+      kitchenMode: localStorage.getItem('kitchenMode') === 'true',
       showAddOrder: false,
       newOrder: null,
       isEditingOrder: false, // true when the Add Order form is actually editing an existing order
@@ -594,6 +638,24 @@
           app.passwordError = 'Cannot reach server.';
           app.render();
         }
+      },
+
+      // Flips this one device permanently into (or out of) Kitchen Mode --
+      // see the kitchenMode property above for what that hides. Confirms
+      // first both ways, since this is a one-tap toggle with no password
+      // behind it: easy to set up on the kitchen tablet on purpose, hard to
+      // bump into by accident.
+      toggleKitchenMode: function() {
+        if (app.kitchenMode) {
+          if (!confirm('Switch this device back to the normal admin view (prices, Add Order, Edit)?')) return;
+          localStorage.setItem('kitchenMode', 'false');
+          app.kitchenMode = false;
+        } else {
+          if (!confirm('Switch this device to Kitchen Mode?\n\nThis hides all dollar amounts and the Add Order / Edit buttons -- Download and Export Day (PDF) still work. Meant for a tablet that stays in the kitchen; you can switch it back from this same link.')) return;
+          localStorage.setItem('kitchenMode', 'true');
+          app.kitchenMode = true;
+        }
+        app.render();
       },
 
       checkSetup: async function() {
@@ -974,8 +1036,9 @@
         dayOrders.forEach(function(order) {
           if (!order.items) return;
           order.items.forEach(function(item) {
-            var label = item.product;
-            if (item.quantityIndividual) label = item.quantityIndividual + ' ' + item.product;
+            var displayProduct = toShortDisplayName(item.product);
+            var label = displayProduct;
+            if (item.quantityIndividual) label = item.quantityIndividual + ' ' + displayProduct;
             if (item.specialInstructions) label += ' (' + item.specialInstructions + ')';
             var meta = matchExportGroup(item.product);
             var key = meta.category + '|' + meta.section + '|' + label;
@@ -3979,7 +4042,7 @@
           '</div>';
         html += '<div id="searchResultsContainer">' + app.buildSearchResultsHtml() + '</div>';
 
-        html += '<div class="date-nav"><button onclick="app.previousDate()" ' + (currentIdx === 0 ? 'disabled' : '') + '>←</button><div class="date-display"><h2>' + app.formatDateDisplay(app.selectedDate) + '</h2><p>' + dayOrders.length + ' orders</p>' + (dayRevenue > 0 ? '<p style="color:#000;font-weight:bold;font-size:15px;margin-top:2px">$' + dayRevenue.toFixed(2) + ' total</p>' : '') + '</div><button onclick="app.nextDate()" ' + (currentIdx === dates.length - 1 ? 'disabled' : '') + '>→</button></div>';
+        html += '<div class="date-nav"><button onclick="app.previousDate()" ' + (currentIdx === 0 ? 'disabled' : '') + '>←</button><div class="date-display"><h2>' + app.formatDateDisplay(app.selectedDate) + '</h2><p>' + dayOrders.length + ' orders</p>' + (!app.kitchenMode && dayRevenue > 0 ? '<p style="color:#000;font-weight:bold;font-size:15px;margin-top:2px">$' + dayRevenue.toFixed(2) + ' total</p>' : '') + '</div><button onclick="app.nextDate()" ' + (currentIdx === dates.length - 1 ? 'disabled' : '') + '>→</button></div>';
 
         // Product Totals box now groups by the same Fruit/Salad/Smoothies
         // categories (and their sections) as the Export Day PDF, instead of
@@ -4015,7 +4078,9 @@
           '<option value="2.4-continuous"' + (app.labelSize === '2.4-continuous' ? ' selected' : '') + '>2.4in continuous roll (Brother)</option>' +
           '</select></div>';
 
-        html += '<div class="action-buttons"><button class="print-btn" onclick="app.openAddOrder()">+ Add Order</button></div>';
+        if (!app.kitchenMode) {
+          html += '<div class="action-buttons"><button class="print-btn" onclick="app.openAddOrder()">+ Add Order</button></div>';
+        }
 
         // Batch selection + Download Selected (restored Oct 8, 2026).
         // Removed on Oct 7 when the dashboard was trimmed, then asked for
@@ -4060,7 +4125,7 @@
             html += '<div class="order-item" data-order-number="' + order.orderNumber + '" style="' + (isHighlighted ? 'outline:3px solid #f59e0b;outline-offset:-3px;background:#fffbeb;' : (isSelected ? 'outline:2px solid #000;outline-offset:-2px;' : '')) + '"><div style="display:flex;justify-content:space-between;align-items:start"><div style="display:flex;gap:10px;align-items:start"><input type="checkbox" onchange="app.toggleOrderSelection(' + orderIdx + ')" ' + (isSelected ? 'checked' : '') + ' title="Select for Download Selected" style="margin-top:5px;width:20px;height:20px;flex-shrink:0"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#000;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
             if (order.deliveredTo) html += '<div class="order-address">Deliver to: ' + order.deliveredTo + '</div>';
             html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div>';
-            if (order.total) {
+            if (order.total && !app.kitchenMode) {
               // Sheet cell may or may not already include a "$" depending on
               // how it was typed/formatted there — don't double it up.
               var totalDisplay = /^\$/.test(order.total) ? order.total : ('$' + order.total);
@@ -4073,7 +4138,9 @@
             // unreachable/invisible on some orders. justify-content:
             // flex-end keeps them right-aligned like before when they do
             // fit on one line.
-            html += '</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#6B5C4E;color:white;border:none;padding:9px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">✏️ Edit</button><button class="print-btn" onclick="app.shareOrderPdf(' + orderIdx + ')" title="Download the label PDF for this order" style="color:white;border:none;padding:9px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">↓ Download</button></div></div>';
+            html += '</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">' +
+              (app.kitchenMode ? '' : '<button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#6B5C4E;color:white;border:none;padding:9px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">✏️ Edit</button>') +
+              '<button class="print-btn" onclick="app.shareOrderPdf(' + orderIdx + ')" title="Download the label PDF for this order" style="color:white;border:none;padding:9px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">↓ Download</button></div></div>';
             html += '<div class="order-items">';
             if (order.items) {
               // One row per physical UNIT, numbered against the order's
@@ -4097,7 +4164,7 @@
                 if (isNaN(qty) || qty < 1) qty = 1;
                 for (var unit = 0; unit < qty; unit++) {
                   dashUnitCounter++;
-                  html += '<div><span><strong>' + item.product + '</strong>' + (item.specialInstructions ? ' <span style="color:#dc2626;font-weight:normal;font-size:12px">(' + item.specialInstructions + ')</span>' : '') + '</span> <span><strong>' + dashUnitCounter + ' of ' + dashTotalUnits + '</strong></span></div>';
+                  html += '<div><span><strong>' + toShortDisplayName(item.product) + '</strong>' + (item.specialInstructions ? ' <span style="color:#dc2626;font-weight:normal;font-size:12px">(' + item.specialInstructions + ')</span>' : '') + '</span> <span><strong>' + dashUnitCounter + ' of ' + dashTotalUnits + '</strong></span></div>';
                 }
               });
             }
@@ -4109,6 +4176,12 @@
           });
           html += '</div>';
         }
+
+        // Small, deliberately unobtrusive link -- not meant to be stumbled
+        // into, but easy to find if you're looking for it (see
+        // toggleKitchenMode above for what it does and why it isn't a real
+        // security control).
+        html += '<div style="text-align:center;margin-top:24px;padding-top:12px"><a href="#" onclick="app.toggleKitchenMode();return false;" style="font-size:11px;color:#8A7A68;text-decoration:underline">' + (app.kitchenMode ? 'Exit Kitchen Mode' : 'Set this device to Kitchen Mode') + '</a></div>';
 
         appDiv.innerHTML = html;
       }
