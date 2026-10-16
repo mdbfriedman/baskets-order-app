@@ -516,6 +516,26 @@
       return product;
     }
 
+    // The Sheet's "Quantity of Individual" column (item.quantityIndividual)
+    // is meant to prefix a count onto a product name that doesn't already
+    // show one (e.g. "3 Individual Platters"). But for a lot of these
+    // products the count is already baked into the name itself -- a short
+    // name like "40 cups" (or the matching full catalog name, "...- 40"),
+    // with the Sheet's Quantity of Individual column ALSO set to "40" out
+    // of old habit from before short names existed. Prefixing blindly then
+    // shows "40 40 cups" / "36 36 smoothies" (reported Oct 2026) -- this
+    // skips the prefix when that same number is already present in the
+    // display name as its own number, rather than always prepending it.
+    function prefixQuantityIndividual(displayName, quantityIndividual) {
+      var qi = (quantityIndividual || '').toString().trim();
+      if (!qi) return displayName;
+      var qiNum = qi.match(/\d+/);
+      if (qiNum && new RegExp('(^|\\D)' + qiNum[0] + '(\\D|$)').test(displayName)) {
+        return displayName;
+      }
+      return qi + ' ' + displayName;
+    }
+
     var app = {
       orders: [],
       products: [],
@@ -1037,8 +1057,7 @@
           if (!order.items) return;
           order.items.forEach(function(item) {
             var displayProduct = toShortDisplayName(item.product);
-            var label = displayProduct;
-            if (item.quantityIndividual) label = item.quantityIndividual + ' ' + displayProduct;
+            var label = item.quantityIndividual ? prefixQuantityIndividual(displayProduct, item.quantityIndividual) : displayProduct;
             if (item.specialInstructions) label += ' (' + item.specialInstructions + ')';
             var meta = matchExportGroup(item.product);
             var key = meta.category + '|' + meta.section + '|' + label;
