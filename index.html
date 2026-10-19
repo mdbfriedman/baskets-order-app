@@ -76,6 +76,8 @@
     .order-note { background: #FBF3E7; border-left: 3px solid #C76A45; padding: 10px; margin-top: 10px; font-size: 13px; color: #4A3E33; border-radius: 6px; }
     .loading { text-align: center; padding: 20px; color: #8A7A68; }
     .empty-state { text-align: center; padding: 40px; color: #8A7A68; }
+    body.kiosk-printing > .header, body.kiosk-printing > #app { display: none !important; }
+    body.kiosk-printing { background: #fff; }
   </style>
 </head>
 <body>
@@ -562,9 +564,10 @@
       appPassword: '',
 
       // Kitchen Mode (Oct 2026): a device-local, no-password view for a
-      // shared kitchen tablet -- hides dollar amounts and the Add/Edit
-      // controls so kitchen staff can see what to pack without seeing
-      // prices or being able to change an order. Deliberately NOT a
+      // shared kitchen tablet. Originally hid all dollar amounts and the
+      // Add/Edit controls; changed Oct 18, 2026 so it now hides ONLY the
+      // day's total revenue line under the date -- Add Order, Edit and
+      // each order's own Total all stay visible. Deliberately NOT a
       // security boundary -- there's no second password, nothing stops
       // someone from clearing this device's storage to flip it back.
       // It's meant for a tablet you keep physical control of in the
@@ -665,13 +668,31 @@
       // first both ways, since this is a one-tap toggle with no password
       // behind it: easy to set up on the kitchen tablet on purpose, hard to
       // bump into by accident.
-      toggleKitchenMode: function() {
+      // Exiting asks for the app password (Oct 18, 2026) so kitchen staff
+      // can't tap "Exit Kitchen Mode" to see the day's revenue. Entering
+      // stays a plain confirm. Checked against the same /api/check-password
+      // endpoint as the login screen; if no APP_PASSWORD is set on the
+      // server, there's nothing to check against and it just exits.
+      toggleKitchenMode: async function() {
         if (app.kitchenMode) {
-          if (!confirm('Switch this device back to the normal admin view (prices, Add Order, Edit)?')) return;
+          var pw = prompt('Enter the app password to exit Kitchen Mode:');
+          if (pw === null) return;
+          try {
+            var resp = await fetch('/api/check-password', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ password: pw })
+            });
+            var data = await resp.json();
+            if (data.configured && !data.ok) { alert('Incorrect password.'); return; }
+          } catch (e) {
+            alert('Cannot reach server -- try again.');
+            return;
+          }
           localStorage.setItem('kitchenMode', 'false');
           app.kitchenMode = false;
         } else {
-          if (!confirm('Switch this device to Kitchen Mode?\n\nThis hides all dollar amounts and the Add Order / Edit buttons -- Download and Export Day (PDF) still work. Meant for a tablet that stays in the kitchen; you can switch it back from this same link.')) return;
+          if (!confirm('Switch this device to Kitchen Mode?\n\nThis hides the day\'s total revenue under the date. Everything else stays the same. Meant for a tablet that stays in the kitchen; you can switch it back from this same link.')) return;
           localStorage.setItem('kitchenMode', 'true');
           app.kitchenMode = true;
         }
@@ -3999,6 +4020,183 @@
         app.sharePdf(app.buildLabelsPdf(selected), 'BasketsByBlimi_' + app.selectedDate + '_Selected_Labels.pdf');
       },
 
+      // ---- Kiosk printing (Oct 18, 2026) ----
+      // Inside Kiosk Browser on the kitchen tablet, downloads are blocked, so
+      // the PDF route can't be used there. Kiosk Browser exposes
+      // Android.printPage(), which prints whatever is on screen through
+      // Android's own print dialog (Brother plugin / Epson). Confirmed on a
+      // real print (printtest.html v2): labels laid out at the TOP of each
+      // page, with no CSS @page size, print and cut at their own length on
+      // the Brother 2.4in continuous roll ("2.4 x 39in" paper); a letter
+      // sheet prints fine on the Epson. Per-label @page sizes did NOT work
+      // (Android centred the label on the 39in page) -- don't add them back.
+      // These functions only show up when isKiosk() is true; every other
+      // device keeps the Download/PDF buttons unchanged.
+      isKiosk: function() {
+        return !!(window.Android && typeof window.Android.printPage === 'function');
+      },
+
+      escHtml: function(s) {
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      },
+
+      // Label HTML for the kiosk path. Mirrors the 2.4in continuous PDF
+      // layout: header, QR top-right with the item under it and "X of Y",
+      // then name, item note, ruled address, customer note. The right-hand
+      // stack is a float so body text flows beside it and then uses the full
+      // width once past it -- same idea as the PDF's wideTextWidthMm. The
+      // address uses overflow:hidden so its rules stop at the float instead
+      // of running through the item text. HTML handles Hebrew/English
+      // mixing natively (dir="auto"), so none of the PDF bidi workarounds
+      // are needed here.
+      buildKioskLabelsHtml: function(orders) {
+        var cfg = app.getLabelStyleConfig('2.4-continuous');
+        var e = app.escHtml;
+        var css = '<style>' +
+          '@page { margin:0; }' +
+          '.kl { width:62mm; padding:3mm 5mm; background:#fff; color:#000; font-family:Arial, sans-serif; overflow:hidden; }' +
+          '.kl + .kl { break-before:page; page-break-before:always; }' +
+          '.kl-right { float:right; width:15mm; margin-left:2mm; text-align:left; }' +
+          '.kl-qr { width:14mm; height:14mm; display:block; }' +
+          '.kl-item { font-size:8px; line-height:1.15; margin-top:1mm; word-wrap:break-word; }' +
+          '.kl-count { font-size:' + cfg.countSize + '; font-weight:bold; margin-top:1mm; }' +
+          '.kl-hdr { overflow:hidden; font-weight:bold; font-size:13px; text-align:center; white-space:nowrap; border-bottom:1px solid #000; padding-bottom:1mm; }' +
+          '.kl-name { font-weight:bold; font-size:' + cfg.fontSize + '; margin-top:2mm; word-wrap:break-word; }' +
+          '.kl-inst { font-weight:bold; font-style:italic; font-size:' + cfg.addressSize + '; margin-top:1mm; }' +
+          '.kl-addr { overflow:hidden; font-weight:bold; font-size:' + cfg.addressSize + '; line-height:1.1; border-top:1px solid #000; border-bottom:1px solid #000; padding:1mm 0; margin-top:2mm; }' +
+          '.kl-note { clear:both; font-weight:bold; margin-top:2mm; line-height:1.15; word-wrap:break-word; }' +
+          '</style>';
+        var html = css;
+        orders.forEach(function(order) {
+          if (!order.items) return;
+          var deliveryName = (order.deliveredTo && order.deliveredTo.trim()) ? order.deliveredTo.trim() : app.cleanLastName(order.lastName);
+          var parts = app.splitAddress(order.address || '');
+          var addrHtml = e(parts.address) + (parts.city ? '<br>' + e(parts.city) : '');
+          var totalUnits = order.items.reduce(function(sum, it) {
+            var q = parseInt(it.quantity, 10);
+            return sum + (isNaN(q) || q < 1 ? 1 : q);
+          }, 0);
+          var unitCounter = 0;
+          order.items.forEach(function(item) {
+            var qty = parseInt(item.quantity, 10);
+            if (isNaN(qty) || qty < 1) qty = 1;
+            var productDisplay = item.quantityIndividual ? (item.quantityIndividual + ' ' + item.product) : item.product;
+            for (var u = 0; u < qty; u++) {
+              unitCounter++;
+              html += '<div class="kl">' +
+                '<div class="kl-right">' +
+                  '<img class="kl-qr" src="' + app.QR_CODE_DATA_URI + '" alt="">' +
+                  '<div class="kl-item" dir="auto">' + e(productDisplay) + '</div>' +
+                  '<div class="kl-count">' + unitCounter + ' of ' + totalUnits + '</div>' +
+                '</div>' +
+                '<div class="kl-hdr">BASKETS BY BLIMI</div>' +
+                '<div class="kl-name" dir="auto">' + e(deliveryName) + '</div>' +
+                (item.specialInstructions ? '<div class="kl-inst" dir="auto">' + e(item.specialInstructions) + '</div>' : '') +
+                '<div class="kl-addr" dir="auto">' + addrHtml + '</div>' +
+                (order.customerNote ? '<div class="kl-note" dir="auto" style="font-size:' + app.pickNoteFontPx(cfg, order.customerNote) + '">' + e(order.customerNote) + '</div>' : '') +
+              '</div>';
+            }
+          });
+        });
+        return html;
+      },
+
+      // Day sheet for the Epson -- same content and order as the Export Day
+      // PDF (getCategorizedProductTotals), quantity first, no dollar amounts.
+      buildKioskDaySheetHtml: function(date) {
+        var e = app.escHtml;
+        var dayOrders = app.getOrdersForDate(date);
+        var cats = app.getCategorizedProductTotals(date);
+        var html = '<style>' +
+          '@page { margin:0.5in; }' +
+          '.ks { width:7.5in; background:#fff; color:#000; font-family:Arial, sans-serif; }' +
+          '.ks h1 { font-size:22px; margin:0 0 4px; }' +
+          '.ks .sub { font-size:15px; color:#444; margin:0 0 2px; }' +
+          '.ks .cnt { font-size:13px; color:#666; margin:0 0 14px; }' +
+          '.ks .cat { break-inside:avoid; page-break-inside:avoid; margin-top:14px; }' +
+          '.ks .cat h2 { font-size:18px; margin:0 0 6px; padding-bottom:3px; border-bottom:2px solid #C76A45; }' +
+          '.ks .sect { font-size:13px; font-weight:bold; color:#555; margin:8px 0 3px 46px; }' +
+          '.ks .row { display:flex; font-size:13px; padding:3px 0; }' +
+          '.ks .row:nth-child(even) { background:#f4f4f7; }' +
+          '.ks .q { width:36px; text-align:right; font-weight:bold; margin-right:10px; flex-shrink:0; }' +
+          '.ks .tot { text-align:right; font-size:13px; font-weight:bold; color:#444; margin-top:4px; }' +
+          '</style>';
+        html += '<div class="ks"><h1>Baskets by Blimi</h1>' +
+          '<div class="sub">Day Export -- ' + e(app.formatDateDisplay(date)) + '</div>' +
+          '<div class="cnt">' + dayOrders.length + (dayOrders.length === 1 ? ' order' : ' orders') + '</div>';
+        if (cats.length === 0) html += '<div>No orders for this date.</div>';
+        cats.forEach(function(cat) {
+          var catTotal = 0;
+          html += '<div class="cat"><h2>' + e(cat.category) + '</h2>';
+          cat.sections.forEach(function(sect) {
+            html += '<div class="sect">' + e(sect.section) + '</div><div>';
+            sect.rows.forEach(function(row) {
+              catTotal += row.qty;
+              html += '<div class="row"><span class="q">' + row.qty + '</span><span dir="auto">' + e(row.label) + '</span></div>';
+            });
+            html += '</div>';
+          });
+          html += '<div class="tot">Total ' + e(cat.category) + ': ' + catTotal + '</div></div>';
+        });
+        html += '</div>';
+        return html;
+      },
+
+      // Puts the printable content on screen in place of the app, then calls
+      // Kiosk Browser's print. Android.printPage() prints the visible page,
+      // so the app itself is hidden while this is up. The Back bar is hidden
+      // from the printout and brings the app back afterward.
+      kioskShowAndPrint: function(contentHtml) {
+        var area = document.getElementById('kioskPrintArea');
+        if (!area) {
+          area = document.createElement('div');
+          area.id = 'kioskPrintArea';
+          document.body.appendChild(area);
+        }
+        area.innerHTML =
+          '<style>@media print { .kp-bar, #diagErrorBanner, #blob-download-status { display:none !important; } body { background:#fff !important; } }</style>' +
+          '<div class="kp-bar" style="position:sticky;top:0;z-index:10;background:#2B241F;padding:10px;display:flex;gap:10px">' +
+            '<button type="button" onclick="app.kioskClosePrint()" style="flex:1;margin:0;background:#6B5C4E;padding:14px;font-size:16px">&larr; Back to Orders</button>' +
+            '<button type="button" onclick="app.kioskPrintNow()" style="flex:1;margin:0;padding:14px;font-size:16px">🖨️ Print again</button>' +
+          '</div>' +
+          contentHtml;
+        document.body.classList.add('kiosk-printing');
+        window.scrollTo(0, 0);
+        setTimeout(app.kioskPrintNow, 300);
+      },
+
+      kioskPrintNow: function() {
+        try {
+          if (app.isKiosk()) window.Android.printPage();
+          else window.print();
+        } catch (err) {
+          showDiagnosticError('Print failed: ' + (err && err.message));
+        }
+      },
+
+      kioskClosePrint: function() {
+        document.body.classList.remove('kiosk-printing');
+        var area = document.getElementById('kioskPrintArea');
+        if (area) area.innerHTML = '';
+      },
+
+      kioskPrintOrder: function(orderIdx) {
+        var order = app.getOrdersForDate(app.selectedDate)[orderIdx];
+        if (!order || !order.items) { alert('No items in this order'); return; }
+        app.kioskShowAndPrint(app.buildKioskLabelsHtml([order]));
+      },
+
+      kioskPrintSelected: function() {
+        var selected = app.getSelectedOrders();
+        if (selected.length === 0) { alert('No orders selected'); return; }
+        app.kioskShowAndPrint(app.buildKioskLabelsHtml(selected));
+      },
+
+      kioskPrintDaySheet: function() {
+        if (app.getOrdersForDate(app.selectedDate).length === 0) { alert('No orders to print'); return; }
+        app.kioskShowAndPrint(app.buildKioskDaySheetHtml(app.selectedDate));
+      },
+
       render: function() {
         var appDiv = document.getElementById('app');
 
@@ -4048,6 +4246,8 @@
         var currentIdx = dates.indexOf(app.selectedDate);
 
         var dayRevenue = app.getDayRevenue(app.selectedDate);
+        // Kiosk Browser on the kitchen tablet: Print buttons instead of Download (see isKiosk).
+        var kiosk = app.isKiosk();
 
         // Search by name or address (Sept 2026) -- always visible at the
         // top of the dashboard, searches across every date at once. Typing
@@ -4091,15 +4291,14 @@
         // the two sizes actually in use are offered; more presets already
         // exist in getLabelStyleConfig (3x2, 2x1) and can be added here
         // later without touching that function.
-        html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px;color:#374151"><label for="labelSizeSelect">Label size:</label><select id="labelSizeSelect" onchange="app.setLabelSize(this.value)" style="padding:6px 8px;border:1px solid #d1d5db;border-radius:6px">' +
+        // Kiosk printing always uses the 2.4in continuous layout, so the size picker is hidden there.
+        if (!kiosk) html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px;color:#374151"><label for="labelSizeSelect">Label size:</label><select id="labelSizeSelect" onchange="app.setLabelSize(this.value)" style="padding:6px 8px;border:1px solid #d1d5db;border-radius:6px">' +
           '<option value="4x3"' + (app.labelSize === '4x3' ? ' selected' : '') + '>4in x 3in (large)</option>' +
           '<option value="2.25x1.25"' + (app.labelSize === '2.25x1.25' ? ' selected' : '') + '>2.25in x 1.25in (small)</option>' +
           '<option value="2.4-continuous"' + (app.labelSize === '2.4-continuous' ? ' selected' : '') + '>2.4in continuous roll (Brother)</option>' +
           '</select></div>';
 
-        if (!app.kitchenMode) {
-          html += '<div class="action-buttons"><button class="print-btn" onclick="app.openAddOrder()">+ Add Order</button></div>';
-        }
+        html += '<div class="action-buttons"><button class="print-btn" onclick="app.openAddOrder()">+ Add Order</button></div>';
 
         // Batch selection + Download Selected (restored Oct 8, 2026).
         // Removed on Oct 7 when the dashboard was trimmed, then asked for
@@ -4119,7 +4318,9 @@
           '<button onclick="app.selectAllOrders()" ' + (dayOrders.length === 0 ? 'disabled' : '') + ' style="background:#6B5C4E;color:white;border:none;padding:7px 12px;border-radius:6px;cursor:pointer;font-size:12px;width:auto;margin:0">Select All</button>' +
           '<button onclick="app.clearOrderSelection()" ' + (selectedCount === 0 ? 'disabled' : '') + ' style="background:#6B5C4E;color:white;border:none;padding:7px 12px;border-radius:6px;cursor:pointer;font-size:12px;width:auto;margin:0">Clear</button>' +
           '</div>';
-        html += '<div class="action-buttons"><button class="print-btn" onclick="app.shareSelectedPdf()" ' + (selectedCount === 0 ? 'disabled' : '') + ' title="Download one label PDF for every checked order">\u2193 Download Selected (' + selectedCount + ')</button></div>';
+        html += kiosk
+          ? '<div class="action-buttons"><button class="print-btn" onclick="app.kioskPrintSelected()" ' + (selectedCount === 0 ? 'disabled' : '') + '>\uD83D\uDDA8\uFE0F Print Selected (' + selectedCount + ')</button></div>'
+          : '<div class="action-buttons"><button class="print-btn" onclick="app.shareSelectedPdf()" ' + (selectedCount === 0 ? 'disabled' : '') + ' title="Download one label PDF for every checked order">\u2193 Download Selected (' + selectedCount + ')</button></div>';
 
         // Export Day moved below the other action buttons (was the very
         // first button on the page, right under the date nav) -- reported
@@ -4127,7 +4328,9 @@
         // up there; grouped down here with the other buttons that were
         // already confirmed working.
         if (categorizedTotals.length > 0) {
-          html += '<div class="action-buttons"><button class="print-btn" onclick="app.shareDayExportPdf()" title="Categorized PDF of this day&#39;s totals">↓ Export Day (PDF)</button></div>';
+          html += kiosk
+            ? '<div class="action-buttons"><button class="print-btn" onclick="app.kioskPrintDaySheet()">\uD83D\uDDA8\uFE0F Print Day Sheet</button></div>'
+            : '<div class="action-buttons"><button class="print-btn" onclick="app.shareDayExportPdf()" title="Categorized PDF of this day&#39;s totals">↓ Export Day (PDF)</button></div>';
         }
 
         if (dayOrders.length === 0) {
@@ -4144,7 +4347,7 @@
             html += '<div class="order-item" data-order-number="' + order.orderNumber + '" style="' + (isHighlighted ? 'outline:3px solid #f59e0b;outline-offset:-3px;background:#fffbeb;' : (isSelected ? 'outline:2px solid #000;outline-offset:-2px;' : '')) + '"><div style="display:flex;justify-content:space-between;align-items:start"><div style="display:flex;gap:10px;align-items:start"><input type="checkbox" onchange="app.toggleOrderSelection(' + orderIdx + ')" ' + (isSelected ? 'checked' : '') + ' title="Select for Download Selected" style="margin-top:5px;width:20px;height:20px;flex-shrink:0"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#000;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
             if (order.deliveredTo) html += '<div class="order-address">Deliver to: ' + order.deliveredTo + '</div>';
             html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div>';
-            if (order.total && !app.kitchenMode) {
+            if (order.total) {
               // Sheet cell may or may not already include a "$" depending on
               // how it was typed/formatted there — don't double it up.
               var totalDisplay = /^\$/.test(order.total) ? order.total : ('$' + order.total);
@@ -4158,8 +4361,10 @@
             // flex-end keeps them right-aligned like before when they do
             // fit on one line.
             html += '</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">' +
-              (app.kitchenMode ? '' : '<button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#6B5C4E;color:white;border:none;padding:9px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">✏️ Edit</button>') +
-              '<button class="print-btn" onclick="app.shareOrderPdf(' + orderIdx + ')" title="Download the label PDF for this order" style="color:white;border:none;padding:9px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">↓ Download</button></div></div>';
+              '<button onclick="app.openEditOrder(' + orderIdx + ')" title="Edit this order" style="background:#6B5C4E;color:white;border:none;padding:9px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">✏️ Edit</button>' +
+              (kiosk
+                ? '<button class="print-btn" onclick="app.kioskPrintOrder(' + orderIdx + ')" title="Print this order\'s labels" style="color:white;border:none;padding:9px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">\uD83D\uDDA8\uFE0F Print</button>'
+                : '<button class="print-btn" onclick="app.shareOrderPdf(' + orderIdx + ')" title="Download the label PDF for this order" style="color:white;border:none;padding:9px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;height:fit-content">↓ Download</button>') + '</div></div>';
             html += '<div class="order-items">';
             if (order.items) {
               // One row per physical UNIT, numbered against the order's
