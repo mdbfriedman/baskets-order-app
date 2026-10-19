@@ -4276,6 +4276,25 @@
         // top-of-page position itself may be the cause, not this button.
         html += '<div class="action-buttons"><button class="print-btn" onclick="app.openAddOrder()">+ Add Order</button></div>';
 
+        // Export Day (Oct 19, 2026): moved up here, directly under Add
+        // Order, per request. NOTE: this exact top-of-page spot was tried
+        // once before and reverted (see the old comment that used to sit
+        // above this block, now removed) after reports of it not showing
+        // up / rendering too far left on some phone screens up there -- if
+        // that symptom comes back, this position is the likely cause.
+        if (categorizedTotals.length > 0) {
+          // Kiosk (Oct 2026): same "Export Day" wording and white down-
+          // arrow as the main app's button, instead of the printer emoji --
+          // requested for visual consistency between the two. Still calls
+          // kioskPrintDaySheet() underneath (a direct print via the Kiosk
+          // Browser's Android bridge, not an actual PDF download) -- only
+          // the label changed, not what tapping it does. No "(PDF)" suffix
+          // here since nothing PDF-shaped is actually produced on this path.
+          html += kiosk
+            ? '<div class="action-buttons"><button class="print-btn" onclick="app.kioskPrintDaySheet()">↓ Export Day</button></div>'
+            : '<div class="action-buttons"><button class="print-btn" onclick="app.shareDayExportPdf()" title="Categorized PDF of this day&#39;s totals">↓ Export Day (PDF)</button></div>';
+        }
+
         // Product Totals box now groups by the same Fruit/Salad/Smoothies
         // categories (and their sections) as the Export Day PDF, instead of
         // one flat quantity-sorted list -- so fruit platters sit near each
@@ -4332,24 +4351,6 @@
         html += kiosk
           ? '<div class="action-buttons"><button class="print-btn" onclick="app.kioskPrintSelected()" ' + (selectedCount === 0 ? 'disabled' : '') + '>\uD83D\uDDA8\uFE0F Print Selected (' + selectedCount + ')</button></div>'
           : '<div class="action-buttons"><button class="print-btn" onclick="app.shareSelectedPdf()" ' + (selectedCount === 0 ? 'disabled' : '') + ' title="Download one label PDF for every checked order">\u2193 Download Selected (' + selectedCount + ')</button></div>';
-
-        // Export Day moved below the other action buttons (was the very
-        // first button on the page, right under the date nav) -- reported
-        // as not showing up / rendering too far left on some phone screens
-        // up there; grouped down here with the other buttons that were
-        // already confirmed working.
-        if (categorizedTotals.length > 0) {
-          // Kiosk (Oct 2026): same "Export Day" wording and white down-
-          // arrow as the main app's button, instead of the printer emoji --
-          // requested for visual consistency between the two. Still calls
-          // kioskPrintDaySheet() underneath (a direct print via the Kiosk
-          // Browser's Android bridge, not an actual PDF download) -- only
-          // the label changed, not what tapping it does. No "(PDF)" suffix
-          // here since nothing PDF-shaped is actually produced on this path.
-          html += kiosk
-            ? '<div class="action-buttons"><button class="print-btn" onclick="app.kioskPrintDaySheet()">↓ Export Day</button></div>'
-            : '<div class="action-buttons"><button class="print-btn" onclick="app.shareDayExportPdf()" title="Categorized PDF of this day&#39;s totals">↓ Export Day (PDF)</button></div>';
-        }
 
         if (dayOrders.length === 0) {
           html += '<div class="empty-state">No orders for this date</div>';
