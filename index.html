@@ -538,6 +538,27 @@
       return qi + ' ' + displayName;
     }
 
+    // Kiosk start address settings (Oct 18, 2026). Kiosk Browser wipes the
+    // page's saved data on every restart, so the saved password and the
+    // Kitchen Mode switch were lost each time. Its start address (Kiosk URL)
+    // can instead carry both, after a "#":
+    //   https://<app address>/#kitchen&pw=<app password>
+    // The part after "#" never leaves the tablet -- browsers don't send it
+    // to the server, so it doesn't show up in Vercel's logs. Only someone
+    // with the Kiosk Browser admin password can see it in the kiosk's own
+    // settings.
+    var START_HASH = (function() {
+      var out = {};
+      (location.hash || '').replace(/^#/, '').split('&').forEach(function(part) {
+        if (!part) return;
+        var i = part.indexOf('=');
+        var k = i === -1 ? part : part.slice(0, i);
+        var v = i === -1 ? '1' : part.slice(i + 1);
+        try { out[decodeURIComponent(k).toLowerCase()] = decodeURIComponent(v); } catch (e) {}
+      });
+      return out;
+    })();
+
     var app = {
       orders: [],
       products: [],
@@ -564,17 +585,16 @@
       appPassword: '',
 
       // Kitchen Mode (Oct 2026): a device-local, no-password view for a
-      // shared kitchen tablet. Originally hid all dollar amounts and the
-      // Add/Edit controls; changed Oct 18, 2026 so it now hides ONLY the
-      // day's total revenue line under the date -- Add Order, Edit and
-      // each order's own Total all stay visible. Deliberately NOT a
+      // shared kitchen tablet. Hides every dollar amount (the day's revenue,
+      // each order's Total, and the price fields in the Edit form) and the
+      // Add Order button. Edit stays available. Deliberately NOT a
       // security boundary -- there's no second password, nothing stops
       // someone from clearing this device's storage to flip it back.
       // It's meant for a tablet you keep physical control of in the
       // kitchen, not for individual worker logins (see toggleKitchenMode
       // below, and the small link at the bottom of the dashboard that
       // calls it).
-      kitchenMode: localStorage.getItem('kitchenMode') === 'true',
+      kitchenMode: localStorage.getItem('kitchenMode') === 'true' || !!START_HASH.kitchen,
       showAddOrder: false,
       newOrder: null,
       isEditingOrder: false, // true when the Add Order form is actually editing an existing order
@@ -615,7 +635,7 @@
       // returning here doesn't mean re-typing it every visit.
       checkAppPassword: async function() {
         try {
-          var saved = localStorage.getItem('appPassword') || '';
+          var saved = START_HASH.pw || localStorage.getItem('appPassword') || '';
           var response = await fetch('/api/check-password', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -692,7 +712,7 @@
           localStorage.setItem('kitchenMode', 'false');
           app.kitchenMode = false;
         } else {
-          if (!confirm('Switch this device to Kitchen Mode?\n\nThis hides the day\'s total revenue under the date. Everything else stays the same. Meant for a tablet that stays in the kitchen; you can switch it back from this same link.')) return;
+          if (!confirm('Switch this device to Kitchen Mode?\n\nThis hides all dollar amounts and the Add Order button. Edit and printing still work. Meant for a tablet that stays in the kitchen; you can switch it back from this same link.')) return;
           localStorage.setItem('kitchenMode', 'true');
           app.kitchenMode = true;
         }
@@ -1400,7 +1420,7 @@
           app.render();
           return;
         }
-        if (validItems.some(function(i) { return i.isCustom && (i.customPrice === '' || i.customPrice == null || isNaN(parseFloat(i.customPrice)) || parseFloat(i.customPrice) < 0); })) {
+        if (!app.kitchenMode && validItems.some(function(i) { return i.isCustom && (i.customPrice === '' || i.customPrice == null || isNaN(parseFloat(i.customPrice)) || parseFloat(i.customPrice) < 0); })) {
           app.addOrderError = 'Enter a price for each miscellaneous item.';
           app.render();
           return;
@@ -1735,7 +1755,7 @@
           // catalog product's price comes from app.productPrices instead
           // (see recalcProductCost), so this field simply doesn't exist for
           // those rows.
-          var priceFieldHtml = isCustom
+          var priceFieldHtml = (isCustom && !app.kitchenMode)
             ? ('<input type="number" step="0.01" min="0" inputmode="decimal" id="noItemPrice_' + idx + '" placeholder="Price each" value="' + (item.customPrice || '').toString().replace(/"/g, '&quot;') + '" ' +
                 'onwheel="this.blur()" ' +
                 'oninput="if (app.newOrder && app.newOrder.items[' + idx + ']) { app.newOrder.items[' + idx + '].customPrice = this.value; } app.recalcProductCost();" ' +
@@ -1750,7 +1770,7 @@
           // requested so it's clear how the Product Cost total is built up,
           // and so one line's price can be adjusted without hand-editing
           // the combined total and losing track of which item it came from.
-          var lineHtml = isCustom ? '' : (function() {
+          var lineHtml = (isCustom || app.kitchenMode) ? '' : (function() {
             var catalogPrice = app.productPrices[(item.product || '').trim()];
             var hasOverride = item.priceOverride !== undefined && item.priceOverride !== null && item.priceOverride !== '';
             var unitPrice = hasOverride ? parseFloat(item.priceOverride) : catalogPrice;
@@ -1855,6 +1875,10 @@
         html += '<label style="font-size:12px;color:#374151">Products</label><span style="font-size:11px;color:#9ca3af"> (' + app.products.length + ' known products loaded)</span><div style="margin:6px 0 8px">' + itemsHtml + '</div>';
         html += '<button type="button" onclick="app.addOrderItemRow()" style="background:#6B5C4E;margin-bottom:15px">+ Add another product</button>';
 
+        // Kitchen Mode: the money fields stay in the form (hidden) so saving an
+        // edit keeps the sheet's existing amounts and still adds the price of
+        // any newly added item -- staff just never see them.
+        html += '<div style="' + (app.kitchenMode ? 'display:none' : '') + '">';
         html += '<label style="font-size:12px;color:#374151">Product Cost</label><span style="font-size:11px;color:#9ca3af"> (auto-fills from known prices — edit freely)</span>';
         html += '<input type="number" step="0.01" min="0" inputmode="decimal" id="noProductCost" onwheel="this.blur()" oninput="if (app.newOrder) app.newOrder.productCostAutoValue = null; app.recalcOrderTotal();" value="' + o.productCost.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 4px">';
         // Filled in by updateNoPriceWarning() below. 46 of the ~275 catalog
@@ -1872,6 +1896,7 @@
 
         html += '<label style="font-size:12px;color:#374151">Total</label>';
         html += '<input type="number" step="0.01" min="0" inputmode="decimal" id="noTotal" onwheel="this.blur()" oninput="if (app.newOrder) app.newOrder.totalAutoValue = null;" value="' + o.total.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
+        html += '</div>';
 
         html += '<label style="font-size:12px;color:#374151">Payment Method</label>';
         html += '<input type="text" id="noPayment" value="' + o.paymentMethod.replace(/"/g, '&quot;') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 12px">';
@@ -4263,38 +4288,6 @@
 
         html += '<div class="date-nav"><button onclick="app.previousDate()" ' + (currentIdx === 0 ? 'disabled' : '') + '>←</button><div class="date-display"><h2>' + app.formatDateDisplay(app.selectedDate) + '</h2><p>' + dayOrders.length + ' orders</p>' + (!app.kitchenMode && dayRevenue > 0 ? '<p style="color:#000;font-weight:bold;font-size:15px;margin-top:2px">$' + dayRevenue.toFixed(2) + ' total</p>' : '') + '</div><button onclick="app.nextDate()" ' + (currentIdx === dates.length - 1 ? 'disabled' : '') + '>→</button></div>';
 
-        // Add Order (Oct 2026): moved up here, right under the date nav/
-        // dollar total, in both Kitchen Mode and on the kiosk tablet --
-        // was all the way down past Product Totals/label size/batch-select,
-        // past where you'd actually have to scroll to reach it. Same top
-        // position in every mode, even on the kiosk where there's no label
-        // size picker above it to "replace." NOTE: Export Day/Print Day
-        // Sheet briefly lived in this exact spot once before and had to be
-        // moved back down after reports of it not showing/rendering too far
-        // left on some phones (see that comment further down) -- if Add
-        // Order ever shows that same symptom up here, that's precedent this
-        // top-of-page position itself may be the cause, not this button.
-        html += '<div class="action-buttons"><button class="print-btn" onclick="app.openAddOrder()">+ Add Order</button></div>';
-
-        // Export Day (Oct 19, 2026): moved up here, directly under Add
-        // Order, per request. NOTE: this exact top-of-page spot was tried
-        // once before and reverted (see the old comment that used to sit
-        // above this block, now removed) after reports of it not showing
-        // up / rendering too far left on some phone screens up there -- if
-        // that symptom comes back, this position is the likely cause.
-        if (categorizedTotals.length > 0) {
-          // Kiosk (Oct 2026): same "Export Day" wording and white down-
-          // arrow as the main app's button, instead of the printer emoji --
-          // requested for visual consistency between the two. Still calls
-          // kioskPrintDaySheet() underneath (a direct print via the Kiosk
-          // Browser's Android bridge, not an actual PDF download) -- only
-          // the label changed, not what tapping it does. No "(PDF)" suffix
-          // here since nothing PDF-shaped is actually produced on this path.
-          html += kiosk
-            ? '<div class="action-buttons"><button class="print-btn" onclick="app.kioskPrintDaySheet()">↓ Export Day</button></div>'
-            : '<div class="action-buttons"><button class="print-btn" onclick="app.shareDayExportPdf()" title="Categorized PDF of this day&#39;s totals">↓ Export Day (PDF)</button></div>';
-        }
-
         // Product Totals box now groups by the same Fruit/Salad/Smoothies
         // categories (and their sections) as the Export Day PDF, instead of
         // one flat quantity-sorted list -- so fruit platters sit near each
@@ -4330,6 +4323,10 @@
           '<option value="2.4-continuous"' + (app.labelSize === '2.4-continuous' ? ' selected' : '') + '>2.4in continuous roll (Brother)</option>' +
           '</select></div>';
 
+        if (!app.kitchenMode) {
+          html += '<div class="action-buttons"><button class="print-btn" onclick="app.openAddOrder()">+ Add Order</button></div>';
+        }
+
         // Batch selection + Download Selected (restored Oct 8, 2026).
         // Removed on Oct 7 when the dashboard was trimmed, then asked for
         // again: checking off several orders and downloading one PDF of
@@ -4352,6 +4349,17 @@
           ? '<div class="action-buttons"><button class="print-btn" onclick="app.kioskPrintSelected()" ' + (selectedCount === 0 ? 'disabled' : '') + '>\uD83D\uDDA8\uFE0F Print Selected (' + selectedCount + ')</button></div>'
           : '<div class="action-buttons"><button class="print-btn" onclick="app.shareSelectedPdf()" ' + (selectedCount === 0 ? 'disabled' : '') + ' title="Download one label PDF for every checked order">\u2193 Download Selected (' + selectedCount + ')</button></div>';
 
+        // Export Day moved below the other action buttons (was the very
+        // first button on the page, right under the date nav) -- reported
+        // as not showing up / rendering too far left on some phone screens
+        // up there; grouped down here with the other buttons that were
+        // already confirmed working.
+        if (categorizedTotals.length > 0) {
+          html += kiosk
+            ? '<div class="action-buttons"><button class="print-btn" onclick="app.kioskPrintDaySheet()">\uD83D\uDDA8\uFE0F Print Day Sheet</button></div>'
+            : '<div class="action-buttons"><button class="print-btn" onclick="app.shareDayExportPdf()" title="Categorized PDF of this day&#39;s totals">↓ Export Day (PDF)</button></div>';
+        }
+
         if (dayOrders.length === 0) {
           html += '<div class="empty-state">No orders for this date</div>';
         } else {
@@ -4366,7 +4374,7 @@
             html += '<div class="order-item" data-order-number="' + order.orderNumber + '" style="' + (isHighlighted ? 'outline:3px solid #f59e0b;outline-offset:-3px;background:#fffbeb;' : (isSelected ? 'outline:2px solid #000;outline-offset:-2px;' : '')) + '"><div style="display:flex;justify-content:space-between;align-items:start"><div style="display:flex;gap:10px;align-items:start"><input type="checkbox" onchange="app.toggleOrderSelection(' + orderIdx + ')" ' + (isSelected ? 'checked' : '') + ' title="Select for Download Selected" style="margin-top:5px;width:20px;height:20px;flex-shrink:0"><div><div class="order-name">' + order.lastName + '</div><div style="font-size:11px;color:#000;font-weight:bold;margin-top:3px">Order ' + (orderIdx + 1) + '</div>';
             if (order.deliveredTo) html += '<div class="order-address">Deliver to: ' + order.deliveredTo + '</div>';
             html += '<div class="order-address">' + order.address + '</div><div style="font-size:11px;color:#9ca3af;margin-top:5px;text-transform:uppercase">' + (order.pickupOrDelivery || 'delivery') + '</div>';
-            if (order.total) {
+            if (order.total && !app.kitchenMode) {
               // Sheet cell may or may not already include a "$" depending on
               // how it was typed/formatted there — don't double it up.
               var totalDisplay = /^\$/.test(order.total) ? order.total : ('$' + order.total);
