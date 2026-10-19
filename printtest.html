@@ -16,14 +16,12 @@
 
   /* Labels: each one gets its OWN page size via a named page, so Android
      can (if it honors it) cut each label at its own length. */
-  .label { width:62mm; padding:3mm 5mm 3mm 5mm; position:relative; background:#fff; break-after:page; page-break-after:always; }
-  .label:last-child { break-after:auto; page-break-after:auto; }
-  .l1 { page:short; height:45mm; }
-  .l2 { page:medium; height:80mm; }
-  .l3 { page:long; height:130mm; }
-  @page short  { size:62mm 45mm;  margin:0; }
-  @page medium { size:62mm 80mm;  margin:0; }
-  @page long   { size:62mm 130mm; margin:0; }
+  .label { width:62mm; padding:3mm 5mm 3mm 5mm; position:relative; background:#fff; }
+  .label + .label { break-before:page; page-break-before:always; }
+  /* v2: no per-label page sizes (Android ignored them and centered the
+     label on the 39in paper). Each label now just sits at the TOP of its
+     own page; the hope is the Brother plugin trims the blank tape after it. */
+  @page { margin:0; }
   .hdr { font-weight:bold; font-size:14px; border-bottom:2px solid #000; padding-bottom:2px; width:32mm; text-align:center; }
   .qr { position:absolute; top:3mm; right:5mm; width:14mm; height:14mm; }
   .name { font-weight:bold; font-size:15px; margin-top:4mm; }
@@ -45,8 +43,9 @@
 </head>
 <body>
   <div class="controls" id="controls">
-    <h1>Kiosk print test</h1>
+    <h1>Kiosk print test (v2)</h1>
     <p>This checks whether printing from inside Kiosk Browser can cut each label at its own length, before it gets built into the app.</p>
+    <button onclick="go('one')">Print 1 test label (Brother)</button>
     <button onclick="go('labels')">Print 3 test labels (Brother)</button>
     <button onclick="go('sheet')">Print test sheet (Epson)</button>
     <button class="back hidden" id="backBtn" onclick="back()">&larr; Back</button>
@@ -54,28 +53,28 @@
   </div>
 
   <div id="labels" class="hidden">
-    <div class="label l1">
+    <div class="label">
       <div class="hdr">BASKETS BY BLIMI</div>
       <img class="qr" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQgAAAEIAQAAAACLjVdSAAABSUlEQVR4nO2YO27FMAwEZ4N3/ytPCn1sJ4WryAxkV4I8xWJBUiQjN9/XHfASL/ESmxIfgLSzRCLEeVNH6UI/ECBg7GaMmzpKV/pBQIgEmxnpnpRR+gQRMTNbntNRivCWWKPjEaLnS/fAiEFOrlRRutKPU4LEVlUX66hC5Jwd+ZUsy3RUISKz32heBHp47Pi+XOJjPLizLVunoxQRkpBmhQRismU/NuMjM0tGV9Z/VlG6sn4whpd5b8yO80sjBDARQZsdsmv96BOLRDTRELasH53oI22fXBLBLd/bz3FMLxrtDHHDfLn2p6avQBhPTB2lC+NjbMPMyJI21234vlz2Y0d0eEROFaVL60cunrTymh3r6Q/iaEAI2fe97Z+tkqJjjVpV6V8Rl/2YY4zxtAqponSlH7PrcEy5x2UVpU/sP57T8RIv8RL/j/gGZkeBDjI2DJYAAAAASUVORK5CYII=" alt="">
       <div class="name">TEST 1 - SHORT</div>
       <div class="addr">123 Test Street<br>Lakewood</div>
-      <div class="tag">Should be about 1.8 in long</div>
+      <div class="tag">Short label</div>
     </div>
-    <div class="label l2">
+    <div class="label">
       <div class="hdr">BASKETS BY BLIMI</div>
       <img class="qr" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQgAAAEIAQAAAACLjVdSAAABSUlEQVR4nO2YO27FMAwEZ4N3/ytPCn1sJ4WryAxkV4I8xWJBUiQjN9/XHfASL/ESmxIfgLSzRCLEeVNH6UI/ECBg7GaMmzpKV/pBQIgEmxnpnpRR+gQRMTNbntNRivCWWKPjEaLnS/fAiEFOrlRRutKPU4LEVlUX66hC5Jwd+ZUsy3RUISKz32heBHp47Pi+XOJjPLizLVunoxQRkpBmhQRismU/NuMjM0tGV9Z/VlG6sn4whpd5b8yO80sjBDARQZsdsmv96BOLRDTRELasH53oI22fXBLBLd/bz3FMLxrtDHHDfLn2p6avQBhPTB2lC+NjbMPMyJI21234vlz2Y0d0eEROFaVL60cunrTymh3r6Q/iaEAI2fe97Z+tkqJjjVpV6V8Rl/2YY4zxtAqponSlH7PrcEy5x2UVpU/sP57T8RIv8RL/j/gGZkeBDjI2DJYAAAAASUVORK5CYII=" alt="">
       <div class="name">TEST 2 - MEDIUM</div>
       <div class="addr">456 Sample Avenue<br>Lakewood</div>
       <div class="note">Mazel Tov! Wishing you much nachas from the whole family.</div>
-      <div class="tag">Should be about 3.1 in long</div>
+      <div class="tag">Medium label</div>
     </div>
-    <div class="label l3">
+    <div class="label">
       <div class="hdr">BASKETS BY BLIMI</div>
       <img class="qr" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQgAAAEIAQAAAACLjVdSAAABSUlEQVR4nO2YO27FMAwEZ4N3/ytPCn1sJ4WryAxkV4I8xWJBUiQjN9/XHfASL/ESmxIfgLSzRCLEeVNH6UI/ECBg7GaMmzpKV/pBQIgEmxnpnpRR+gQRMTNbntNRivCWWKPjEaLnS/fAiEFOrlRRutKPU4LEVlUX66hC5Jwd+ZUsy3RUISKz32heBHp47Pi+XOJjPLizLVunoxQRkpBmhQRismU/NuMjM0tGV9Z/VlG6sn4whpd5b8yO80sjBDARQZsdsmv96BOLRDTRELasH53oI22fXBLBLd/bz3FMLxrtDHHDfLn2p6avQBhPTB2lC+NjbMPMyJI21234vlz2Y0d0eEROFaVL60cunrTymh3r6Q/iaEAI2fe97Z+tkqJjjVpV6V8Rl/2YY4zxtAqponSlH7PrcEy5x2UVpU/sP57T8RIv8RL/j/gGZkeBDjI2DJYAAAAASUVORK5CYII=" alt="">
       <div class="name">TEST 3 - LONG</div>
       <div class="addr">789 Example Court<br>Lakewood</div>
       <div class="note">This is a longer note to make a longer label. Wishing you much nachas and simcha from the bar mitzva bachur and the whole family. Enjoy!</div>
-      <div class="tag">Should be about 5.1 in long</div>
+      <div class="tag">Long label</div>
     </div>
   </div>
 
@@ -92,7 +91,9 @@
 
 <script>
   function go(which) {
-    document.getElementById('labels').classList.toggle('hidden', which !== 'labels');
+    var ls = document.querySelectorAll('#labels .label');
+    for (var i = 0; i < ls.length; i++) ls[i].classList.toggle('hidden', which === 'one' && i > 0);
+    document.getElementById('labels').classList.toggle('hidden', which !== 'labels' && which !== 'one');
     document.getElementById('sheet').classList.toggle('hidden', which !== 'sheet');
     document.getElementById('backBtn').classList.remove('hidden');
     var status = document.getElementById('status');
