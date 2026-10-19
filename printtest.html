@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BBB Print Test</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: Arial, sans-serif; background:#FBF3E7; color:#2B241F; }
+  .controls { padding:20px; max-width:600px; margin:0 auto; }
+  .controls h1 { font-size:22px; margin-bottom:8px; }
+  .controls p { font-size:14px; color:#6B5C4E; margin-bottom:14px; line-height:1.4; }
+  .controls button { display:block; width:100%; background:#C76A45; color:#fff; border:none; padding:16px; border-radius:10px; font-size:17px; font-weight:bold; margin-bottom:12px; }
+  .back { background:#6B5C4E !important; }
+  #status { font-size:13px; color:#96442A; margin-top:6px; }
+
+  /* Labels: each one gets its OWN page size via a named page, so Android
+     can (if it honors it) cut each label at its own length. */
+  .label { width:62mm; padding:3mm 5mm 3mm 5mm; position:relative; background:#fff; break-after:page; page-break-after:always; }
+  .label:last-child { break-after:auto; page-break-after:auto; }
+  .l1 { page:short; height:45mm; }
+  .l2 { page:medium; height:80mm; }
+  .l3 { page:long; height:130mm; }
+  @page short  { size:62mm 45mm;  margin:0; }
+  @page medium { size:62mm 80mm;  margin:0; }
+  @page long   { size:62mm 130mm; margin:0; }
+  .hdr { font-weight:bold; font-size:14px; border-bottom:2px solid #000; padding-bottom:2px; width:32mm; text-align:center; }
+  .qr { position:absolute; top:3mm; right:5mm; width:14mm; height:14mm; }
+  .name { font-weight:bold; font-size:15px; margin-top:4mm; }
+  .addr { font-weight:bold; font-size:13px; border-top:1px solid #000; border-bottom:1px solid #000; padding:1mm 0; margin-top:6mm; }
+  .note { font-weight:bold; font-size:12px; margin-top:2mm; }
+  .tag { font-size:10px; margin-top:2mm; }
+
+  /* Letter sheet for the regular printer */
+  .sheet { page:letter; width:8.5in; min-height:10in; padding:0.6in; background:#fff; }
+  @page letter { size:letter; margin:0; }
+  .sheet h2 { font-size:24px; margin-bottom:10px; }
+  .sheet p { font-size:14px; margin-bottom:6px; }
+  .sheet .row { display:flex; gap:12px; font-size:14px; padding:4px 0; border-bottom:1px solid #ddd; }
+  .sheet .row b { width:30px; text-align:right; }
+
+  .hidden { display:none !important; }
+  @media print { .controls { display:none !important; } body { background:#fff; } }
+</style>
+</head>
+<body>
+  <div class="controls" id="controls">
+    <h1>Kiosk print test</h1>
+    <p>This checks whether printing from inside Kiosk Browser can cut each label at its own length, before it gets built into the app.</p>
+    <button onclick="go('labels')">Print 3 test labels (Brother)</button>
+    <button onclick="go('sheet')">Print test sheet (Epson)</button>
+    <button class="back hidden" id="backBtn" onclick="back()">&larr; Back</button>
+    <div id="status"></div>
+  </div>
+
+  <div id="labels" class="hidden">
+    <div class="label l1">
+      <div class="hdr">BASKETS BY BLIMI</div>
+      <img class="qr" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQgAAAEIAQAAAACLjVdSAAABSUlEQVR4nO2YO27FMAwEZ4N3/ytPCn1sJ4WryAxkV4I8xWJBUiQjN9/XHfASL/ESmxIfgLSzRCLEeVNH6UI/ECBg7GaMmzpKV/pBQIgEmxnpnpRR+gQRMTNbntNRivCWWKPjEaLnS/fAiEFOrlRRutKPU4LEVlUX66hC5Jwd+ZUsy3RUISKz32heBHp47Pi+XOJjPLizLVunoxQRkpBmhQRismU/NuMjM0tGV9Z/VlG6sn4whpd5b8yO80sjBDARQZsdsmv96BOLRDTRELasH53oI22fXBLBLd/bz3FMLxrtDHHDfLn2p6avQBhPTB2lC+NjbMPMyJI21234vlz2Y0d0eEROFaVL60cunrTymh3r6Q/iaEAI2fe97Z+tkqJjjVpV6V8Rl/2YY4zxtAqponSlH7PrcEy5x2UVpU/sP57T8RIv8RL/j/gGZkeBDjI2DJYAAAAASUVORK5CYII=" alt="">
+      <div class="name">TEST 1 - SHORT</div>
+      <div class="addr">123 Test Street<br>Lakewood</div>
+      <div class="tag">Should be about 1.8 in long</div>
+    </div>
+    <div class="label l2">
+      <div class="hdr">BASKETS BY BLIMI</div>
+      <img class="qr" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQgAAAEIAQAAAACLjVdSAAABSUlEQVR4nO2YO27FMAwEZ4N3/ytPCn1sJ4WryAxkV4I8xWJBUiQjN9/XHfASL/ESmxIfgLSzRCLEeVNH6UI/ECBg7GaMmzpKV/pBQIgEmxnpnpRR+gQRMTNbntNRivCWWKPjEaLnS/fAiEFOrlRRutKPU4LEVlUX66hC5Jwd+ZUsy3RUISKz32heBHp47Pi+XOJjPLizLVunoxQRkpBmhQRismU/NuMjM0tGV9Z/VlG6sn4whpd5b8yO80sjBDARQZsdsmv96BOLRDTRELasH53oI22fXBLBLd/bz3FMLxrtDHHDfLn2p6avQBhPTB2lC+NjbMPMyJI21234vlz2Y0d0eEROFaVL60cunrTymh3r6Q/iaEAI2fe97Z+tkqJjjVpV6V8Rl/2YY4zxtAqponSlH7PrcEy5x2UVpU/sP57T8RIv8RL/j/gGZkeBDjI2DJYAAAAASUVORK5CYII=" alt="">
+      <div class="name">TEST 2 - MEDIUM</div>
+      <div class="addr">456 Sample Avenue<br>Lakewood</div>
+      <div class="note">Mazel Tov! Wishing you much nachas from the whole family.</div>
+      <div class="tag">Should be about 3.1 in long</div>
+    </div>
+    <div class="label l3">
+      <div class="hdr">BASKETS BY BLIMI</div>
+      <img class="qr" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQgAAAEIAQAAAACLjVdSAAABSUlEQVR4nO2YO27FMAwEZ4N3/ytPCn1sJ4WryAxkV4I8xWJBUiQjN9/XHfASL/ESmxIfgLSzRCLEeVNH6UI/ECBg7GaMmzpKV/pBQIgEmxnpnpRR+gQRMTNbntNRivCWWKPjEaLnS/fAiEFOrlRRutKPU4LEVlUX66hC5Jwd+ZUsy3RUISKz32heBHp47Pi+XOJjPLizLVunoxQRkpBmhQRismU/NuMjM0tGV9Z/VlG6sn4whpd5b8yO80sjBDARQZsdsmv96BOLRDTRELasH53oI22fXBLBLd/bz3FMLxrtDHHDfLn2p6avQBhPTB2lC+NjbMPMyJI21234vlz2Y0d0eEROFaVL60cunrTymh3r6Q/iaEAI2fe97Z+tkqJjjVpV6V8Rl/2YY4zxtAqponSlH7PrcEy5x2UVpU/sP57T8RIv8RL/j/gGZkeBDjI2DJYAAAAASUVORK5CYII=" alt="">
+      <div class="name">TEST 3 - LONG</div>
+      <div class="addr">789 Example Court<br>Lakewood</div>
+      <div class="note">This is a longer note to make a longer label. Wishing you much nachas and simcha from the bar mitzva bachur and the whole family. Enjoy!</div>
+      <div class="tag">Should be about 5.1 in long</div>
+    </div>
+  </div>
+
+  <div id="sheet" class="hidden">
+    <div class="sheet">
+      <h2>Baskets by Blimi - Test Sheet</h2>
+      <p>If this fills a normal letter page with readable text, the export sheet will print fine.</p>
+      <div class="row"><b>6</b><span>Cubed Fruit</span></div>
+      <div class="row"><b>12</b><span>2 oz Fruit Cups</span></div>
+      <div class="row"><b>3</b><span>Caesar Salad - Large</span></div>
+      <div class="row"><b>24</b><span>Smoothies</span></div>
+    </div>
+  </div>
+
+<script>
+  function go(which) {
+    document.getElementById('labels').classList.toggle('hidden', which !== 'labels');
+    document.getElementById('sheet').classList.toggle('hidden', which !== 'sheet');
+    document.getElementById('backBtn').classList.remove('hidden');
+    var status = document.getElementById('status');
+    setTimeout(function() {
+      try {
+        if (window.Android && typeof Android.printPage === 'function') {
+          Android.printPage();
+          status.textContent = 'Sent to Kiosk Browser print.';
+        } else {
+          window.print();
+          status.textContent = 'Kiosk print not found -- used the normal browser print.';
+        }
+      } catch (e) {
+        status.textContent = 'Print error: ' + e.message;
+      }
+    }, 300);
+  }
+  function back() {
+    document.getElementById('labels').classList.add('hidden');
+    document.getElementById('sheet').classList.add('hidden');
+    document.getElementById('backBtn').classList.add('hidden');
+    document.getElementById('status').textContent = '';
+  }
+</script>
+</body>
+</html>
