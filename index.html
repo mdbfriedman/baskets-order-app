@@ -4492,9 +4492,16 @@
               order.items.forEach(function(item) {
                 var qty = parseInt(item.quantity, 10);
                 if (isNaN(qty) || qty < 1) qty = 1;
+                // Tile filter (Oct 27, 2026): when a Product Totals tile is
+                // active, highlight the exact item row(s) it matches within
+                // each order shown, instead of just filtering which orders
+                // appear -- so the item that needed finding is visually
+                // obvious the instant the order opens, no manual scanning
+                // of its item list required.
+                var isFilterMatch = app.productFilterLabel && app.productItemLabel(item) === app.productFilterLabel;
                 for (var unit = 0; unit < qty; unit++) {
                   dashUnitCounter++;
-                  html += '<div><span><strong>' + toShortDisplayName(item.product) + '</strong>' + (item.specialInstructions ? ' <span style="color:#dc2626;font-weight:normal;font-size:12px">(' + item.specialInstructions + ')</span>' : '') + '</span> <span><strong>' + dashUnitCounter + ' of ' + dashTotalUnits + '</strong></span></div>';
+                  html += '<div style="' + (isFilterMatch ? 'background:#F3D9A4;border-radius:6px;padding:5px 8px;margin:2px 0;border-bottom:none' : '') + '"><span><strong>' + toShortDisplayName(item.product) + '</strong>' + (item.specialInstructions ? ' <span style="color:#dc2626;font-weight:normal;font-size:12px">(' + item.specialInstructions + ')</span>' : '') + '</span> <span><strong>' + dashUnitCounter + ' of ' + dashTotalUnits + '</strong></span></div>';
                 }
               });
             }
