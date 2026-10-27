@@ -628,6 +628,17 @@
       searchQuery: '',
       highlightOrderNumber: null,
 
+      // Product Totals tiles are touch-sensitive (Oct 27, 2026): tapping
+      // one filters the order list below to just the orders that include
+      // that exact product/label (same label text the tile shows -- see
+      // getCategorizedProductTotals), so you can tap "5 - 16in Platter"
+      // and immediately see which orders need one, instead of scanning
+      // every order by eye. Tapping the same tile again (or the "Clear"
+      // link that appears) clears the filter. Lives per-render, not saved
+      // across a date change -- see selectedDate handling in previousDate/
+      // nextDate below, which already resets it.
+      productFilterLabel: null,
+
       // Runs BEFORE checkSetup (see the bootstrap call at the bottom of
       // this file) -- gates the whole page behind /api/check-password, not
       // just the Google Sheet connection checkSetup handles. A previously
@@ -2062,6 +2073,7 @@
         var dates = app.getAllDates();
         var idx = dates.indexOf(app.selectedDate);
         if (idx > 0) app.selectedDate = dates[idx - 1];
+        app.productFilterLabel = null;
         app.render();
       },
 
@@ -2069,7 +2081,34 @@
         var dates = app.getAllDates();
         var idx = dates.indexOf(app.selectedDate);
         if (idx < dates.length - 1) app.selectedDate = dates[idx + 1];
+        app.productFilterLabel = null;
         app.render();
+      },
+
+      // Computes the exact same per-item label text getCategorizedProductTotals
+      // groups tiles by (short display name + individual-quantity prefix +
+      // special-instructions suffix), so a tile's onclick can match back to
+      // the orders that contributed to it without duplicating that logic
+      // two different ways and having them quietly drift apart.
+      productItemLabel: function(item) {
+        var displayProduct = toShortDisplayName(item.product);
+        var label = item.quantityIndividual ? prefixQuantityIndividual(displayProduct, item.quantityIndividual) : displayProduct;
+        if (item.specialInstructions) label += ' (' + item.specialInstructions + ')';
+        return label;
+      },
+
+      // Tapping a Product Totals tile (Oct 27, 2026). Tapping the
+      // already-active tile clears the filter instead of re-filtering to
+      // the same thing, so it doubles as its own "clear" control.
+      filterByProduct: function(label) {
+        app.productFilterLabel = (app.productFilterLabel === label) ? null : label;
+        app.render();
+        if (app.productFilterLabel) {
+          setTimeout(function() {
+            var el = document.querySelector('.orders-box');
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }, 50);
+        }
       },
 
       // Root cause of a real Android report (press Download twice for the
@@ -4288,6 +4327,26 @@
 
         html += '<div class="date-nav"><button onclick="app.previousDate()" ' + (currentIdx === 0 ? 'disabled' : '') + '>←</button><div class="date-display"><h2>' + app.formatDateDisplay(app.selectedDate) + '</h2><p>' + dayOrders.length + ' orders</p>' + (!app.kitchenMode && dayRevenue > 0 ? '<p style="color:#000;font-weight:bold;font-size:15px;margin-top:2px">$' + dayRevenue.toFixed(2) + ' total</p>' : '') + '</div><button onclick="app.nextDate()" ' + (currentIdx === dates.length - 1 ? 'disabled' : '') + '>→</button></div>';
 
+        // Add Order + Export Day (Oct 27, 2026): moved back up here, right
+        // under the date-nav/dollar total, in both the regular app and
+        // kiosk mode -- was down past Product Totals/label size/batch-
+        // select, past where you'd have to scroll to reach them. Add Order
+        // itself stays hidden entirely in Kitchen Mode (see the kitchenMode
+        // check just below); Export Day shows whenever there's anything to
+        // export, in every mode, with the SAME "Export Day" wording and
+        // down-arrow in kiosk mode as the regular app (previously kiosk
+        // read a printer-emoji "Print Day Sheet") -- only the underlying
+        // onclick differs (direct print on kiosk vs. PDF download
+        // elsewhere), not the label.
+        if (!app.kitchenMode) {
+          html += '<div class="action-buttons"><button class="print-btn" onclick="app.openAddOrder()">+ Add Order</button></div>';
+        }
+        if (categorizedTotals.length > 0) {
+          html += kiosk
+            ? '<div class="action-buttons"><button class="print-btn" onclick="app.kioskPrintDaySheet()">↓ Export Day</button></div>'
+            : '<div class="action-buttons"><button class="print-btn" onclick="app.shareDayExportPdf()" title="Categorized PDF of this day&#39;s totals">↓ Export Day</button></div>';
+        }
+
         // Product Totals box now groups by the same Fruit/Salad/Smoothies
         // categories (and their sections) as the Export Day PDF, instead of
         // one flat quantity-sorted list -- so fruit platters sit near each
@@ -4303,13 +4362,27 @@
               }
               html += '<div class="totals-grid">';
               sect.rows.forEach(function(row) {
-                html += '<div class="total-item"><div class="total-number">' + row.qty + '</div><div class="total-label">' + row.label + '</div></div>';
+                // Touch-sensitive tiles (Oct 27, 2026): tapping one filters
+                // the order list below to just the orders containing that
+                // exact product/label -- see filterByProduct/productItemLabel
+                // above. Tapping the already-active tile again clears it
+                // (same function, see its own comment), so the highlighted
+                // tile below doubles as the "clear" affordance too.
+                var isActiveTile = app.productFilterLabel === row.label;
+                html += '<div class="total-item" onclick="app.filterByProduct(\'' + app.escForJsAttr(row.label) + '\')" style="cursor:pointer' + (isActiveTile ? ';background:#F3D9A4;border-color:#C76A45' : '') + '"><div class="total-number">' + row.qty + '</div><div class="total-label">' + row.label + '</div></div>';
               });
               html += '</div>';
             });
             html += '</div>';
           });
           html += '</div>';
+        }
+
+        // Banner shown while a tile filter is active (see filterByProduct
+        // above) -- names what's being filtered to and gives an explicit
+        // way to clear it besides re-tapping the same tile.
+        if (app.productFilterLabel) {
+          html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:#FEF3E2;border:1px solid #F3D9A4;border-radius:8px;padding:9px 14px;margin-bottom:14px;font-size:13px;color:#6B5C4E"><span>Showing orders with: <strong>' + app.productFilterLabel + '</strong></span><a href="#" onclick="app.filterByProduct(\'' + app.escForJsAttr(app.productFilterLabel) + '\');return false;" style="color:#C76A45;font-weight:bold;text-decoration:underline;white-space:nowrap">Clear ×</a></div>';
         }
 
         // Picks which getLabelStyleConfig preset print/download use. Only
@@ -4322,10 +4395,6 @@
           '<option value="2.25x1.25"' + (app.labelSize === '2.25x1.25' ? ' selected' : '') + '>2.25in x 1.25in (small)</option>' +
           '<option value="2.4-continuous"' + (app.labelSize === '2.4-continuous' ? ' selected' : '') + '>2.4in continuous roll (Brother)</option>' +
           '</select></div>';
-
-        if (!app.kitchenMode) {
-          html += '<div class="action-buttons"><button class="print-btn" onclick="app.openAddOrder()">+ Add Order</button></div>';
-        }
 
         // Batch selection + Download Selected (restored Oct 8, 2026).
         // Removed on Oct 7 when the dashboard was trimmed, then asked for
@@ -4349,22 +4418,32 @@
           ? '<div class="action-buttons"><button class="print-btn" onclick="app.kioskPrintSelected()" ' + (selectedCount === 0 ? 'disabled' : '') + '>\uD83D\uDDA8\uFE0F Print Selected (' + selectedCount + ')</button></div>'
           : '<div class="action-buttons"><button class="print-btn" onclick="app.shareSelectedPdf()" ' + (selectedCount === 0 ? 'disabled' : '') + ' title="Download one label PDF for every checked order">\u2193 Download Selected (' + selectedCount + ')</button></div>';
 
-        // Export Day moved below the other action buttons (was the very
-        // first button on the page, right under the date nav) -- reported
-        // as not showing up / rendering too far left on some phone screens
-        // up there; grouped down here with the other buttons that were
-        // already confirmed working.
-        if (categorizedTotals.length > 0) {
-          html += kiosk
-            ? '<div class="action-buttons"><button class="print-btn" onclick="app.kioskPrintDaySheet()">\uD83D\uDDA8\uFE0F Print Day Sheet</button></div>'
-            : '<div class="action-buttons"><button class="print-btn" onclick="app.shareDayExportPdf()" title="Categorized PDF of this day&#39;s totals">↓ Export Day (PDF)</button></div>';
+        // When a tile filter is active, an order qualifies if ANY of its
+        // items produces that exact label (same comparison filterByProduct
+        // itself uses) -- computed once here just to pick which of the
+        // three states below to render, not reused inside the loop.
+        var filteredOrderCount = dayOrders.length;
+        if (app.productFilterLabel) {
+          filteredOrderCount = dayOrders.filter(function(order) {
+            return (order.items || []).some(function(it) { return app.productItemLabel(it) === app.productFilterLabel; });
+          }).length;
         }
 
         if (dayOrders.length === 0) {
           html += '<div class="empty-state">No orders for this date</div>';
+        } else if (app.productFilterLabel && filteredOrderCount === 0) {
+          html += '<div class="empty-state">No orders contain "' + app.productFilterLabel + '".</div>';
         } else {
           html += '<div class="orders-box">';
           dayOrders.forEach(function(order, orderIdx) {
+            // Skip orders that don't match the active tile filter, but keep
+            // orderIdx pointing at this order's real position in dayOrders
+            // -- every button below (Edit/Print/Download/checkbox) looks
+            // the order back up by that same index against the full,
+            // unfiltered getOrdersForDate() array, so it must never shift.
+            if (app.productFilterLabel && !(order.items || []).some(function(it) { return app.productItemLabel(it) === app.productFilterLabel; })) {
+              return;
+            }
             var isSelected = !!app.selectedOrderIndices[orderIdx];
             // isHighlighted: this order was just landed on via a search
             // result click (see jumpToOrder) -- a bright, temporary outline
